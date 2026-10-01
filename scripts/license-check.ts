@@ -99,7 +99,7 @@ const exempt = [
   /^bun\.lock$/,
   /__fixtures__\//,
   /__recordings__\//,
-  /^docs\/(plan|research)\//,
+  /^docs\/(plan|research|reports)\//,
   /^\.changeset\/.*\.md$/,
   /\.(svg|png|ico|jpg|webp|zip)$/,
   /^CLAUDE\.md$/,

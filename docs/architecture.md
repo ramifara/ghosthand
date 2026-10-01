@@ -35,7 +35,9 @@ flowchart LR
 | `consultants` | Codex app-server JSON-RPC client and `exec` fallback (read-only sandbox, approvals declined); Claude consultant over the user's own `claude` CLI (stream-json, tools off, `dontAsk`). |
 | `driver-playwright` | Browser detection, persistent profiles and Chrome profile import; the web `Computer` (observe, act, settle, origin guard). |
 | `recorder` | Run folders, redacted `events.jsonl`, screenshots and state sidecars, SQLite run index, replay reader. |
-| `engine` | Composition root: config and env-file loading, pino logger, OpenTelemetry spans from the event stream, run and replay lifecycle, doctor. |
+| `engine` | Composition root: config and env-file loading, pino logger, OpenTelemetry spans from the event stream, run and replay lifecycle, doctor, and the web QA case executor (checkpoints per step, axe audits, console/HTTP errors, thumbnails, vision judge over `vision_reviewer`). |
+| `qa` | QA mode, pure: Markdown spec parser, preflight (one Jev request per case), oracle compiler v2 (spec → `TaskSpec` with one subgoal per step), judge chain (deterministic → oracle → Jev `holds` → vision → inconclusive), rubric with pass^k, single-file HTML report + JSON. Running a case is injected (`CaseExecutor`). |
+| `mcp` | MCP server on stdio over the engine (ADR 0006): `run_task`, `run_spec`, `get_run`, `get_report`, `cancel_run`, `list_recipes`, and `observe`/`act` with `--interactive`. |
 | `testbed-kit` + `apps/testbed` | Deterministic test app (Hono + `bun:sqlite`, React) with a control API on :4401, task definitions and DB-reading oracles. |
 
 ## One step (mode B)

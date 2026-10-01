@@ -23,7 +23,8 @@
     "@ghosthand/consultants": "workspace:*",
     "@ghosthand/driver-playwright": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
-    "@ghosthand/models": "workspace:*"
+    "@ghosthand/models": "workspace:*",
+    "@ghosthand/qa": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
