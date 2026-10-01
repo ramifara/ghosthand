@@ -4,7 +4,7 @@
 
 Date: 2026-10-01. Machine: CachyOS x86_64, GNOME 50.4 on Wayland, docker 29.7, no Xvfb/xdotool on the host. Jev `jev-1.13.0` direct, planner and writer off (Jev only).
 
-**Summary.** The Linux X11 sandbox (container) and a headless GNOME Wayland sandbox run here end to end with real Jev: 15/15 on each across three desktop testbed tasks, median step 0.91 s (X11) and 1.04 s (Wayland), about $0.0004 per run. The Windows UIA and macOS AX hosts are written against the same contract and built in CI; they have not run against a real app. Driving the user's own GNOME session is not built.
+**Summary.** The Linux X11 sandbox (container) and a headless GNOME Wayland sandbox run here end to end with real Jev: 15/15 on each across three desktop testbed tasks, median step 0.91 s (X11) and 1.04 s (Wayland), about $0.0004 per run. The Windows UIA and macOS AX hosts speak the same contract and build in CI. The macOS host passes a TextEdit smoke on the CI runner; the Windows host observes Notepad but hangs on its first action there. Neither has run the agent loop. Driving the user's own GNOME session is not built.
 
 ## Status per surface
 
@@ -14,8 +14,8 @@ Date: 2026-10-01. Machine: CachyOS x86_64, GNOME 50.4 on Wayland, docker 29.7, n
 | Linux X11 sandbox, host Xvfb (`--runtime host`) | built, **not run here** | needs Xvfb and xdotool, which are not installed here (no sudo). Same Python host and code path as the container, minus docker |
 | GNOME Wayland, headless sandbox (`mutter --headless`) | **works, tested here** | 15/15 live Jev runs; 2 live integration tests; PipeWire screenshots; private D-Bus, runtime dir and PipeWire (nothing on the user's session) |
 | GNOME Wayland, user's own session (portal + restore token + libei) | **stub**: refused with a clear error | design in ADR 0010 and `docs/desktop-drivers.md` |
-| Windows UIA | **built only** (C#, .NET 8) | compiles here with the .NET SDK container (`EnableWindowsTargeting`) and in CI on `windows-latest`; CI smoke: hello + doctor required, Notepad best effort (see CI below) |
-| macOS AX | **built only** (Swift) | compiles in CI on `macos-latest`; CI smoke: hello + doctor required, TextEdit best effort (hosted runners cannot grant Accessibility) |
+| Windows UIA | **built; partly run in CI** (C#, .NET 8) | on `windows-latest`: hello, doctor, launching Notepad and observing it (27 nodes) work; `set_value` on Notepad's document hangs past 60 s and blocks the host. Not run against the agent loop |
+| macOS AX | **built; smoke passes in CI** (Swift) | on `macos-latest` (which grants Accessibility and Screen Recording): launches TextEdit, observes 46 nodes, `set_value` confirmed by `AXValue` read-back, screenshot. Not run against the agent loop |
 
 ## What was built
 
@@ -77,7 +77,9 @@ Bugs found and fixed while building (all covered by tests now):
 
 ## CI
 
-Jobs added: `desktop-x11` (builds the image on `ubuntu-latest`, runs the live sandbox tests and the host smoke), `desktop-windows` (builds the UIA host, smoke hello + doctor; Notepad smoke `continue-on-error`), `desktop-macos` (builds the AX host, smoke hello + doctor; TextEdit smoke `continue-on-error`). The `check` job sets `GHOSTHAND_SKIP_SANDBOX_TESTS=1`. Results are in the PR checks; the best-effort smokes are informational, not proof that the hosts work.
+Jobs added: `desktop-x11` (builds the image on `ubuntu-latest`, runs the live sandbox tests and the host smoke), `desktop-windows` (builds the UIA host, smoke hello + doctor; Notepad smoke `continue-on-error`), `desktop-macos` (builds the AX host, smoke hello + doctor; TextEdit smoke `continue-on-error`). The `check` job sets `GHOSTHAND_SKIP_SANDBOX_TESTS=1`. All jobs are green.
+
+The best-effort smokes found real bugs, now fixed: the macOS host never saw the launched app because `NSWorkspace.runningApplications` only updates while a run loop spins; the Windows walk blocked inside a UIA call (it now has a hard deadline and returns a partial tree); Win11 Notepad's text area has TextPattern but no ValuePattern, so it wasn't marked editable. Current state, from the last run: macOS passes launch, observe, `set_value` and screenshot; Windows passes launch and observe, then `act set_value` on the Notepad document times out after 60 s (with the screenshot queued behind it). That one needs a Windows machine to debug; my guess is the keyboard fallback or the TextPattern read-back on the WinUI rich edit control.
 
 ## What the user needs to install
 
@@ -88,7 +90,7 @@ Jobs added: `desktop-x11` (builds the image on `ubuntu-latest`, runs the live sa
 
 ## Open items
 
-- Run the Windows and macOS hosts against real apps (Notepad, TextEdit) on a machine or VM with a desktop and permissions; the code paths have only been compiled.
+- Debug the Windows `act` hang on Notepad's document on a real Windows machine, then run both native hosts through the agent loop.
 - GNOME host session: portal RemoteDesktop with `persist_mode=2` and a restore token on `SelectDevices`, libei through `ConnectToEIS`, GTK4 shadow offsets; needs a consent flow in the app.
 - Settle is the largest fixed cost (264 ms, the 250 ms AT-SPI quiet window); the web lane settles in 9 ms. A shorter quiet window or event-specific idle detection would cut the step to about 0.7 s.
 - The plan's §8 bar for Phase 7 is "the same L1-L3 suite as the web lane". The desktop testbed has three tasks, roughly L1. Larger desktop suites (dialogs, menus, tables, Chromium in the container with `WITH_CHROMIUM=1`) are next.
