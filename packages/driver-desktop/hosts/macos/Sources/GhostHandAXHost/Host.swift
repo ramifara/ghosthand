@@ -130,7 +130,8 @@ final class Host {
         while Date() < deadline, found == nil {
             let apps = NSWorkspace.shared.runningApplications.filter { !before.contains($0.processIdentifier) && $0.activationPolicy == .regular }
             found = apps.first { $0.processIdentifier == proc.processIdentifier } ?? apps.first
-            if found == nil { usleep(150_000) }
+            // NSWorkspace updates runningApplications on the run loop; a CLI must spin it to see new apps.
+            if found == nil { RunLoop.current.run(until: Date().addingTimeInterval(0.15)) }
         }
         guard let app = found else { throw RpcError(kind: "launch_failed", message: "no app window from \(first) within \(waitMs) ms") }
         pids.insert(app.processIdentifier)
@@ -141,7 +142,7 @@ final class Host {
             if let windows = AX.attr(ax, kAXWindowsAttribute as String) as? [AXUIElement], let w = windows.first {
                 title = AX.label(w)
             } else {
-                usleep(150_000)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.15))
             }
         }
         _ = quiet(cap: 2000, quiet: 300)
@@ -194,7 +195,7 @@ final class Host {
         var last = AX.contentHash(appWindows(), budget: 400)
         var since = Date()
         while true {
-            usleep(50000)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
             let h = AX.contentHash(appWindows(), budget: 400)
             if h != last {
                 last = h

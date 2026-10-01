@@ -244,6 +244,9 @@ internal static class UiaTree
             _timeoutMs = timeoutMs;
         }
 
+        private readonly object _lock = new();
+        private bool _abandoned;
+
         public JsonArray Nodes { get; } = new();
         public List<AutomationElement> Elements { get; } = new();
         public bool Complete { get; private set; } = true;
@@ -254,6 +257,28 @@ internal static class UiaTree
             foreach (var w in windows) Visit(w, null, 0, null);
         }
 
+        /// <summary>Stops the walk where it is (it may be blocked inside a UIA call).</summary>
+        public void Abandon()
+        {
+            lock (_lock)
+            {
+                _abandoned = true;
+                Complete = false;
+                Degraded = "observation timed out inside a UI Automation call";
+            }
+        }
+
+        /// <summary>A consistent copy of the nodes collected so far.</summary>
+        public JsonArray Snapshot()
+        {
+            lock (_lock)
+            {
+                var copy = new JsonArray();
+                foreach (var n in Nodes) copy.Add(n?.DeepClone());
+                return copy;
+            }
+        }
+
         private void Visit(AutomationElement el, int? parent, int depth, int? window)
         {
             if (Elements.Count >= _maxNodes)
@@ -262,6 +287,9 @@ internal static class UiaTree
                 Degraded = $"node cap {_maxNodes} reached";
                 return;
             }
+            if (_abandoned) return;
+            if (Elements.Count % 100 == 0 && Elements.Count > 0)
+                Rpc.Log($"observe: {Elements.Count} nodes after {_clock.ElapsedMilliseconds} ms");
             if (_clock.ElapsedMilliseconds > _timeoutMs)
             {
                 Complete = false;
@@ -331,8 +359,14 @@ internal static class UiaTree
                 var selected = SelectedOption(el);
                 if (selected is not null) node["selectedOption"] = selected;
             }
-            Nodes.Add(node);
-            Elements.Add(el);
+            var slow = _clock.ElapsedMilliseconds;
+            lock (_lock)
+            {
+                if (_abandoned) return;
+                Nodes.Add(node);
+                Elements.Add(el);
+            }
+            if (slow > 1000 && Elements.Count < 5) Rpc.Log($"observe: first nodes slow ({slow} ms at {role})");
             if (role == "ComboBox" || depth >= _maxDepth) return;
             var walker = TreeWalker.ControlViewWalker;
             var count = 0;

@@ -230,9 +230,16 @@ internal sealed class UiaHost
     {
         var clock = Stopwatch.StartNew();
         var windows = AppWindows(p["scope"]?.GetValue<string>() == "desktop");
-        var walk = new UiaTree.Walk(p["maxNodes"]?.GetValue<int>() ?? 2000, p["maxDepth"]?.GetValue<int>() ?? 40,
-            p["timeoutMs"]?.GetValue<int>() ?? 5000);
-        walk.Run(windows);
+        var timeoutMs = p["timeoutMs"]?.GetValue<int>() ?? 5000;
+        var walk = new UiaTree.Walk(p["maxNodes"]?.GetValue<int>() ?? 2000, p["maxDepth"]?.GetValue<int>() ?? 40, timeoutMs);
+        // A single UIA call can block on a busy provider; the walk runs on a worker with a hard deadline and
+        // returns what it has (complete=false) instead of hanging the host.
+        var worker = Task.Run(() => walk.Run(windows));
+        if (!worker.Wait(timeoutMs + 3000))
+        {
+            Rpc.Log($"observe: walk still running after {timeoutMs + 3000} ms at {walk.Elements.Count} nodes; returning a partial tree");
+            walk.Abandon();
+        }
         var id = $"w{++_seq}";
         if (p["transient"]?.GetValue<bool>() != true)
         {
@@ -248,7 +255,7 @@ internal sealed class UiaHost
             ["screen"] = new JsonObject { ["x"] = vx, ["y"] = vy, ["width"] = vw, ["height"] = vh },
             ["scale"] = 1,
             ["title"] = fg != IntPtr.Zero ? Native.WindowTitle(fg) : "",
-            ["nodes"] = walk.Nodes,
+            ["nodes"] = walk.Snapshot(),
             ["complete"] = walk.Complete,
             ["walkMs"] = clock.ElapsedMilliseconds,
         };
