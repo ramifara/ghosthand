@@ -142,16 +142,29 @@ describe("D1 screen-to-text", () => {
   it("without a vision provider, escalates to H with a clear reason", async () => {
     const decision = new FnDecisionProvider((q) => (q.operation ? act(q, "press", "e2") : {}));
     const s = sink();
+    let replans = 0;
+    const planner = {
+      id: "p",
+      plan: async () => {
+        throw new Error("not called: the task has a plan");
+      },
+      replan: async () => {
+        replans++;
+        throw new Error("a replan cannot supply vision");
+      },
+    };
     const r = await runTask(task("Delete report.pdf", "report.pdf deleted"), {
       computer: computer(),
       decision,
       events: s,
       secrets: new SecretsRegistry(),
+      planner,
       config: { screenshots: false },
     });
     expect(r.outcome).not.toBe("success");
     expect(r.reason).toContain("vision needed");
     expect(r.reason).toContain("OPENAI_API_KEY");
+    expect(replans).toBe(0);
     const esc = s.events.filter((e) => e.type === "escalate" && e.to === "H");
     expect(esc[0]?.type === "escalate" && esc[0].reason).toContain("no vision provider is configured");
   });

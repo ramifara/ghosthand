@@ -229,6 +229,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let checkAfterReplay = false;
   /** Set when a vision step was needed but could not run; appended to failure reasons. */
   let visionNeeded: string | undefined;
+  /** The page itself needs vision (unnamed targets, poor surface): a replan cannot help. */
+  let visionBlocks = false;
   /** Mode of the previous step, for de-escalation events. */
   let lastMode: RouterMode = "B";
   /** Bumped whenever the plan changes; a refinement made for another version is stale. */
@@ -248,7 +250,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       granted: true,
     });
   };
-  const noteVisionNeeded = (at: number, why: string, missing: string): void => {
+  const noteVisionNeeded = (at: number, why: string, missing: string, blocking = true): void => {
+    if (blocking) visionBlocks = true;
     if (visionNeeded !== undefined) return;
     visionNeeded = `${why}; ${missing}`;
     emit({
@@ -527,6 +530,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     history: HistoryEntry[],
   ): Promise<boolean> => {
     if (!deps.planner || replans >= cfg.maxReplans || budget.exceeded()) return false;
+    // A new plan cannot supply a missing vision provider: stop instead of spending planner calls.
+    if (visionBlocks && !deps.vision) return false;
     replans++;
     emit({ type: "escalate", step, from: "B", to: "C", reason: `replan ${replans}: ${reason}` });
     const now = await deps.computer.observe();
@@ -693,7 +698,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         d1Failures,
         noneStreak,
         mode: { current: "B" },
-        noteVisionNeeded: (why, missing) => noteVisionNeeded(current, why, missing),
+        noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -963,7 +968,8 @@ interface DecideContext {
   mode: { current: RouterMode };
   /** Vision was already tried this step. */
   visionTried?: boolean;
-  noteVisionNeeded: (why: string, missing: string) => void;
+  /** `blocking`: the page itself needs vision (not just "no target fits", which a replan may fix). */
+  noteVisionNeeded: (why: string, missing: string, blocking?: boolean) => void;
 }
 
 function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
@@ -1009,7 +1015,7 @@ async function visionGround(
   if (ctx.visionTried) return undefined;
   const vision = ctx.deps.vision;
   if (!vision) {
-    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER);
+    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER, false);
     return undefined;
   }
   if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
