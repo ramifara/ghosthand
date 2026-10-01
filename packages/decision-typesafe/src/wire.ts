@@ -28,12 +28,30 @@ export type WireScoreAnswer = z.infer<typeof WireScoreAnswer>;
 export const WireUsage = z.object({
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
+  /** OpenRouter: billed cost in USD. */
+  cost: z.number().nonnegative().optional().catch(undefined),
 });
+
+/** Vercel AI Gateway: billed cost as a decimal string. */
+const WireProviderMetadata = z
+  .object({ gateway: z.object({ cost: z.string().optional() }).optional() })
+  .optional()
+  .catch(undefined);
 
 /** The envelope. Answers stay `unknown` here and are checked one by one by the validator. */
 export const WireResponse = z.object({
   model: z.string(),
   answers: z.record(z.string(), z.unknown()),
   usage: WireUsage,
+  provider_metadata: WireProviderMetadata,
 });
 export type WireResponse = z.infer<typeof WireResponse>;
+
+/** The carrier-reported cost in USD, when the response has a valid one. */
+export function reportedCostUsd(body: WireResponse): number | undefined {
+  if (body.usage.cost !== undefined) return body.usage.cost;
+  const raw = body.provider_metadata?.gateway?.cost;
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}

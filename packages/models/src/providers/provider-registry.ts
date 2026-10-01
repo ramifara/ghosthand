@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// Providers turn a model id into an AI SDK language model. Phase 1 ships OpenAI only; the other
-// kinds are declared so config, the catalog and `models list` can name them before Phase 6
-// adds their factories (and their `@ai-sdk/*` dependencies).
-import type { JSONValue, LanguageModel } from "ai";
+// Providers turn a model id into an AI SDK language model. Phase 6 adds Anthropic, Google,
+// OpenRouter and local OpenAI-compatible servers next to OpenAI; `openai-chatgpt` (Sign in with
+// ChatGPT) arrives with the desktop app.
+import type { JSONValue, LanguageModel, ProviderMetadata, ToolSet } from "ai";
+import type { NativeComputerTool } from "../catalog/ghosthand-fields.ts";
 
 /** A concrete AI SDK model object (never a gateway id string). */
 export type SdkLanguageModel = Exclude<LanguageModel, string>;
@@ -15,14 +16,33 @@ export type ProviderKind =
   | "openai"
   /** Phase 2: Sign in with ChatGPT tokens against the public Responses API. */
   | "openai-chatgpt"
-  /** Phase 6. */
   | "anthropic"
   | "google"
   | "openrouter"
+  /** Ollama, LM Studio, vLLM, llama.cpp server or any other `/v1/chat/completions` server. */
   | "openai-compatible";
 
 /** Provider kinds with a working factory in this build. */
-export const IMPLEMENTED_PROVIDER_KINDS: ReadonlySet<ProviderKind> = new Set<ProviderKind>(["openai"]);
+export const IMPLEMENTED_PROVIDER_KINDS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
+  "openai",
+  "anthropic",
+  "google",
+  "openrouter",
+  "openai-compatible",
+]);
+
+/** Screenshot size the native tool should assume, in image pixels. */
+export interface ComputerDisplay {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** A vendor computer-use tool ready to pass to `generateText`, under the name the vendor expects. */
+export interface NativeComputerToolSet {
+  readonly tool: NativeComputerTool;
+  readonly tools: ToolSet;
+  readonly toolName: string;
+}
 
 export interface ModelProvider {
   /** Catalog provider id, the part before the slash in `provider/model`. */
@@ -33,6 +53,10 @@ export interface ModelProvider {
   languageModel(modelId: string): SdkLanguageModel;
   /** Provider options for every call (e.g. `{ openai: { store: false } }`). */
   readonly callOptions?: ProviderCallOptions;
+  /** The vendor computer-use tool for `tool`, when this provider can send it. */
+  nativeComputerTool?(tool: NativeComputerTool, display: ComputerDisplay): NativeComputerToolSet | undefined;
+  /** Cost in USD reported by the provider for one call (OpenRouter `usage.cost`), when present. */
+  reportedCostUsd?(metadata: ProviderMetadata | undefined): number | undefined;
 }
 
 export interface ProviderRegistry {

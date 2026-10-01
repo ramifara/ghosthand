@@ -14,8 +14,9 @@ flowchart LR
   desktop --> engine
   engine --> core
   engine --> recorder
-  engine --> decision["decision-typesafe → api.typesafe.ai"]
-  engine --> consultants["consultants → codex app-server"]
+  engine --> decision["decision-typesafe → TypeSafe / OpenRouter / Vercel AI Gateway"]
+  engine --> models["models → OpenAI, Anthropic, Google, OpenRouter, local servers"]
+  engine --> consultants["consultants → codex app-server, claude CLI"]
   engine --> driver["driver-playwright → Chrome/Edge/Brave"]
   driver --> site[(Any web app / testbed :4400)]
   recorder --> runs[("runs/<id>/ events.jsonl, screenshots, trace.zip, otel.jsonl, log.jsonl, summary.json + index.sqlite")]
@@ -29,8 +30,9 @@ flowchart LR
 |---|---|
 | `protocol` | Zod schemas and types for every cross-process shape (`Element`, `Snapshot`, `Action`, `ActionResult`, Jev questions/answers, `RunEvent`, `TaskSpec`, config), the `Result` helpers, and the `Computer`, `DecisionProvider` and `AgentConsultant` interfaces. |
 | `core` | Pure logic: `SecretsRegistry`, candidate ranking, state rendering, question builders, gates, stall detection, budgets, `done_when` evaluation and the `runTask` loop. No I/O beyond the injected interfaces. |
-| `decision-typesafe` | `DecisionProvider` over `@typesafe-ai/sdk` (the only importer), with preflight limits, fail-closed answer validation, error mapping, cost meter and redacted logging. |
-| `consultants` | Codex app-server JSON-RPC client and `exec` fallback, read-only sandbox, approvals declined. |
+| `decision-typesafe` | `DecisionProvider` over `@typesafe-ai/sdk` (the only importer), with preflight limits, fail-closed answer validation, error mapping, cost meter and redacted logging. Carrier presets for Jev on OpenRouter and the Vercel AI Gateway, and a failover provider. |
+| `models` | AI SDK v7 providers (OpenAI, Anthropic, Google, OpenRouter, local OpenAI-compatible), models.dev catalog, role chains, cost cap, planner/writer, `VisionGrounder`, experimental logprob decisions. |
+| `consultants` | Codex app-server JSON-RPC client and `exec` fallback (read-only sandbox, approvals declined); Claude consultant over the user's own `claude` CLI (stream-json, tools off, `dontAsk`). |
 | `driver-playwright` | Browser detection, persistent profiles and Chrome profile import; the web `Computer` (observe, act, settle, origin guard). |
 | `recorder` | Run folders, redacted `events.jsonl`, screenshots and state sidecars, SQLite run index, replay reader. |
 | `engine` | Composition root: config and env-file loading, pino logger, OpenTelemetry spans from the event stream, run and replay lifecycle, doctor. |
@@ -80,6 +82,37 @@ flowchart LR
   D1 -->|fails twice| D2[D2 vision drives ≤ 8 steps]
   B & C & D2 -->|commit not approved, 3 stalls| H[H human]
 ```
+
+## Providers
+
+Model calls go through `@ghosthand/models` (ADR 0005, ADR 0007). The engine builds one provider registry from whatever is available on the machine:
+
+| Provider | Package | Key (env file) | Notes |
+|---|---|---|---|
+| OpenAI | `@ai-sdk/openai` (Responses) | `OPENAI_API_KEY` | `store: false`; native `computer` tool for grounding |
+| Anthropic | `@ai-sdk/anthropic` | `ANTHROPIC_API_KEY` | native `computer_toolset_20260801` / `computer_20251124` |
+| Google | `@ai-sdk/google` | `GOOGLE_GENERATIVE_AI_API_KEY` (or `GOOGLE_API_KEY`, `GEMINI_API_KEY`) | grounding via JSON on the 0–999 grid |
+| OpenRouter | `@ai-sdk/openai-compatible` | `OPENROUTER_API_KEY` | `usage.cost` read from each response |
+| Local | `@ai-sdk/openai-compatible` | none (or `models.local[].apiKeyEnv`) | discovered with `GET {baseURL}/models` |
+
+```mermaid
+flowchart LR
+  env[(env file keys)] --> setup[engine setupModels]
+  cfg[config models.local + discoverLocal] --> disc["GET /models on configured URLs + 127.0.0.1:11434, :1234"]
+  disc --> setup
+  setup --> catalog[catalog: models.dev snapshot + local models + overrides]
+  setup --> registry[provider registry]
+  setup --> bindings[role bindings: config, else per keyed provider]
+  catalog & registry & bindings --> client[ModelClient]
+  client --> planner[planner / writer]
+  client --> grounder[VisionGrounder]
+```
+
+- **Discovery** contacts only configured URLs and the two loopback defaults. Discovered models are free, text-only and 32k until overridden.
+- **Grounding.** `VisionGrounder.groundTarget({screenshot, instruction})` returns `{captureId, x, y}` in capture pixels or `found: false`. Per model it uses the vendor computer tool (Anthropic, OpenAI) or a JSON answer on the model's grid; the vendor action is never executed and safety checks are never acknowledged.
+- **Decisions.** `decision.provider` picks the Jev carrier (`typesafe`, `openrouter`, `vercel`); `decision.fallback` adds failover on rate limits, overload, server, network and timeout errors only. The logprob emulation (`noul`/`choice` over a model with logprobs) is experimental and not wired into config.
+- **Consultants.** Codex (default when installed and signed in) and Claude (opt-in, `consultant.claude.enabled` or `--planner claude`) plan through the user's own CLI logins. GhostHand never reads either CLI's credentials. The Claude path carries a policy risk: Anthropic's terms for subscription use by third-party tools can change, so an `ANTHROPIC_API_KEY` is the recommended way to use Claude models.
+- `ghosthand models list` shows catalog models with role badges, computer-use support and key state (`set`, `missing`, `local`); `ghosthand doctor` reports each provider key, local servers and the Claude CLI.
 
 ## Secrets
 

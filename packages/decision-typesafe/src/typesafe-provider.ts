@@ -28,7 +28,7 @@ import { mapSdkError } from "./map-sdk-error.ts";
 import type { TokenEstimate } from "./preflight.ts";
 import { estimateRequestTokens, preflight } from "./preflight.ts";
 import { abstainedNames, validateAnswers } from "./validate-response.ts";
-import { WireResponse } from "./wire.ts";
+import { reportedCostUsd, WireResponse } from "./wire.ts";
 
 export const PROVIDER_NAME = "typesafe";
 export const DEFAULT_MODEL = "jev-1.13.0";
@@ -66,6 +66,11 @@ export interface TypeSafeDecisionProviderOptions {
   costMeter?: CostMeter;
   /** Overrides for the advertised limits, e.g. for a gateway with a smaller context or a limits probe. */
   capabilities?: Partial<DecisionCapabilities>;
+  /**
+   * Name reported in responses, errors and logs (`typesafe`, `openrouter`, `vercel`). Carrier
+   * presets set it; default `typesafe`.
+   */
+  providerName?: string;
   /** Send requests without local shape and size checks. Only for `scripts/probe-jev.ts` limit probes. */
   skipPreflight?: boolean;
   /** Monotonic clock in ms, for latency. Default `performance.now`. */
@@ -73,13 +78,13 @@ export interface TypeSafeDecisionProviderOptions {
 }
 
 /** Forwards only SDK warnings and errors, without their arguments, which can carry request bodies. */
-function sdkLoggerFor(logger: DecisionLogger): SdkLogger {
+function sdkLoggerFor(logger: DecisionLogger, provider: string): SdkLogger {
   const drop = (): void => {};
   return {
     debug: drop,
     info: drop,
-    warn: (message: string) => logger.warn({ provider: PROVIDER_NAME, sdk: true }, message),
-    error: (message: string) => logger.error({ provider: PROVIDER_NAME, sdk: true }, message),
+    warn: (message: string) => logger.warn({ provider, sdk: true }, message),
+    error: (message: string) => logger.error({ provider, sdk: true }, message),
   };
 }
 
@@ -135,7 +140,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
   const logger = opts.logger ?? silentLogger;
   const now = opts.now ?? (() => performance.now());
   const capabilities: DecisionCapabilities = { ...TYPESAFE_DIRECT_CAPABILITIES, ...opts.capabilities };
-  const provider = PROVIDER_NAME;
+  const provider = opts.providerName ?? PROVIDER_NAME;
 
   let client: TypeSafeClient | undefined;
 
@@ -154,7 +159,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
         retry: { maxRetries: retries, backoffInitialMs: 200, backoffMaxMs: 800, maxRetryAfterMs: 1000 },
         // Never `debug`: it logs full request bodies (the screen state). Explicit, so env can't override.
         logLevel: "warn",
-        logger: sdkLoggerFor(logger),
+        logger: sdkLoggerFor(logger, provider),
         ...(opts.fetch ? { fetch: opts.fetch } : {}),
       });
       return ok(client);
@@ -233,14 +238,19 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
       return err(error);
     }
     const body = envelope.data;
-    if (body.model !== model) {
+    // Carriers echo a dated snapshot (`typesafe/jev-1.13-20260917`); only a different model is news.
+    if (body.model !== model && !body.model.startsWith(model)) {
       logger.warn({ provider, requested: model, reported: body.model, requestId }, "decision.model_mismatch");
     }
 
     const answers = validateAnswers(questions, body.answers);
     const inputTokens = body.usage.input_tokens;
     const outputTokens = body.usage.output_tokens;
-    const cost = opts.costMeter ? opts.costMeter.add(inputTokens) : costUsd(inputTokens, price);
+    // OpenRouter (`usage.cost`) and Vercel (`provider_metadata.gateway.cost`) report the billed cost.
+    const reported = reportedCostUsd(body);
+    const cost = opts.costMeter
+      ? opts.costMeter.add(inputTokens, reported)
+      : (reported ?? costUsd(inputTokens, price));
     const abstained = abstainedNames(answers);
 
     logger.info(
@@ -253,6 +263,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
         outputTokens,
         estimatedTokens: estimate.total,
         costUsd: cost,
+        costSource: reported === undefined ? "price" : "carrier",
         abstained,
       },
       "decision.response",

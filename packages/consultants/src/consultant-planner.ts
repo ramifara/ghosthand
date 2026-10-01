@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// Planner over an AgentConsultant (the user's signed-in Codex): one warm session, one turn per plan or
-// replan, the draft JSON Schema as the turn's outputSchema, and an optional screenshot.
+// Planner over an AgentConsultant (the user's own signed-in Codex or Claude CLI): one warm session, one
+// turn per plan or replan, the draft JSON Schema as the turn's output schema, and an optional screenshot.
 import type {
   PlanInput,
   Planner,
@@ -24,8 +24,8 @@ import {
 import type { AgentConsultant, ConsultantError, ConsultantSession, Result } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
 
-export interface CodexPlannerOptions {
-  /** Codex model; pass it explicitly, otherwise the thread follows the user's Codex config. */
+export interface ConsultantPlannerOptions {
+  /** CLI model; pass it explicitly, otherwise the session follows the user's CLI config. */
   model?: string;
   /** Reasoning effort per turn. Default `low`. */
   effort?: "low" | "medium" | "high";
@@ -33,18 +33,24 @@ export interface CodexPlannerOptions {
   timeoutMs?: number;
 }
 
-export interface CodexPlanner extends Planner {
-  /** Closes the warm Codex session, if one is open. */
+export interface ConsultantPlanner extends Planner {
+  /** Closes the warm consultant session, if one is open. */
   close(): Promise<void>;
 }
 
-export function plannerErrorFromConsultant(e: ConsultantError): PlannerError {
+/** Codex names kept for existing callers. */
+export type CodexPlannerOptions = ConsultantPlannerOptions;
+export type CodexPlanner = ConsultantPlanner;
+export type ClaudePlannerOptions = ConsultantPlannerOptions;
+export type ClaudePlanner = ConsultantPlanner;
+
+export function plannerErrorFromConsultant(e: ConsultantError, consultant = "codex"): PlannerError {
   switch (e.kind) {
     case "not_installed":
     case "unauthenticated":
     case "usage_limit":
     case "process":
-      return { kind: "unavailable", message: `codex ${e.kind}: ${e.message}` };
+      return { kind: "unavailable", message: `${consultant} ${e.kind}: ${e.message}` };
     case "timeout":
       return { kind: "timeout", message: e.message };
     case "cancelled":
@@ -57,10 +63,10 @@ export function plannerErrorFromConsultant(e: ConsultantError): PlannerError {
 /** Drop the session after these; the next call opens a fresh one. */
 const BROKEN: ReadonlySet<ConsultantError["kind"]> = new Set(["process", "timeout", "cancelled"]);
 
-export function createCodexPlanner(
+export function createConsultantPlanner(
   consultant: AgentConsultant,
-  opts: CodexPlannerOptions = {},
-): CodexPlanner {
+  opts: ConsultantPlannerOptions = {},
+): ConsultantPlanner {
   const id = consultant.id;
   const effort = opts.effort ?? "low";
   let session: Promise<Result<ConsultantSession, ConsultantError>> | undefined;
@@ -96,7 +102,7 @@ export function createCodexPlanner(
     if (call.signal?.aborted === true) return err({ kind: "aborted", message: "aborted before planning" });
     const started = Date.now();
     const s = await getSession();
-    if (!s.ok) return err(plannerErrorFromConsultant(s.error));
+    if (!s.ok) return err(plannerErrorFromConsultant(s.error, id));
     const timeoutMs = call.timeoutMs ?? opts.timeoutMs;
     const answer = await s.value.ask<unknown>({
       prompt,
@@ -109,7 +115,7 @@ export function createCodexPlanner(
     });
     if (!answer.ok) {
       if (BROKEN.has(answer.error.kind)) await drop();
-      return err(plannerErrorFromConsultant(answer.error));
+      return err(plannerErrorFromConsultant(answer.error, id));
     }
     const compiled = compileDraft(answer.value, compile);
     if (!compiled.ok) return compiled;
@@ -141,4 +147,23 @@ export function createCodexPlanner(
       ),
     close: drop,
   };
+}
+
+/** Planner over the user's signed-in Codex CLI. */
+export function createCodexPlanner(
+  consultant: AgentConsultant,
+  opts: CodexPlannerOptions = {},
+): CodexPlanner {
+  return createConsultantPlanner(consultant, opts);
+}
+
+/**
+ * Planner over the user's own `claude` CLI login (see `claude/claude-consultant.ts` for the policy
+ * notes). Effort maps to `--effort`; the default `low` keeps planning turns short.
+ */
+export function createClaudePlanner(
+  consultant: AgentConsultant,
+  opts: ClaudePlannerOptions = {},
+): ClaudePlanner {
+  return createConsultantPlanner(consultant, opts);
 }

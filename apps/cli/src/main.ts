@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
+import { modelsCommand } from "./commands/models.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
 import { replayCommand } from "./commands/replay.ts";
@@ -17,12 +18,13 @@ export const HELP = `ghosthand, a Jev CUA
 
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
-                [--planner auto|codex|models|none] [--writer auto|models|none] [--yes]
+                [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
   ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
   ghosthand runs list [--limit N] [--task <id>]
   ghosthand doctor
+  ghosthand models list [--provider <id>] [--role planner|writer|vision_reviewer|vision_grounder|judge] [--all]
   ghosthand profile create <name> | list | import <chrome-profile-dir> <name> | remove <name>
   ghosthand browsers
   ghosthand tasks
@@ -61,6 +63,14 @@ export async function main(argv: string[]): Promise<number> {
       return browsersCommand(json);
     case "doctor":
       return doctorCommand(json);
+    case "models":
+      return modelsCommand(rest, {
+        json,
+        ...(values.provider ? { provider: values.provider } : {}),
+        ...(values.role ? { role: values.role } : {}),
+        ...(values.all ? { all: true } : {}),
+        ...(values.config ? { config: values.config } : {}),
+      });
     case "run":
       return runCommand(runFlags(parsed));
     case "replay":
@@ -109,11 +119,9 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     yes: values.yes ?? false,
     trace: !(values["no-trace"] ?? false),
     json: values.json ?? false,
-    planner: (["codex", "models", "none"].includes(values.planner ?? "") ? values.planner : "auto") as
-      | "auto"
-      | "codex"
-      | "models"
-      | "none",
+    planner: (["codex", "claude", "models", "none"].includes(values.planner ?? "")
+      ? values.planner
+      : "auto") as "auto" | "codex" | "claude" | "models" | "none",
     writer: (["models", "none"].includes(values.writer ?? "") ? values.writer : "auto") as
       | "auto"
       | "models"
@@ -138,6 +146,9 @@ export function parse(argv: string[]) {
       "no-heal": { type: "boolean" },
       suite: { type: "string" },
       planner: { type: "string" },
+      provider: { type: "string" },
+      role: { type: "string" },
+      all: { type: "boolean" },
       writer: { type: "string" },
       n: { type: "string" },
       only: { type: "string" },

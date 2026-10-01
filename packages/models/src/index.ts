@@ -50,8 +50,20 @@ export {
   TOKENS_PER_IMAGE,
   ZERO_USAGE,
 } from "./cost-meter.ts";
+export {
+  CHOICE_LABELS,
+  choiceConfidence,
+  createLogprobDecisionProvider,
+  DEFAULT_LOGPROB_TIMEOUT_MS,
+  LOGPROB_MAX_OPTIONS,
+  type LogprobDecisionProviderOptions,
+  labelProbabilities,
+  questionPrompt,
+} from "./decision/logprob-decision-provider.ts";
 export { kindForStatus, type MapErrorContext, mapModelError, retryAfterMs } from "./map-model-error.ts";
 export {
+  type CallPlan,
+  type CallTarget,
   createModelClient,
   DEFAULT_MODEL_TIMEOUT_MS,
   type ModelCallResult,
@@ -59,7 +71,9 @@ export {
   type ModelClientOptions,
   type ModelImage,
   type ModelRequest,
+  type PlanRead,
   type StructuredRequest,
+  type ToolCallOutput,
   toModelUsage,
 } from "./model-client.ts";
 export { FALLBACK_KINDS, type ModelAttempt, type ModelError, ModelErrorKind } from "./model-error.ts";
@@ -75,11 +89,45 @@ export {
   type ModelsListOptions,
   modelsListCommand,
 } from "./models-list-command.ts";
-export { createOpenAIProvider, type OpenAIProviderOptions } from "./providers/openai-provider.ts";
 export {
+  ANTHROPIC_COMPUTER_TOOL_NAME,
+  type AnthropicProviderOptions,
+  createAnthropicProvider,
+} from "./providers/anthropic-provider.ts";
+export { createGoogleProvider, type GoogleProviderOptions } from "./providers/google-provider.ts";
+export {
+  DEFAULT_DISCOVERY_TIMEOUT_MS,
+  DEFAULT_LOCAL_SERVERS,
+  type DiscoveredServer,
+  type DiscoverOptions,
+  discoverLocalModels,
+  LOCAL_MODEL_DEFAULTS,
+  type LocalServer,
+  localModelOverrides,
+} from "./providers/local-discovery.ts";
+export {
+  costFromMetadata,
+  createOpenAICompatibleProvider,
+  createOpenRouterProvider,
+  extractChatMetadata,
+  GHOSTHAND_METADATA_KEY,
+  logprobsFromMetadata,
+  OPENROUTER_BASE_URL,
+  type OpenAICompatibleProviderOptions,
+  type OpenRouterProviderOptions,
+  type TokenLogprobs,
+} from "./providers/openai-compatible-provider.ts";
+export {
+  createOpenAIProvider,
+  OPENAI_COMPUTER_TOOL_NAME,
+  type OpenAIProviderOptions,
+} from "./providers/openai-provider.ts";
+export {
+  type ComputerDisplay,
   createProviderRegistry,
   IMPLEMENTED_PROVIDER_KINDS,
   type ModelProvider,
+  type NativeComputerToolSet,
   type ProviderCallOptions,
   type ProviderKind,
   type ProviderRegistry,
@@ -89,6 +137,8 @@ export {
   type BindingError,
   compatibleRoles,
   DEFAULT_ROLE_BINDINGS,
+  defaultRoleBindingsFor,
+  PROVIDER_ROLE_MODELS,
   parseRoleBindings,
   ReasoningEffort,
   type RequirementGap,
@@ -111,3 +161,30 @@ export {
   ROLE_REQUIREMENTS,
   type RoleRequirement,
 } from "./roles.ts";
+export {
+  ANTHROPIC_MAX_LONG_EDGE,
+  ANTHROPIC_MAX_PIXELS,
+  anthropicImageScale,
+  type ImageSize,
+  toImagePixels,
+} from "./vision/grounding-geometry.ts";
+export {
+  type NativePoint,
+  type NativeRead,
+  readAnthropicCall,
+  readOpenAICall,
+} from "./vision/native-grounding.ts";
+export {
+  createVisionGrounder,
+  GROUNDING_GUARD,
+  type GroundingMethod,
+  type GroundOutcome,
+  type GroundRequest,
+  type GroundResult,
+  type GroundScreenshot,
+  JsonGroundingAnswer,
+  jsonGroundingPrompt,
+  nativeGroundingPrompt,
+  type VisionGrounder,
+  type VisionGrounderOptions,
+} from "./vision/vision-grounder.ts";

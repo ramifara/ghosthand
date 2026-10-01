@@ -11,7 +11,7 @@ import type {
 } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
-import { createCodexPlanner } from "./codex-planner.ts";
+import { createClaudePlanner, createCodexPlanner } from "./consultant-planner.ts";
 
 /** A recorded Codex final answer for the profile goal. */
 const recorded = {
@@ -45,7 +45,7 @@ const recorded = {
 
 type Reply = Result<unknown, ConsultantError>;
 
-function fakeConsultant(replies: Reply[], openError?: ConsultantError) {
+function fakeConsultant(replies: Reply[], openError?: ConsultantError, id = "codex") {
   const asks: Array<ConsultantAskOptions<unknown>> = [];
   const opens: Array<{ system: string; model?: string }> = [];
   let closed = 0;
@@ -62,7 +62,7 @@ function fakeConsultant(replies: Reply[], openError?: ConsultantError) {
     },
   };
   const consultant: AgentConsultant = {
-    id: "codex",
+    id,
     probe: async () => ({ installed: true, auth: "chatgpt", models: [] }),
     open: async (o) => {
       opens.push(o);
@@ -171,5 +171,25 @@ describe("createCodexPlanner", () => {
     const r = await createCodexPlanner(f.consultant).plan(input, { signal: AbortSignal.abort() });
     expect(!r.ok && r.error.kind).toBe("aborted");
     expect(f.opens).toHaveLength(0);
+  });
+});
+
+describe("createClaudePlanner", () => {
+  it("plans through a Claude consultant under its own id", async () => {
+    const f = fakeConsultant([ok(recorded)], undefined, "claude");
+    const r = await createClaudePlanner(f.consultant, { model: "sonnet" }).plan(input);
+    if (!r.ok) throw new Error(r.error.message);
+    expect(r.value.planner).toBe("claude");
+    expect(r.value.model).toBe("sonnet");
+    expect(f.asks[0]?.schema).toBe(PLAN_DRAFT_JSON_SCHEMA);
+  });
+
+  it("names Claude in unavailable errors", async () => {
+    const f = fakeConsultant([], { kind: "unauthenticated", message: "run claude auth login" }, "claude");
+    const r = await createClaudePlanner(f.consultant).plan(input);
+    expect(!r.ok && r.error).toMatchObject({
+      kind: "unavailable",
+      message: expect.stringMatching(/^claude unauthenticated/),
+    });
   });
 });

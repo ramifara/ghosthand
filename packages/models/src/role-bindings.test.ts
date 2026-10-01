@@ -6,6 +6,7 @@ import { createModelCatalog } from "./catalog/model-catalog.ts";
 import {
   compatibleRoles,
   DEFAULT_ROLE_BINDINGS,
+  defaultRoleBindingsFor,
   parseRoleBindings,
   requirementGaps,
   resolveRoleChain,
@@ -127,5 +128,32 @@ describe("bindings", () => {
     expect(!unbound.ok && unbound.error.kind).toBe("unbound");
     const none = resolveRoleChain(catalog, { judge: { models: ["openai/text-only"] } }, "judge");
     expect(!none.ok && none.error.message).toContain("missing structured_output, image_input");
+  });
+});
+
+describe("defaultRoleBindingsFor", () => {
+  const bundled = createModelCatalog();
+  if (!bundled.ok) throw new Error(bundled.error.message);
+
+  it("keeps the OpenAI chain first and appends each configured provider", () => {
+    const b = defaultRoleBindingsFor(["openai", "anthropic", "google"]);
+    expect(b.planner?.models).toEqual([
+      ...(DEFAULT_ROLE_BINDINGS.planner?.models ?? []),
+      "anthropic/claude-sonnet-5-5",
+      "google/gemini-3.8-flash",
+    ]);
+    expect(b.planner?.reasoningEffort).toBe("low");
+  });
+
+  it("binds only configured providers and gives OpenRouter no grounder", () => {
+    const b = defaultRoleBindingsFor(["openrouter"]);
+    expect(b.vision_grounder).toBeUndefined();
+    expect(b.writer?.models).toEqual(["openrouter/openai/gpt-6-luna"]);
+    expect(defaultRoleBindingsFor([])).toEqual({});
+  });
+
+  it("only names catalog models that can serve their role", () => {
+    const all = defaultRoleBindingsFor(["openai", "anthropic", "google", "openrouter"]);
+    expect(bundled.ok && validateBindings(bundled.value, all)).toEqual({ ok: true, value: undefined });
   });
 });

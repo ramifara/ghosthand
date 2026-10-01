@@ -2,7 +2,7 @@
   "name": "@ghosthand/consultants",
   "version": "0.0.0",
   "private": true,
-  "description": "Agent consultants (Codex app-server)",
+  "description": "Agent consultants: the user's own Codex and Claude CLIs",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {

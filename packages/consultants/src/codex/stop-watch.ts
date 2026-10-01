@@ -31,10 +31,10 @@ export function watchStop(timeoutMs: number, signal?: AbortSignal): StopWatch {
   };
 }
 
-export function stopError(reason: StopReason, timeoutMs: number): ConsultantError {
+export function stopError(reason: StopReason, timeoutMs: number, who = "Codex"): ConsultantError {
   switch (reason) {
     case "timeout":
-      return { kind: "timeout", message: `Codex did not answer within ${timeoutMs} ms` };
+      return { kind: "timeout", message: `${who} did not answer within ${timeoutMs} ms` };
     case "cancelled":
       return { kind: "cancelled", message: "the ask was aborted by the caller" };
     case "interrupted":

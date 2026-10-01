@@ -16,8 +16,11 @@ export interface CommandOutput<T> {
   readonly text: string;
 }
 
-/** `set`: a key is present. `missing`: callable once a key is added. `unsupported`: no provider yet. */
-export type KeyStatus = "set" | "missing" | "unsupported";
+/**
+ * `set`: a key is present. `missing`: callable once a key is added. `local`: a local server that
+ * needs no key. `unsupported`: no provider yet.
+ */
+export type KeyStatus = "set" | "missing" | "local" | "unsupported";
 
 export interface ModelsListEntry {
   readonly ref: string;
@@ -41,16 +44,24 @@ export interface ModelsListOptions {
   readonly provider?: string;
   /** Only models that can serve this role. */
   readonly role?: ChatRole;
-  /** Include providers GhostHand cannot call yet (Phase 6). */
+  /** Include providers GhostHand cannot call (catalog entries with no factory). */
   readonly all?: boolean;
+  /** Provider ids of local OpenAI-compatible servers (discovered or configured); they need no key. */
+  readonly localProviders?: readonly string[];
 }
 
-function isImplemented(provider: string): boolean {
-  return (IMPLEMENTED_PROVIDER_KINDS as ReadonlySet<string>).has(provider);
+function isImplemented(provider: string, local: readonly string[]): boolean {
+  return local.includes(provider) || (IMPLEMENTED_PROVIDER_KINDS as ReadonlySet<string>).has(provider);
 }
 
-function keyStatus(provider: string, catalog: ModelCatalog, env: ModelsListOptions["env"]): KeyStatus {
-  if (!isImplemented(provider)) return "unsupported";
+function keyStatus(
+  provider: string,
+  catalog: ModelCatalog,
+  env: ModelsListOptions["env"],
+  local: readonly string[],
+): KeyStatus {
+  if (local.includes(provider)) return "local";
+  if (!isImplemented(provider, local)) return "unsupported";
   const names = catalog.provider(provider)?.env ?? [];
   return names.some((name) => (env?.[name]?.trim() ?? "") !== "") ? "set" : "missing";
 }
@@ -115,11 +126,12 @@ export function modelsListCommand(
     if (!created.ok) throw new Error(`bundled model catalog is invalid: ${created.error.message}`);
     catalog = created.value;
   }
+  const local = options.localProviders ?? [];
   const models = catalog
     .list()
-    .filter((m) => options.all === true || isImplemented(m.provider))
+    .filter((m) => options.all === true || isImplemented(m.provider, local))
     .filter((m) => options.provider === undefined || m.provider === options.provider)
-    .map((m) => toEntry(m, keyStatus(m.provider, catalog, options.env)))
+    .map((m) => toEntry(m, keyStatus(m.provider, catalog, options.env, local)))
     .filter((e) => options.role === undefined || e.roles.includes(options.role))
     .sort(
       (a, b) =>

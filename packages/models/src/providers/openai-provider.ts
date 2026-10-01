@@ -3,7 +3,11 @@
 // OpenAI over the Responses API with an API key. The key is passed in by the engine (env file or
 // safeStorage); this package never reads files or `process.env`.
 import { createOpenAI } from "@ai-sdk/openai";
-import type { ModelProvider, SdkLanguageModel } from "./provider-registry.ts";
+import type { NativeComputerTool } from "../catalog/ghosthand-fields.ts";
+import type { ModelProvider, NativeComputerToolSet, SdkLanguageModel } from "./provider-registry.ts";
+
+/** Name of the Responses API computer tool. */
+export const OPENAI_COMPUTER_TOOL_NAME = "computer";
 
 export interface OpenAIProviderOptions {
   readonly apiKey?: string | undefined;
@@ -36,5 +40,13 @@ export function createOpenAIProvider(options: OpenAIProviderOptions = {}): Model
     languageModel: (modelId: string): SdkLanguageModel => sdk.responses(modelId),
     // Do not keep screenshots and prompts on OpenAI's side.
     callOptions: { openai: { store: false } },
+    nativeComputerTool: (tool: NativeComputerTool): NativeComputerToolSet | undefined =>
+      tool === "openai_computer"
+        ? {
+            tool,
+            toolName: OPENAI_COMPUTER_TOOL_NAME,
+            tools: { [OPENAI_COMPUTER_TOOL_NAME]: sdk.tools.computer({}) },
+          }
+        : undefined,
   };
 }

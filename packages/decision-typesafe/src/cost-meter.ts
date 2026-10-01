@@ -52,9 +52,9 @@ export class CostMeter {
     return Math.max(0, this.capUsd - this.#spentUsd);
   }
 
-  /** Records a completed call and returns its cost. */
-  add(inputTokens: number): number {
-    const cost = costUsd(inputTokens, this.priceInputPerM);
+  /** Records a completed call and returns its cost: `reportedUsd` (from the carrier) when given, else priced. */
+  add(inputTokens: number, reportedUsd?: number): number {
+    const cost = reportedUsd ?? costUsd(inputTokens, this.priceInputPerM);
     this.#spentUsd += cost;
     this.#inputTokens += inputTokens;
     this.#calls += 1;
