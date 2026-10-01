@@ -94,7 +94,7 @@ export async function runQaSpecFile(
   }
   let vision: VisionJudge | undefined;
   if (opts.vision !== "none") {
-    const client = createModelsClient(rt);
+    const client = await createModelsClient(rt);
     if (client) vision = createModelVisionJudge(client);
   }
   const executor = createWebCaseExecutor(rt, {
