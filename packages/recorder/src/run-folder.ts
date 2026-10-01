@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+// Layout of one run folder: <runsDir>/<runId>/...
+import { join } from "node:path";
+
+export type RunPaths = {
+  readonly folder: string;
+  /** One RunEvent per line. */
+  readonly events: string;
+  /** `step-NNN.png`. */
+  readonly screenshotsDir: string;
+  /** `step-NNN-<purpose>.json`: rendered decision state sidecars. */
+  readonly statesDir: string;
+  /** Playwright trace; the driver writes it here. */
+  readonly trace: string;
+  /** Playwright video directory. */
+  readonly videoDir: string;
+  /** Per-run pino log file. */
+  readonly log: string;
+  /** OpenTelemetry file exporter target. */
+  readonly otel: string;
+  /** Written by `finish()`. */
+  readonly summary: string;
+};
+
+export const EVENTS_FILE = "events.jsonl";
+export const SUMMARY_FILE = "summary.json";
+export const INDEX_FILE = "index.sqlite";
+
+export function runPaths(folder: string): RunPaths {
+  return {
+    folder,
+    events: join(folder, EVENTS_FILE),
+    screenshotsDir: join(folder, "screenshots"),
+    statesDir: join(folder, "states"),
+    trace: join(folder, "trace.zip"),
+    videoDir: join(folder, "video"),
+    log: join(folder, "log.jsonl"),
+    otel: join(folder, "otel.jsonl"),
+    summary: join(folder, SUMMARY_FILE),
+  };
+}
+
+const step3 = (step: number): string => String(Math.max(0, Math.trunc(step))).padStart(3, "0");
+
+export function screenshotName(step: number): string {
+  return `step-${step3(step)}.png`;
+}
+
+/** Purpose is reduced to kebab-case `[a-z0-9-]` so it is always a safe file name segment. */
+export function stateName(step: number, purpose: string): string {
+  const p =
+    purpose
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "state";
+  return `step-${step3(step)}-${p}.json`;
+}

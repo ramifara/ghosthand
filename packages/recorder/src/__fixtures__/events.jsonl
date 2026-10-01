@@ -1,0 +1,10 @@
+{"t":1,"seq":0,"runId":"r1","type":"run.start","task":{"id":"l1-login","mode":"do","instruction":"Sign in as alice","startUrl":"http://127.0.0.1:4400/login","allowOrigins":["http://127.0.0.1:4400"],"budget":{"steps":25,"seconds":180,"usd":0.25},"secrets":["TESTBED_PASSWORD"],"forbidden":[]},"decisionModel":"jev-1.13.0","surface":"web"}
+{"t":2,"seq":1,"runId":"r1","type":"observe","step":1,"snapshotId":"s1","url":"http://127.0.0.1:4400/login","elementCount":3,"tokenEstimate":240,"screenshot":"step-001.png"}
+{"t":3,"seq":2,"runId":"r1","type":"decision.request","step":1,"purpose":"act","questions":{"operation":{"type":"choice","instructions":"Which operation?","criteria":{"press":"Press a button","set_value":"Type into a field"}}},"stateTokens":240}
+{"t":4,"seq":3,"runId":"r1","type":"decision.answer","step":1,"answers":{"operation":{"type":"choice","choice":"set_value","confidence":0.93,"probabilities":{"press":0.07,"set_value":0.93}}},"model":"jev-1.13.0","requestId":"req_0123","latencyMs":210,"costUsd":0.00001,"inputTokens":240}
+{"t":5,"seq":4,"runId":"r1","type":"gate","step":1,"gate":"operation_confidence","passed":true}
+{"t":6,"seq":5,"runId":"r1","type":"action","step":1,"action":{"type":"set_value","token":"e3","value":"alice@testbed.local"},"target":{"stableId":"textbox|Email|form:login","role":"textbox","name":"Email"},"mode":"B"}
+{"t":7,"seq":6,"runId":"r1","type":"effect","step":1,"result":{"effect":"confirmed","route":"semantic","evidence":[{"kind":"value","before":"<empty>","after":"<filled>"}],"invalidatedSnapshots":["s1"],"durationMs":35}}
+{"t":8,"seq":7,"runId":"r1","type":"verify","step":1,"state":"unsatisfied","decidedBy":"deterministic","predicates":[{"predicate":{"kind":"url","matches":"/home"},"state":"unsatisfied"}]}
+{"t":9,"seq":8,"runId":"r1","type":"step.end","step":1,"timing":{"settleMs":120,"observeMs":40,"decideMs":210,"actMs":35,"verifyMs":5},"mode":"B"}
+{"t":10,"seq":9,"runId":"r1","type":"run.end","outcome":"success","reason":"done_when satisfied","steps":3,"wallMs":2400,"costUsd":0.00003,"decisionCalls":3,"modelCalls":0,"modeShares":{"B":1}}
