@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SecretsRegistry } from "@ghosthand/core";
 import type { ActParams, ActResult, InputParams, RpcGlobalProbe } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
@@ -193,6 +196,55 @@ describe("DesktopComputer", () => {
     expect((await computer.open("desktop:app")).ok).toBe(true);
     expect((await computer.open('app:python3 "my app.py" --x')).ok).toBe(true);
     expect(launched).toEqual([["xterm"], ["python3", "my app.py", "--x"]]);
+  });
+});
+
+describe("recording", () => {
+  it("keeps the video, but discards it after a secret was typed into a visible field", async () => {
+    const shared = mkdtempSync(join(tmpdir(), "gh-desktop-rec-"));
+    const runDir = mkdtempSync(join(tmpdir(), "gh-desktop-run-"));
+    try {
+      const t = new ScriptedTransport();
+      let file = "";
+      t.on("observe", () => ({ ...gtkTestbedSnapshot(), snapshotId: "h1" }));
+      t.on("record_start", (p) => {
+        file = p.path.split("/").pop() ?? "";
+        writeFileSync(join(shared, file), "video");
+        return {};
+      });
+      t.on("record_stop", () => ({ files: [] }));
+      t.on("act", (p) => ({
+        ok: true,
+        route: "semantic",
+        nativeRoute: "x",
+        before: { name: "Email", states: [], value: "" },
+        after: { name: "Email", states: [], value: p.value ?? "" },
+        globalBefore: G,
+        globalAfter: G,
+      }));
+      const computer = new DesktopComputer({
+        transport: t,
+        hello: { ...X11_HELLO, capabilities: { ...X11_HELLO.capabilities, recording: true } },
+        surface: "x11",
+        secrets: new SecretsRegistry([["EMAIL", "ada@example.com"]]),
+        shared: { hostPath: "/work", localPath: shared },
+      });
+      expect((await computer.startRecording(runDir)).ok).toBe(true);
+      expect(await computer.stopRecording()).toMatchObject({
+        ok: true,
+        value: { files: [join(runDir, "video.mp4")] },
+      });
+
+      expect((await computer.startRecording(runDir)).ok).toBe(true);
+      const el = await tokenOf(computer, "textbox", "Email");
+      await computer.setValue(el.token, { secretRef: "EMAIL" });
+      const stopped = await computer.stopRecording();
+      expect(stopped.ok).toBe(false);
+      expect(existsSync(join(shared, file))).toBe(false);
+    } finally {
+      rmSync(shared, { recursive: true, force: true });
+      rmSync(runDir, { recursive: true, force: true });
+    }
   });
 });
 

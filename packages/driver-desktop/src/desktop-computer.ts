@@ -3,7 +3,7 @@
 // The desktop `Computer`: maps the protocol interface onto a native host over JSON-RPC. Owns tokens and
 // freshness (only the latest snapshot's tokens act; never re-resolved), redaction, pointer coordinate
 // mapping (token bounds, capture pixels, screen units) and effect judgement from the host's read-backs.
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "@ghosthand/core";
 import { evaluateDeterministic, noopLogger, SecretsRegistry, secretPlaceholder } from "@ghosthand/core";
@@ -382,6 +382,8 @@ export class DesktopComputer implements Computer {
   }
 
   #recordingFile: string | undefined;
+  /** A secret went into a field that shows its text (not a password field) while recording. */
+  #secretShown = false;
 
   async stopRecording(): Promise<Result<{ files: string[] }, ComputerError>> {
     const dir = this.#recording;
@@ -394,6 +396,11 @@ export class DesktopComputer implements Computer {
     const shared = this.#shared ?? { hostPath: dir, localPath: dir };
     const local = join(shared.localPath, file);
     if (!existsSync(local)) return ok({ files: [] });
+    if (this.#secretShown) {
+      // Pixels cannot be redacted: a secret typed into a visible (non-password) field may be in the video.
+      rmSync(local, { force: true });
+      return err({ kind: "driver", message: "recording removed: a secret was typed into a visible field" });
+    }
     const target = join(dir, "video.mp4");
     try {
       mkdirSync(dir, { recursive: true });
@@ -548,7 +555,9 @@ export class DesktopComputer implements Computer {
       text = resolved;
     }
     const secretName = typeof value === "string" ? undefined : value.secretRef;
+    const isSecret = secretName !== undefined || this.#secrets.match(text) !== undefined;
     return this.#act("set_value", token, { value: text }, (r, secretField) => {
+      if (isSecret && !secretField && this.#recording !== undefined) this.#secretShown = true;
       const redact = this.#redactValue(secretField || secretName !== undefined);
       const before = r.before;
       const after = r.after;
@@ -753,9 +762,11 @@ export class DesktopComputer implements Computer {
       value = resolved;
     }
     const secret = typeof text !== "string";
+    const isSecret = secret || this.#secrets.match(value) !== undefined;
     return this.#input({ op: "type", text: value }, "keyboard", (r) => {
       const b = r.focusedBefore;
       const a = r.focusedAfter;
+      if (isSecret && a?.valueLength === undefined && this.#recording !== undefined) this.#secretShown = true;
       const redact = this.#redactValue(secret);
       if (a?.value?.includes(value) && a.value !== b?.value)
         return {
