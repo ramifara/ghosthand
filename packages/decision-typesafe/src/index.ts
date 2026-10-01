@@ -3,7 +3,19 @@
 
 export const decisionTypesafePackageName = "@ghosthand/decision-typesafe" as const;
 
+export {
+  CARRIER_PRESETS,
+  type CarrierPreset,
+  type CarrierProviderOptions,
+  createCarrierDecisionProvider,
+  createOpenRouterDecisionProvider,
+  createVercelDecisionProvider,
+  type DecisionCarrier,
+  OPENROUTER_DECISION_PRESET,
+  VERCEL_DECISION_PRESET,
+} from "./carrier-presets.ts";
 export { CostMeter, type CostMeterOptions, costUsd, DEFAULT_PRICE_INPUT_PER_M } from "./cost-meter.ts";
+export { FAILOVER_KINDS, FallbackDecisionProvider, intersectCapabilities } from "./fallback-provider.ts";
 export { type DecisionLogger, type LogFields, silentLogger } from "./logger.ts";
 export { kindForStatus, mapSdkError } from "./map-sdk-error.ts";
 export {
