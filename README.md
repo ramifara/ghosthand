@@ -5,7 +5,7 @@
 
 **GhostHand, a Jev CUA.** An open-source, general-purpose computer-use agent in TypeScript and Electron. Give it a task (or a QA spec) and a URL, and it does the work in a real browser. A fast decision model, TypeSafe Jev, makes each step's choice in roughly 0.2–0.5 s. Larger models are consulted only to plan, write text, give hints, judge visually or handle unknown UIs. Every session is recorded and can be replayed.
 
-Status: Phase 0 (foundations and a working Jev-first loop on the bundled testbed). See [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
+Status: Phases 0, 1, 2, 4, 5 and 6 are built; Phase 1 acceptance is met with real Jev (L1–L3 90/90, median step 742 ms, $0.00034 per step). Phases 3 and 7 are in progress. Reports: [`docs/reports/`](docs/reports/). Plan: [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
 
 ## Setup
 
@@ -27,7 +27,21 @@ bun run ghosthand doctor
 bun run ghosthand run --url http://127.0.0.1:4400 --task l1-update-profile
 ```
 
-Optional: the Codex CLI, signed in, for planning (`codex login`).
+Optional: the Codex CLI, signed in, for planning and writer hand-offs (`codex login`); `OPENAI_API_KEY` (or Anthropic/Google/OpenRouter keys) in the same env file for the models layer and vision. `./scripts/set-jev-key.sh` writes the TypeSafe key with a hidden prompt.
+
+## Using it
+
+```sh
+bun run ghosthand run --url https://example.com "find the pricing page and tell me the cheapest plan"
+bun run ghosthand run --task l2-orders-delete-row --headless        # a testbed task, graded by its oracle
+bun run ghosthand replay <runId>                                   # mode A: no decision calls, heals moved targets
+bun run ghosthand export <runId> --out flow.spec.ts                # Playwright test from a recorded run
+bun run ghosthand eval --suite l1-l3 --n 5 --headless              # pass rates, step timing split, cost
+bun run ghosthand test apps/testbed/specs/profile.md --runs 5      # QA mode: Markdown spec → scored HTML report
+bun run ghosthand mcp                                              # MCP server on stdio (run_task, run_spec, ...)
+bun run ghosthand voice transcribe note.wav                        # local Moonshine speech-to-text
+bun run dev:desktop                                                # the Electron app
+```
 
 ## Repository layout
 
