@@ -42,4 +42,15 @@ describe("resolveVariant", () => {
   it("ignores invalid query values", () => {
     expect(resolveVariant(server, "?testids=maybe", memoryStore()).testids).toBe("off");
   });
+
+  it("passes L6 flags through from the server and the query, and omits unset ones", () => {
+    const l6 = { ...server, variant: { ...server.variant, popups: "on" as const } };
+    expect(resolveVariant(l6, "?locale=ar&zoom=150&theme=sepia", memoryStore())).toEqual({
+      testids: "off",
+      a11y: "good",
+      popups: "on",
+      locale: "ar",
+      zoom: "150",
+    });
+  });
 });

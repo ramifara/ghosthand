@@ -4,6 +4,7 @@
 import {
   type ApprovalRequest,
   type EventSink,
+  type LoopDeps,
   type Planner,
   type RunControl,
   type RunResult,
@@ -20,6 +21,7 @@ import type {
 } from "@ghosthand/protocol";
 import { createRunRecorder, type RunRecorder, type RunSummary, screenshotName } from "@ghosthand/recorder";
 import { createFileLogger } from "./create-logger.ts";
+import { afterRun, type KnowledgeOptions, type KnowledgeOutcome } from "./knowledge-run.ts";
 import { type ReplayResult, type ReplayStep, replayRun } from "./replay.ts";
 import { type EngineRuntime, gitSha } from "./runtime.ts";
 import { createRunTracing, type RunTracing } from "./tracing.ts";
@@ -54,6 +56,8 @@ export interface RunReport {
   /** Result of the task oracle after the run (testbed tasks), independent of the agent's own verdict. */
   oraclePass: boolean | undefined;
   result: RunResult | ReplayResult;
+  /** Recipe used, recipe learned, app-map rows (when knowledge is enabled). */
+  knowledge?: KnowledgeOutcome;
 }
 
 /** Recorder, tracing and per-run log for one run folder. */
@@ -126,16 +130,35 @@ export interface AgentRunOptions {
   planner?: Planner;
   /** Writer hand-off when Jev is unsure. */
   writer?: Writer;
+  /** App map and recipes (mode A, learning). */
+  knowledge?: KnowledgeOptions;
+  /** Extra loop dependencies (vision assist, source-aware seeding, plan refinement). */
+  loop?: AgentLoopExtras;
 }
+
+/** Optional loop dependencies the engine composes per run. */
+export type AgentLoopExtras = Pick<
+  LoopDeps,
+  "vision" | "seedTargets" | "plannerContext" | "navigateFirst" | "config"
+>;
 
 export async function runAgent(
   rt: EngineRuntime,
   opts: AgentRunOptions,
 ): Promise<{ ok: true; value: RunReport } | { ok: false; error: string }> {
-  const hooks = opts.hooks ?? {};
+  const events: RunEvent[] = [];
+  const callerHooks = opts.hooks ?? {};
+  const hooks: RunHooks = {
+    ...callerHooks,
+    onEvent: (e) => {
+      events.push(e);
+      callerHooks.onEvent?.(e);
+    },
+  };
   const session = openSession(rt, hooks);
   if (!session.ok) return session;
   const s = session.value;
+  const learning = opts.knowledge?.kb.session(opts.task.startUrl);
   const launched = await opts.launch();
   s.sink.emit({
     type: "run.start",
@@ -190,7 +213,13 @@ export async function runAgent(
       decision: opts.decision,
       events: s.sink,
       secrets: rt.secrets,
-      config: { gates: rt.config.gates },
+      config: { gates: rt.config.gates, ...opts.loop?.config },
+      ...(opts.loop?.vision ? { vision: opts.loop.vision } : {}),
+      ...(opts.loop?.seedTargets ? { seedTargets: opts.loop.seedTargets } : {}),
+      ...(opts.loop?.plannerContext ? { plannerContext: opts.loop.plannerContext } : {}),
+      ...(opts.loop?.navigateFirst ? { navigateFirst: opts.loop.navigateFirst } : {}),
+      ...(opts.knowledge?.recipes ? { recipes: opts.knowledge.kb.book() } : {}),
+      ...(learning ? { onSnapshot: learning.onSnapshot } : {}),
       logger: rt.logger.child({ pkg: "core" }),
       ...(hooks.oracle ? { oracle: hooks.oracle } : {}),
       ...(hooks.approve ? { approve: hooks.approve } : {}),
@@ -226,6 +255,18 @@ export async function runAgent(
   }
   const oraclePass = hooks.oracle ? await hooks.oracle(opts.task.id, result.answer) : undefined;
   const summary = await closeSession(s, launched.value);
+  const knowledge =
+    opts.knowledge && learning
+      ? afterRun(opts.knowledge, {
+          runId: s.recorder.runId,
+          task: opts.task,
+          events,
+          passed: oraclePass ?? result.outcome === "success",
+          replay: result.replay,
+          session: learning,
+        })
+      : undefined;
+  for (const e of knowledge?.errors ?? []) rt.logger.warn({ pkg: "knowledge" }, e);
   return {
     ok: true,
     value: {
@@ -236,6 +277,7 @@ export async function runAgent(
       summary,
       oraclePass,
       result,
+      ...(knowledge ? { knowledge } : {}),
     },
   };
 }

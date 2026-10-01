@@ -9,17 +9,20 @@ import type {
   PlannerCallOptions,
   PlannerError,
   PlanOutput,
+  RefineInput,
   ReplanInput,
   ToPlanOptions,
 } from "@ghosthand/core";
 import {
   buildPlannerPrompt,
+  buildRefinePrompt,
   buildReplanPrompt,
   compileDraft,
   PLANNER_SYSTEM_PROMPT,
   PlanDraft,
   planCompileOptions,
   ReplanDraft,
+  refineCompileOptions,
   replanCompileOptions,
 } from "@ghosthand/core";
 import type { Result } from "@ghosthand/protocol";
@@ -98,5 +101,7 @@ export function createModelPlanner(client: ModelClient, opts: { id?: string } = 
       run(buildPlannerPrompt(input), PlanDraft, planCompileOptions(input), input.screenshot, call),
     replan: (input: ReplanInput, call: PlannerCallOptions = {}) =>
       run(buildReplanPrompt(input), ReplanDraft, replanCompileOptions(input), input.screenshot, call),
+    refine: (input: RefineInput, call: PlannerCallOptions = {}) =>
+      run(buildRefinePrompt(input), ReplanDraft, refineCompileOptions(input), input.screenshot, call),
   };
 }

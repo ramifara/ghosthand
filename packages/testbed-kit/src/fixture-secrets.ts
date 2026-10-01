@@ -8,6 +8,9 @@ export const fixtureSecrets = {
   TESTBED_PASSWORD: "violet-harbor-42",
   TESTBED_WRONG_PASSWORD: "violet-harbour-24",
   TESTBED_BOB_PASSWORD: "copper-meadow-17",
+  TESTBED_NEW_PASSWORD: "amber-lantern-58",
+  TESTBED_IDP_PASSWORD: "quartz-signal-73",
+  TESTBED_TOTP: "GHOSTHANDTESTBEDTOTPSEEDLEVELFVE",
 } as const;
 
 export type FixtureSecretName = keyof typeof fixtureSecrets;

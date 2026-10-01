@@ -119,21 +119,27 @@ export function buildElements(input: BuildInput): Element[] {
     const absoluteHref = dom?.href ?? node.url;
     const pageOrigin = frame?.origin;
 
+    const actions = actionsFor({
+      role: node.role,
+      tag: dom?.tag ?? "",
+      inputType: dom?.inputType,
+      editable,
+      pointer: node.pointer,
+      drag: dom?.drag,
+      drop: dom?.drop,
+      menu: dom?.menu,
+    });
+    const roleClass = roleClassOf(node.role);
     const el: Element = {
       token: tokenFor(node.ref, input.snapshotId),
       stableId: `w${fnv1a(key)}${nth > 1 ? `-${nth}` : ""}`,
       role: node.role,
-      roleClass: roleClassOf(node.role),
+      // A drop zone (list, column, region) reads as a container, not as "other".
+      roleClass: roleClass === "other" && actions[0] === "drop" ? "container" : roleClass,
       nativeRole: dom ? `${dom.tag}${dom.inputType ? `[type=${dom.inputType}]` : ""}` : "",
       name,
       states: statesOf(node, dom, offscreen),
-      actions: actionsFor({
-        role: node.role,
-        tag: dom?.tag ?? "",
-        inputType: dom?.inputType,
-        editable,
-        pointer: node.pointer,
-      }),
+      actions,
       bounds,
       visibleBounds,
       boundsTrust,
@@ -149,6 +155,8 @@ export function buildElements(input: BuildInput): Element[] {
       }),
     };
     if (dom?.description) el.description = scope.redact(dom.description);
+    else if (dom?.tag === "input" && dom.inputType === "file")
+      el.description = "File upload: set its value to a file name to upload that file";
     const value = dom ? redactFieldValue(dom.value, dom, scope) : undefined;
     if (value !== undefined) el.value = value;
     if (dom?.testId) el.automationId = dom.testId;

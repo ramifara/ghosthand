@@ -48,7 +48,7 @@ export function answerQuestion(instruction: string, passages: string[]): Questio
 
 export interface AnswerResult {
   answer: string;
-  by: "decision" | "writer";
+  by: "decision" | "writer" | "vision";
   costUsd: number;
   decisionCalls: number;
   modelCalls: number;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import type { DesktopLaunchOptions, PlannerChoice, WriterChoice } from "@ghosthand/engine";
+import type { ExtrasFlags } from "../run-extras.ts";
 
 export interface RunFlags {
   url?: string;
@@ -27,4 +28,6 @@ export interface RunFlags {
   network?: boolean;
   /** Windows/macOS: drive the real desktop. */
   allowHostDesktop?: boolean;
+  /** Phase 3: recipes, learning, source-aware mode and vision (web runs). */
+  extras: ExtrasFlags;
 }

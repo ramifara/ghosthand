@@ -50,6 +50,15 @@ export async function startFixtureServer(): Promise<FixtureServer> {
       return;
     }
     if (url.pathname === "/elsewhere") return send(200, "text/html", page("Elsewhere", "<h1>Elsewhere</h1>"));
+    if (url.pathname === "/download.csv") {
+      res.writeHead(200, {
+        "content-type": "text/csv",
+        "content-disposition": 'attachment; filename="report.csv"',
+        "cache-control": "no-store",
+      });
+      res.end("name,count\nalpha,1\nbeta,2\n");
+      return;
+    }
     if (url.pathname === "/catalog.html") return send(200, "text/html", catalogFixture());
     if (url.pathname === "/help" || url.pathname === "/privacy")
       return send(200, "text/html", page("Help", "<h1>Help</h1>"));

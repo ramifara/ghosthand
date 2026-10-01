@@ -1,0 +1,87 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scrolling</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; }
+      main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 12px; }
+      article { height: 90px; border: 1px solid #ccc; margin: 6px 0; padding: 6px; }
+      #big { position: relative; height: 240px; overflow-y: auto; border: 1px solid #999; }
+      .row { position: absolute; left: 0; right: 0; height: 30px; display: flex; gap: 8px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section aria-label="Feed column">
+        <div role="feed" aria-label="Events" id="feed"></div>
+        <div id="sentinel">more</div>
+      </section>
+      <section aria-label="List column">
+        <div role="list" aria-label="Big list" id="big" tabindex="0"><div id="spacer"></div></div>
+        <p id="picked">none</p>
+      </section>
+    </main>
+    <script>
+      // Infinite feed: 8 events per page, 4 pages, loaded when the sentinel shows.
+      const feed = document.getElementById("feed");
+      let loaded = 0;
+      const TOTAL = 32;
+      let busy = false;
+      const loadPage = () => {
+        if (busy || loaded >= TOTAL) return;
+        busy = true;
+        feed.setAttribute("aria-busy", "true");
+        setTimeout(() => {
+          for (let i = 0; i < 8; i++) {
+            loaded++;
+            const a = document.createElement("article");
+            a.setAttribute("aria-posinset", String(loaded));
+            a.innerHTML = `<p>Event ${loaded}</p><button type="button">Open event ${loaded}</button>`;
+            feed.append(a);
+          }
+          const size = loaded >= TOTAL ? String(TOTAL) : "-1";
+          for (const a of feed.children) a.setAttribute("aria-setsize", size);
+          feed.setAttribute("aria-busy", "false");
+          busy = false;
+          check();
+        }, 150);
+      };
+      const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) loadPage(); });
+      const check = () => {
+        const r = document.getElementById("sentinel").getBoundingClientRect();
+        if (r.top < innerHeight) loadPage();
+      };
+      io.observe(document.getElementById("sentinel"));
+
+      // Virtualized list: 100 rows of 30px, only the visible window rendered.
+      const big = document.getElementById("big");
+      const spacer = document.getElementById("spacer");
+      spacer.style.height = `${100 * 30}px`;
+      // Rows are keyed like a React list: rows that stay in the window keep their DOM node.
+      const rows = new Map();
+      const render = () => {
+        const first = Math.max(0, Math.floor(big.scrollTop / 30) - 2);
+        const last = Math.min(100, Math.ceil((big.scrollTop + 240) / 30) + 2);
+        for (const [i, row] of rows) if (i < first || i >= last) { row.remove(); rows.delete(i); }
+        for (let i = first; i < last; i++) {
+          if (rows.has(i)) continue;
+          const row = document.createElement("div");
+          rows.set(i, row);
+          row.className = "row";
+          row.setAttribute("role", "listitem");
+          row.setAttribute("aria-setsize", "100");
+          row.setAttribute("aria-posinset", String(i + 1));
+          row.style.top = `${i * 30}px`;
+          row.innerHTML = `<span>Row ${i + 1}</span><button type="button">Pick row ${i + 1}</button>`;
+          row.querySelector("button").addEventListener("click", () => { document.getElementById("picked").textContent = `picked ${i + 1}`; });
+          spacer.append(row);
+        }
+      };
+      big.addEventListener("scroll", render);
+      render();
+    </script>
+  </body>
+</html>

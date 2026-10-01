@@ -10,10 +10,12 @@ import { mcpCommand } from "./commands/mcp.ts";
 import { modelsCommand } from "./commands/models.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
+import { mapCommand, recipesCommand } from "./commands/recipes.ts";
 import { replayCommand } from "./commands/replay.ts";
 import { runCommand } from "./commands/run.ts";
 import type { RunFlags } from "./commands/run-flags.ts";
 import { runsCommand } from "./commands/runs.ts";
+import { sourcemapCommand } from "./commands/sourcemap.ts";
 import { tasksCommand } from "./commands/tasks.ts";
 import { testCommand } from "./commands/test.ts";
 import { voiceCommand } from "./commands/voice.ts";
@@ -24,15 +26,20 @@ export const HELP = `ghosthand, a Jev CUA
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
                 [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
+                [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off]
   ghosthand run --surface x11|wayland|windows|macos (--task desktop-<id> | --app "<command>" "<goal>")
                 [--runtime auto|docker|podman|host] [--vnc-port <port>] [--network] [--allow-host-desktop] [--yes]
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
-  ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
+  ghosthand eval [--suite l1|l1-l2|l1-l3|l4|l5|l6|l4-l6|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
+                [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off] [--start-path /] [--profile <name>]
   ghosthand test <spec.md> [--runs N] [--out report.html] [--decision jev|heuristic] [--variant k=v,...]
                 [--vision auto|none] [--only case-id,...] [--headless]
   ghosthand mcp [--interactive]
   ghosthand runs list [--limit N] [--task <id>]
+  ghosthand recipes list | show <id> | export <id> [--out file.spec.ts] | remove <id>
+  ghosthand map [--origin <origin>]
+  ghosthand sourcemap <dir> [--diff <base>]
   ghosthand doctor
   ghosthand models list [--provider <id>] [--role planner|writer|vision_reviewer|vision_grounder|judge] [--all]
   ghosthand profile create <name> | list | import <chrome-profile-dir> <name> | remove <name>
@@ -117,7 +124,21 @@ export async function main(argv: string[]): Promise<number> {
         writer: (["models", "codex", "none"].includes(values.writer ?? "")
           ? values.writer
           : "auto") as WriterChoice,
+        // Evals keep runs independent: recipes and learning only when asked (ADR 0011).
+        extras: extrasFlags(values, "off"),
+        ...(values["start-path"] ? { startPath: values["start-path"] } : {}),
+        ...(values.profile ? { profile: values.profile } : {}),
       });
+    case "recipes":
+      return recipesCommand(rest, {
+        json,
+        ...(values.out ? { out: values.out } : {}),
+        ...(values.origin ? { app: values.origin } : {}),
+      });
+    case "map":
+      return mapCommand({ json, ...(values.origin ? { app: values.origin } : {}) });
+    case "sourcemap":
+      return sourcemapCommand(rest[0], { json, ...(values.diff ? { diff: values.diff } : {}) });
     case "tasks":
       return tasksCommand(json);
     case "test":
@@ -184,6 +205,20 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     ...(values["vnc-port"] ? { vncPort: Number(values["vnc-port"]) } : {}),
     ...(values.network ? { network: true } : {}),
     ...(values["allow-host-desktop"] ? { allowHostDesktop: true } : {}),
+    extras: extrasFlags(values, "auto"),
+  };
+}
+
+/** Phase 3 flags shared by `run` and `eval`; `recipesDefault` differs (ADR 0011). */
+export function extrasFlags(
+  values: ReturnType<typeof parse>["values"],
+  recipesDefault: "auto" | "off",
+): RunFlags["extras"] {
+  return {
+    learn: values.learn ?? false,
+    recipes: values.recipes === "auto" || values.recipes === "off" ? values.recipes : recipesDefault,
+    ...(values.source ? { source: values.source } : {}),
+    vision: values.vision === "off" ? "off" : "auto",
   };
 }
 
@@ -243,6 +278,12 @@ export function parse(argv: string[]) {
       network: { type: "boolean" },
       "allow-host-desktop": { type: "boolean" },
       yes: { type: "boolean", short: "y" },
+      learn: { type: "boolean" },
+      recipes: { type: "string" },
+      source: { type: "string" },
+      "start-path": { type: "string" },
+      origin: { type: "string" },
+      diff: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });

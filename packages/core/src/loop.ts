@@ -14,6 +14,7 @@ import type {
   GateName,
   Plan,
   Questions,
+  Result,
   RouterMode,
   RunEventDraft,
   RunOutcome,
@@ -24,36 +25,50 @@ import type {
 } from "@ghosthand/protocol";
 import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
-import { buildCandidates, findByToken, type Operation } from "./candidates.ts";
+import { buildCandidates, DROP_HEAD, findByToken, isNamed, type Operation } from "./candidates.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
+import type { EventSink } from "./event-sink.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
-import type { Planner } from "./planner.ts";
+import { runModeA } from "./mode-a.ts";
+import {
+  captureFor,
+  driveStep,
+  groundAndClick,
+  type ModeDEnv,
+  nameUnnamed,
+  unnamedTargets,
+} from "./mode-d.ts";
+import type { Planner, PlannerError, PlanOutput } from "./planner.ts";
 import {
   AMBIGUOUS,
   BLOCKED,
   buildActQuestions,
   NONE,
   optionQuestions,
+  PAGE,
   regionQuestion,
   targetHead,
   WAIT,
 } from "./questions.ts";
+import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
+import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import { buildNarrowState, buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
+import {
+  D1_FAILURES_FOR_D2,
+  MAX_D2_STEPS,
+  NO_VISION_PROVIDER,
+  QUALITY_GOOD,
+  QUALITY_POOR,
+  type VisionAssist,
+} from "./vision.ts";
 import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer.ts";
 
-/** Receives typed events; the recorder implements it. */
-export interface EventSink {
-  emit(draft: RunEventDraft): void;
-  writeScreenshot?(step: number, bytes: Uint8Array): string;
-  /** The file name writeScreenshot will use for `step`, so the capture can finish off the critical path. */
-  screenshotName?(step: number): string;
-  writeState?(step: number, purpose: string, state: unknown): string;
-}
+export type { EventSink } from "./event-sink.ts";
 
 export interface ApprovalRequest {
   step: number;
@@ -77,6 +92,10 @@ export interface LoopConfig {
   speculate: boolean;
   /** Mode C replans per run (plan: ≤ 2). */
   maxReplans: number;
+  /** Speculation v1: refine later subgoals with the planner while Jev executes the current one. */
+  refinePlan: boolean;
+  /** Refinements per run (each is one planner call). */
+  maxRefinements: number;
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
@@ -88,6 +107,8 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
   settleCapMs: 5000,
   speculate: true,
   maxReplans: 2,
+  refinePlan: true,
+  maxRefinements: 2,
 };
 
 export interface LoopDeps {
@@ -110,6 +131,18 @@ export interface LoopDeps {
   skipOpen?: boolean;
   /** Pause/resume for human takeover. Checked before every step and right before every act. */
   control?: RunControl;
+  /** Verified recipes (mode A). A match on the start screen is replayed before mode B takes over. */
+  recipes?: RecipeBook;
+  /** Sees every observed snapshot with its fingerprint (app map learning). Must be cheap and not throw. */
+  onSnapshot?: (snapshot: Snapshot, fingerprint: ScreenFingerprint, step: number) => void;
+  /** Modes D1/D2. Absent: vision steps degrade to a human escalation with a clear reason. */
+  vision?: VisionAssist;
+  /** Source-aware mode: extra element names to rank first for this subgoal and screen. */
+  seedTargets?: (subgoal: Subgoal, snapshot: Snapshot) => string[];
+  /** Source-aware mode: routes and test ids from the app's code, for the planner prompt. */
+  plannerContext?: string;
+  /** Source-aware mode: a same-app URL to go to before acting (the route the goal names), or undefined. */
+  navigateFirst?: (task: TaskSpec, start: Snapshot) => string | undefined;
 }
 
 /**
@@ -133,7 +166,9 @@ export interface RunResult {
   timings: StepTiming[];
   /** Reported answer for tasks that ask for one. */
   answer?: string;
-  answeredBy?: "decision" | "writer";
+  answeredBy?: "decision" | "writer" | "vision";
+  /** Mode A: what the recipe replay did (absent when no recipe matched). */
+  replay?: ReplayReport;
 }
 
 /** One subgoal per task when no plan is given; the goal itself is checked by the model. */
@@ -160,6 +195,15 @@ type StepOutcome =
   | { kind: "subgoal_done" }
   | { kind: "end"; outcome: RunOutcome; reason: string };
 
+/** A speculative plan refinement in flight (speculation v1). */
+interface PendingRefine {
+  forIndex: number;
+  version: number;
+  controller: AbortController;
+  settled: boolean;
+  result?: Result<PlanOutput, PlannerError>;
+}
+
 export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult> {
   const cfg: LoopConfig = {
     ...DEFAULT_LOOP_CONFIG,
@@ -178,6 +222,21 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let decisionCalls = 0;
   let modelCalls = 0;
   let step = 0;
+  let replay: ReplayReport | undefined;
+  /** Actions executed by mode A before the subgoal loop. */
+  let replayedActions = 0;
+  /** Run every done_when check (model ones too) on the first step after a complete replay. */
+  let checkAfterReplay = false;
+  /** Set when a vision step was needed but could not run; appended to failure reasons. */
+  let visionNeeded: string | undefined;
+  /** The page itself needs vision (unnamed targets, poor surface): a replan cannot help. */
+  let visionBlocks = false;
+  /** Mode of the previous step, for de-escalation events. */
+  let lastMode: RouterMode = "B";
+  /** Bumped whenever the plan changes; a refinement made for another version is stale. */
+  let planVersion = 0;
+  let refinements = 0;
+  let pendingRefine: PendingRefine | undefined;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
   /** A human held the run (takeover): credit the time budget and record it. */
@@ -191,7 +250,108 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       granted: true,
     });
   };
-  const finish = (outcome: RunOutcome, reason: string, answered?: AnswerResult): RunResult => {
+  const noteVisionNeeded = (at: number, why: string, missing: string, blocking = true): void => {
+    if (blocking) visionBlocks = true;
+    if (visionNeeded !== undefined) return;
+    visionNeeded = `${why}; ${missing}`;
+    emit({
+      type: "escalate",
+      step: Math.max(at, 1),
+      from: "B",
+      to: "H",
+      reason: `vision needed (${why}) but ${missing}`,
+    });
+  };
+  /** Ends a pending refinement: applied (returns true) or discarded with a reason. */
+  const closeRefine = (applyTo: number | undefined, why: string): boolean => {
+    const p = pendingRefine;
+    if (!p) return false;
+    pendingRefine = undefined;
+    if (!p.settled) p.controller.abort(new Error(why));
+    const r = p.result;
+    if (p.settled) {
+      modelCalls++;
+      if (r?.ok) budget.spend(r.value.costUsd ?? 0);
+    }
+    const usable =
+      applyTo !== undefined &&
+      p.settled &&
+      r?.ok === true &&
+      p.forIndex === applyTo &&
+      p.version === planVersion;
+    if (usable && r?.ok) {
+      plan = {
+        source: "planner",
+        subgoals: [...plan.subgoals.slice(0, applyTo + 1), ...r.value.plan.subgoals],
+      };
+      planVersion++;
+      emit({ type: "plan", plan });
+    }
+    emit({
+      type: "model.call",
+      step,
+      role: "planner",
+      model: r?.ok ? (r.value.model ?? r.value.planner) : (deps.planner?.id ?? "planner"),
+      latencyMs: r?.ok ? r.value.latencyMs : 0,
+      ...(r?.ok && r.value.costUsd !== undefined ? { costUsd: r.value.costUsd } : {}),
+      ok: r?.ok ?? false,
+      summary: usable
+        ? `speculative refinement applied (${r?.ok ? r.value.plan.subgoals.length : 0} subgoals)`
+        : `speculative refinement discarded: ${r && !r.ok ? `${r.error.kind}: ${r.error.message}` : why}`,
+    });
+    return usable;
+  };
+  /** Starts refining the subgoals after `index` from this screen, without waiting for it. */
+  const startRefine = (index: number, snapshot: Snapshot, history: HistoryEntry[]): void => {
+    const planner = deps.planner;
+    if (!planner?.refine || !cfg.refinePlan || pendingRefine || refinements >= cfg.maxRefinements) return;
+    if (plan.source !== "planner" || index >= plan.subgoals.length - 1) return;
+    const current = plan.subgoals[index];
+    if (!current) return;
+    refinements++;
+    const controller = new AbortController();
+    const signal = deps.signal ? AbortSignal.any([deps.signal, controller.signal]) : controller.signal;
+    const entry: PendingRefine = {
+      forIndex: index,
+      version: planVersion,
+      controller,
+      settled: false,
+    };
+    pendingRefine = entry;
+    void planner
+      .refine(
+        {
+          goal: task.instruction,
+          startUrl: task.startUrl,
+          pageSummary: pageSummary(snapshot, deps.secrets),
+          ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
+          maxSubgoals: 12,
+          plan,
+          currentSubgoalId: current.id,
+          history: history.slice(-8).map((h) => `${h.step}. ${h.text}`),
+        },
+        { signal },
+      )
+      .then(
+        (r) => {
+          entry.result = r;
+          entry.settled = true;
+        },
+        (e: unknown) => {
+          entry.result = {
+            ok: false,
+            error: { kind: "provider", message: e instanceof Error ? e.message : String(e) },
+          };
+          entry.settled = true;
+        },
+      );
+  };
+  const finish = (outcome: RunOutcome, rawReason: string, answered?: AnswerResult): RunResult => {
+    closeRefine(undefined, "the run ended");
+    const reason =
+      visionNeeded !== undefined && outcome !== "success"
+        ? `${rawReason}; vision needed: ${visionNeeded}`
+        : rawReason;
     const total = Object.values(modeCounts).reduce((a, b) => a + (b ?? 0), 0);
     const modeShares: Record<string, number> = {};
     for (const [m, n] of Object.entries(modeCounts)) modeShares[m] = total > 0 ? (n ?? 0) / total : 0;
@@ -206,6 +366,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       modeShares,
       timings,
       ...(answered ? { answer: answered.answer, answeredBy: answered.by } : {}),
+      ...(replay ? { replay } : {}),
     };
     emit({
       type: "run.end",
@@ -242,14 +403,77 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     if (!opened.ok) return finish("error", `open failed: ${opened.error.kind}: ${opened.error.message}`);
   }
 
+  // Mode A: a verified recipe for this task on this start screen replays before anything else.
+  let recipe: RecipeMatch | undefined;
+  if (deps.recipes) {
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    const start = await deps.computer.observe();
+    if (start.ok) recipe = deps.recipes.match(task, start.value);
+    if (recipe?.plan && !task.plan) plan = { ...recipe.plan, source: "recipe" };
+  }
+
+  // Source-aware: go straight to the route the goal names (zero model calls, counted as mode A).
+  if (!recipe && deps.navigateFirst) {
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    const start = await deps.computer.observe();
+    const url = start.ok ? deps.navigateFirst(task, start.value) : undefined;
+    if (url && start.ok) {
+      step++;
+      budget.step();
+      const timing: StepTiming = { settleMs: 0, observeMs: 0, decideMs: 0, actMs: 0, verifyMs: 0 };
+      emit({
+        type: "observe",
+        step,
+        snapshotId: start.value.id,
+        ...(start.value.url ? { url: start.value.url } : {}),
+        elementCount: start.value.elements.length,
+        tokenEstimate: start.value.tokenEstimate,
+        screen: screenFingerprint(start.value).key,
+        quality: start.value.quality.score,
+      });
+      // Prefer the page's own link to that route (in-app navigation keeps the app loaded); else go to it.
+      const link = linkTo(start.value, url);
+      const action: Action = link ? { type: "press", token: link.token } : { type: "navigate", url };
+      emit({
+        type: "action",
+        step,
+        action,
+        ...(link ? { target: fingerprintOf(link) } : {}),
+        effectClass: "advance",
+        mode: "A",
+      });
+      const t0 = clock.now();
+      let result: ActionResult;
+      if (link) result = await deps.computer.press(link.token);
+      else {
+        const opened = await deps.computer.open(url);
+        result = {
+          effect: opened.ok ? "confirmed" : "refused",
+          route: "navigation",
+          evidence: opened.ok ? [{ kind: "url", after: url }] : [],
+          ...(opened.ok ? {} : { error: { kind: "driver" as const, message: opened.error.message } }),
+          invalidatedSnapshots: [start.value.id],
+          durationMs: clock.now() - t0,
+        };
+      }
+      timing.actMs = clock.now() - t0;
+      emit({ type: "effect", step, result });
+      emit({ type: "step.end", step, timing, mode: "A" });
+      timings.push(timing);
+      modeCounts.A = (modeCounts.A ?? 0) + 1;
+      if (result.effect !== "refused") replayedActions++;
+    }
+  }
+
   // Mode C: without a task plan, the planner plans once from the first screen.
-  if (!task.plan && deps.planner) {
+  if (!task.plan && !recipe?.plan && deps.planner) {
     const first = await deps.computer.observe();
     const r = await deps.planner.plan(
       {
         goal: task.instruction,
         startUrl: task.startUrl,
         ...(first.ok ? { pageSummary: pageSummary(first.value, deps.secrets) } : {}),
+        ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
         maxSubgoals: 12,
       },
       deps.signal ? { signal: deps.signal } : {},
@@ -257,10 +481,46 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     plannerCall(r, "planner");
     if (r.ok) {
       plan = r.value.plan;
+      planVersion++;
       modeCounts.C = 0;
     }
   }
   emit({ type: "plan", plan });
+
+  if (recipe) {
+    const allowed = [...new Set(plan.subgoals.flatMap((g) => g.allowedEffects))];
+    const a = await runModeA(
+      recipe,
+      {
+        computer: deps.computer,
+        events: deps.events,
+        decision: deps.decision,
+        secrets: deps.secrets,
+        clock,
+        task,
+        forbidden,
+        allowedEffects: allowed,
+        settleCapMs: cfg.settleCapMs,
+        firstStep: step + 1,
+        ...(deps.signal ? { signal: deps.signal } : {}),
+        onDecision: (costUsd) => {
+          decisionCalls++;
+          budget.spend(costUsd);
+        },
+      },
+      execute,
+    );
+    replay = a.report;
+    replayedActions = a.report.replayed;
+    // A complete replay should be judged at once, model checks included.
+    checkAfterReplay = a.report.fellBackAt === undefined;
+    step += a.steps;
+    for (let k = 0; k < a.steps; k++) budget.step();
+    timings.push(...a.timings);
+    if (a.modeSteps.A > 0) modeCounts.A = (modeCounts.A ?? 0) + a.modeSteps.A;
+    if (a.modeSteps.B > 0) modeCounts.B = (modeCounts.B ?? 0) + a.modeSteps.B;
+    log.info({ recipe: recipe.recipeId, ...a.report }, "recipe replay finished");
+  }
 
   /** Replaces the failed subgoal and the rest of the plan. Returns true when the run should continue. */
   const replan = async (
@@ -270,6 +530,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     history: HistoryEntry[],
   ): Promise<boolean> => {
     if (!deps.planner || replans >= cfg.maxReplans || budget.exceeded()) return false;
+    // A new plan cannot supply a missing vision provider: stop instead of spending planner calls.
+    if (visionBlocks && !deps.vision) return false;
     replans++;
     emit({ type: "escalate", step, from: "B", to: "C", reason: `replan ${replans}: ${reason}` });
     const now = await deps.computer.observe();
@@ -278,6 +540,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         goal: task.instruction,
         startUrl: task.startUrl,
         ...(now.ok ? { pageSummary: pageSummary(now.value, deps.secrets) } : {}),
+        ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
         maxSubgoals: 12,
         plan,
         failedSubgoalId: failed.id,
@@ -289,6 +552,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     plannerCall(r, "planner");
     if (!r.ok) return false;
     plan = { source: "planner", subgoals: [...plan.subgoals.slice(0, index), ...r.value.plan.subgoals] };
+    planVersion++;
+    // The premise of a pending refinement (this subgoal succeeds on the old plan) no longer holds.
+    closeRefine(undefined, "the plan changed (replan)");
     emit({ type: "plan", plan });
     modeCounts.C = (modeCounts.C ?? 0) + 1;
     return true;
@@ -307,6 +573,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const handoffs = { count: 0 };
     const acted = { count: 0 };
     const extraTexts: string[] = [];
+    // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
+    const d1Failures = new Map<string, number>();
+    let driving: { remaining: number } | undefined;
+    const noneStreak = { screen: "", count: 0 };
+    let poorStreak = 0;
 
     while (true) {
       if (deps.control) {
@@ -343,6 +614,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       if (!observed.ok)
         return finish("error", `observe failed: ${observed.error.kind}: ${observed.error.message}`);
       const snapshot = observed.value;
+      const fingerprint = screenFingerprint(snapshot);
+      deps.onSnapshot?.(snapshot, fingerprint, current);
       let screenshot: string | undefined;
       // With a reserved name the capture runs in parallel with verify/decide and is written at step end.
       let pendingShot: Promise<void> | undefined;
@@ -367,6 +640,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         elementCount: snapshot.elements.length,
         tokenEstimate: snapshot.tokenEstimate,
         ...(screenshot ? { screenshot } : {}),
+        screen: fingerprint.key,
+        quality: snapshot.quality.score,
       });
       stall.observe(screenSignature(snapshot));
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
@@ -375,7 +650,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // done_when (deterministic and oracle every step; model predicates only when the goal looks done)
       t = clock.now();
       // With deterministic predicates, model predicates only run once those pass (early exit inside).
-      const checkModel = hasDeterministicPredicates(subgoal.doneWhen) || lastGoalDone >= 0.5;
+      const checkModel =
+        hasDeterministicPredicates(subgoal.doneWhen) || lastGoalDone >= 0.5 || checkAfterReplay;
+      checkAfterReplay = false;
       const verifyState = buildState(
         {
           instruction: task.instruction,
@@ -417,6 +694,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         handoffs,
         extraTexts,
         acted,
+        screenKey: fingerprint.key,
+        d1Failures,
+        noneStreak,
+        mode: { current: "B" },
+        noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -451,6 +733,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       const preSatisfied =
         done.state === "satisfied" &&
         acted.count === 0 &&
+        replayedActions === 0 &&
         plan.source === "task" &&
         plan.subgoals.length === 1;
       if (done.state === "satisfied" && !preSatisfied) await pendingShot;
@@ -460,9 +743,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           log.debug({ step: current }, "speculative decision discarded: subgoal done");
         }
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "satisfied", steps: subgoalSteps });
+        if (pendingRefine)
+          closeRefine(i, pendingRefine.settled ? "stale" : "not ready when the subgoal ended");
         break;
       }
 
+      if (subgoalSteps === 0) startRefine(i, snapshot, history);
       step = current;
       subgoalSteps++;
       budget.step();
@@ -485,11 +771,80 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         timing.observeMs += clock.now() - t;
         if (scoped) ctx.snapshot = scoped;
       }
+      // Router: D2 for a poor surface (two observations in a row) or after two D1 failures on this screen;
+      // back to B as soon as the element table is good again.
+      const q = snapshot.quality.score;
+      const poor =
+        q < QUALITY_POOR && (snapshot.quality.unnamedInteractive > 0 || snapshot.elements.length < 3);
+      poorStreak = poor ? poorStreak + 1 : 0;
+      if (driving && q >= QUALITY_GOOD) {
+        emit({
+          type: "escalate",
+          step,
+          from: "D2",
+          to: "B",
+          reason: `element table good again (q=${q.toFixed(2)})`,
+          direction: "down",
+        });
+        driving = undefined;
+      } else if (lastMode === "D1" && q >= QUALITY_GOOD) {
+        emit({
+          type: "escalate",
+          step,
+          from: "D1",
+          to: "B",
+          reason: `back to Jev (q=${q.toFixed(2)})`,
+          direction: "down",
+        });
+      }
+      const d1Failed = (d1Failures.get(fingerprint.key) ?? 0) >= D1_FAILURES_FOR_D2;
+      if (!driving && (poorStreak >= 2 || d1Failed)) {
+        const why = d1Failed
+          ? "vision assist failed twice on this screen"
+          : `poor surface (q=${q.toFixed(2)})`;
+        if (deps.vision?.drive) {
+          driving = { remaining: MAX_D2_STEPS };
+          emit({ type: "escalate", step, from: lastMode === "D1" ? "D1" : "B", to: "D2", reason: why });
+        } else
+          noteVisionNeeded(
+            step,
+            why,
+            deps.vision ? "the vision provider has no computer-use model" : NO_VISION_PROVIDER,
+          );
+      }
+      if (driving && deps.vision) {
+        if (speculative) await speculative.response;
+        t = clock.now();
+        const o = await driveStep(modeDEnv(ctx, deps.vision), execute);
+        timing.actMs = clock.now() - t;
+        driving.remaining--;
+        modeCounts.D2 = (modeCounts.D2 ?? 0) + 1;
+        timings.push(timing);
+        await pendingShot;
+        emit({ type: "step.end", step, timing, mode: "D2" });
+        lastMode = "D2";
+        if (o.kind === "acted") acted.count++;
+        if (o.kind === "safety") {
+          emit({ type: "escalate", step, from: "D2", to: "H", reason: `provider safety check: ${o.reason}` });
+          emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
+          return finish("stuck", `a provider safety check needs a human decision: ${o.reason}`);
+        }
+        if (o.kind !== "acted" || driving.remaining <= 0) {
+          const why = o.kind === "acted" ? `D2 segment used ${MAX_D2_STEPS} steps` : o.reason;
+          emit({ type: "escalate", step, from: "D2", to: "B", reason: why, direction: "down" });
+          driving = undefined;
+          d1Failures.delete(fingerprint.key);
+        }
+        continue;
+      }
+
       const outcome = await decideAndAct(ctx, speculative);
-      modeCounts.B = (modeCounts.B ?? 0) + 1;
+      const stepMode = ctx.mode.current;
+      modeCounts[stepMode] = (modeCounts[stepMode] ?? 0) + 1;
+      lastMode = stepMode;
       timings.push(timing);
       await pendingShot;
-      emit({ type: "step.end", step, timing, mode: "B" });
+      emit({ type: "step.end", step, timing, mode: stepMode });
 
       if (outcome.kind === "answer") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
@@ -537,6 +892,40 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       budget.spend(answered.costUsd);
       return finish("success", `${why}; answer reported`, answered);
     }
+    // The answer may be drawn rather than written (canvas charts): ask the vision model (D1 describe).
+    if (deps.vision) {
+      const shot = await captureFor(deps.computer);
+      const r = shot
+        ? await deps.vision.describe({
+            screenshot: shot,
+            question: `Answer from what the screen shows, as briefly as possible: ${task.instruction}`,
+            ...(deps.signal ? { signal: deps.signal } : {}),
+          })
+        : undefined;
+      if (r) {
+        modelCalls++;
+        if (r.ok) budget.spend(r.value.costUsd);
+        emit({
+          type: "model.call",
+          step,
+          role: "vision_reviewer",
+          model: r.ok ? r.value.model : deps.vision.id,
+          latencyMs: r.ok ? r.value.latencyMs : 0,
+          ...(r.ok ? { costUsd: r.value.costUsd } : {}),
+          ok: r.ok,
+          summary: r.ok ? "answer read from the screen" : `${r.error.kind}: ${r.error.message}`,
+        });
+        modeCounts.D1 = (modeCounts.D1 ?? 0) + 1;
+      }
+      if (r?.ok && r.value.text.trim() !== "")
+        return finish("success", `${why}; answer read from the screen by vision`, {
+          answer: deps.secrets.redact(r.value.text.trim()).slice(0, 500),
+          by: "vision",
+          costUsd: r.value.costUsd,
+          decisionCalls: 0,
+          modelCalls: 1,
+        });
+    } else noteVisionNeeded(step, "no answer could be read from the page text", NO_VISION_PROVIDER);
     return finish("failure", `${why}, but no answer could be read from the page`);
   }
 }
@@ -569,6 +958,94 @@ interface DecideContext {
   hint?: string;
   /** Actions executed in this subgoal. */
   acted: { count: number };
+  /** Fingerprint key of this step's screen. */
+  screenKey: string;
+  /** D1 attempts that changed nothing, per screen key. */
+  d1Failures: Map<string, number>;
+  /** Consecutive steps on one screen where Jev found no target. */
+  noneStreak: { screen: string; count: number };
+  /** The mode this step ends up in (B, or D1 when vision assisted). */
+  mode: { current: RouterMode };
+  /** Vision was already tried this step. */
+  visionTried?: boolean;
+  /** `blocking`: the page itself needs vision (not just "no target fits", which a replan may fix). */
+  noteVisionNeeded: (why: string, missing: string, blocking?: boolean) => void;
+}
+
+function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
+  return {
+    computer: ctx.deps.computer,
+    events: ctx.deps.events,
+    vision,
+    secrets: ctx.deps.secrets,
+    clock: ctx.clock,
+    step: ctx.step,
+    goal: ctx.hint ?? ctx.subgoal.goal,
+    history: ctx.history,
+    textOptions: buildTextOptions(textGoal(ctx), ctx.task.secrets, ctx.deps.secrets),
+    ...(ctx.deps.signal ? { signal: ctx.deps.signal } : {}),
+    onModelCall: ctx.onModelCall,
+  };
+}
+
+/** D1 screen-to-text: vision names unlabeled controls, then Jev is asked again on the named table. */
+async function visionName(ctx: DecideContext, why: string): Promise<DecideOutcome | undefined> {
+  if (ctx.visionTried) return undefined;
+  const vision = ctx.deps.vision;
+  if (!vision) {
+    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER);
+    return undefined;
+  }
+  ctx.deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D1", reason: why });
+  const named = await nameUnnamed(modeDEnv(ctx, vision), ctx.snapshot);
+  if (!named) {
+    ctx.d1Failures.set(ctx.screenKey, (ctx.d1Failures.get(ctx.screenKey) ?? 0) + 1);
+    return undefined;
+  }
+  ctx.mode.current = "D1";
+  return decideAndAct({ ...ctx, snapshot: named, visionTried: true });
+}
+
+/** D1 ground: vision points at the next target, the loop clicks that point. */
+async function visionGround(
+  ctx: DecideContext,
+  why: string,
+  effect: EffectClass,
+): Promise<DecideOutcome | undefined> {
+  if (ctx.visionTried) return undefined;
+  const vision = ctx.deps.vision;
+  if (!vision) {
+    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER, false);
+    return undefined;
+  }
+  if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
+  ctx.deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D1", reason: why });
+  const instruction = ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`;
+  const t = ctx.clock.now();
+  const r = await groundAndClick(modeDEnv(ctx, vision), instruction, effect);
+  ctx.timing.actMs = ctx.clock.now() - t;
+  ctx.mode.current = "D1";
+  if (!r.result || r.result.effect === "suspected_noop" || r.result.effect === "refused") {
+    ctx.d1Failures.set(ctx.screenKey, (ctx.d1Failures.get(ctx.screenKey) ?? 0) + 1);
+    ctx.history.push({ step: ctx.step, text: `vision assist failed: ${r.reason}` });
+    return r.result ? { kind: "continue" } : undefined;
+  }
+  ctx.acted.count++;
+  return { kind: "continue" };
+}
+
+/** Tracks consecutive "no target" answers on one screen; returns the streak length. */
+function noteNone(ctx: DecideContext, none: boolean): number {
+  if (!none || ctx.visionTried) {
+    if (!ctx.visionTried) ctx.noneStreak.count = 0;
+    return 0;
+  }
+  if (ctx.noneStreak.screen === ctx.screenKey) ctx.noneStreak.count++;
+  else {
+    ctx.noneStreak.screen = ctx.screenKey;
+    ctx.noneStreak.count = 1;
+  }
+  return ctx.noneStreak.count;
 }
 
 /** Literal source for the text head: goal, instruction and writer-supplied texts. */
@@ -637,7 +1114,8 @@ function prepareAct(ctx: DecideContext): PreparedAct {
   const triedHere = new Set(
     [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
   );
-  const candidates = buildCandidates(snapshot, { seedTargets: subgoal.seedTargets, triedHere });
+  const seeds = [...subgoal.seedTargets, ...(deps.seedTargets?.(subgoal, snapshot) ?? [])];
+  const candidates = buildCandidates(snapshot, { seedTargets: seeds, triedHere });
   const textOptions = buildTextOptions(textGoal(ctx), task.secrets, deps.secrets);
   const { questions, offered } = buildActQuestions({ candidates, textOptions, forbidden: task.forbidden });
 
@@ -744,9 +1222,20 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
-    return (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
+    // "Nothing to do" on a page that looks done is not a vision case.
+    const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
+    const viaVision =
+      streak >= 2
+        ? await visionGround(
+            ctx,
+            `no listed element fits (${streak} times on this screen)`,
+            answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance",
+          )
+        : undefined;
+    return viaVision ?? (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
   }
   const operation = op as Operation;
+  if (operation === "scroll") return scrollStep(ctx, answers);
   const targetAnswer = answers[targetHead(operation)];
   const targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
   const element =
@@ -761,6 +1250,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
 
   // Build the action.
   let action: Action | undefined;
+  let destination: Element | undefined;
   let describe = "";
   if (element) {
     switch (operation) {
@@ -796,6 +1286,24 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
         }
         break;
       }
+      case "drag": {
+        const dropAnswer = answers[DROP_HEAD];
+        const dropToken = dropAnswer?.type === "choice" ? dropAnswer.choice : undefined;
+        const drop =
+          dropToken && dropToken !== NONE && dropToken !== AMBIGUOUS
+            ? findByToken(snapshot, dropToken)
+            : undefined;
+        if (drop && drop.token !== element.token && choiceConfidence(dropAnswer) >= cfg.gates.target) {
+          destination = drop;
+          action = { type: "drag", from: { token: element.token }, to: { token: drop.token } };
+          describe = `drag ${element.role} "${element.name}" to ${drop.role} "${drop.name}"`;
+        }
+        break;
+      }
+      case "context_menu":
+        action = { type: "click", target: { token: element.token }, button: "right" };
+        describe = `open the context menu of ${element.role} "${element.name}"`;
+        break;
     }
   }
 
@@ -820,7 +1328,12 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     gates.push({
       gate: "target_named",
       passed: false,
-      detail: operation === "set_value" ? "no text option chosen" : "no option chosen",
+      detail:
+        operation === "set_value"
+          ? "no text option chosen"
+          : operation === "drag"
+            ? "no drop target chosen"
+            : "no option chosen",
     });
   for (const g of gates) gate(ctx, g.gate, g.passed, g.detail);
   if (!allPassed(gates) || !action || !element) {
@@ -837,12 +1350,29 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     });
     if (unsure) {
       const reason = failed.map((g) => `${g.gate} ${g.detail ?? ""}`.trim()).join("; ");
+      // Mode D1: an unnamed target or a poorly named table goes to vision before the writer.
+      const unnamedChosen = element !== undefined && !isNamed(element);
+      const poorTable = snapshot.quality.score < QUALITY_GOOD && unnamedTargets(snapshot).length > 0;
+      const streak = noteNone(ctx, targetToken === NONE);
+      const viaVision =
+        unnamedChosen || poorTable
+          ? await visionName(
+              ctx,
+              unnamedChosen
+                ? "the chosen target has no name"
+                : `unnamed controls (q=${snapshot.quality.score.toFixed(2)})`,
+            )
+          : streak >= 2
+            ? await visionGround(ctx, `no listed element fits (${streak} times on this screen)`, effect)
+            : undefined;
+      if (viaVision) return viaVision;
       const handed = await handOff(ctx, reason, needsText ? element?.name : undefined);
       if (handed) return handed;
     }
     return refuse();
   }
 
+  noteNone(ctx, false);
   // Never retry a mutation: the same commit on the same screen is refused.
   const key = `${action.type}|${element.stableId}|${"value" in action ? JSON.stringify(action.value) : ""}`;
   const before = ctx.stall.attempt(key);
@@ -873,6 +1403,8 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       ...(bounds ? { bounds } : {}),
       ...(targetAnswer?.type === "choice" ? { confidence: choiceConfidence(targetAnswer) } : {}),
     },
+    ...(destination ? { destination: fingerprintOf(destination) } : {}),
+    effectClass: effect,
     mode: "B",
   });
   t = clock.now();
@@ -880,14 +1412,95 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const result = await execute(deps.computer, action);
   ctx.timing.actMs = clock.now() - t;
   deps.events.emit({ type: "effect", step, result });
-  if (result.effect === "suspected_noop" || result.effect === "refused") ctx.triedNoEffect.add(key);
+  // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
+  // in the table at its rank, and the history says why it did not work.
+  const covered = result.error?.kind === "hit_test_failed";
+  if ((result.effect === "suspected_noop" || result.effect === "refused") && !covered)
+    ctx.triedNoEffect.add(key);
   if (result.effect === "confirmed") ctx.handoffs.count = 0;
   history.push({
     step,
-    text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""})`,
+    text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""}${covered ? "; it was covered by something else, so it can be tried again once that is gone" : ""})`,
   });
   return { kind: "continue" };
 }
+
+/** The unique link on the page whose target is `url`'s path (same origin). */
+export function linkTo(snapshot: Snapshot, url: string): Element | undefined {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const strip = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  const hits = snapshot.elements.filter((e) => {
+    if (!e.href || e.states.includes("hidden") || !e.actions.includes("press")) return false;
+    try {
+      const h = new URL(e.href, snapshot.url ?? url);
+      return h.origin === target.origin && strip(h.pathname) === strip(target.pathname);
+    } catch {
+      return false;
+    }
+  });
+  const names = new Set(hits.map((e) => e.stableId));
+  return names.size === 1 ? hits[0] : undefined;
+}
+
+/** Pixels per scroll step: most of a typical viewport, so consecutive views overlap a little. */
+export const SCROLL_STEP_PX = 600;
+
+/** The `scroll` operation: wheel-scrolls the list under the chosen element, or the page. Never a commit. */
+async function scrollStep(ctx: DecideContext, answers: Record<string, Answer>): Promise<DecideOutcome> {
+  const { deps, step, history, clock, cfg } = ctx;
+  const a = answers[targetHead("scroll")];
+  const choice = a?.type === "choice" ? a.choice : undefined;
+  const confident = choiceConfidence(a) >= cfg.gates.target;
+  const element = choice && choice !== PAGE ? findByToken(ctx.snapshot, choice) : undefined;
+  const ok = confident && (choice === PAGE || element !== undefined);
+  gate(
+    ctx,
+    "target_confidence",
+    ok,
+    `${choiceConfidence(a).toFixed(3)} vs ${cfg.gates.target} (${choice ?? "abstain"})`,
+  );
+  if (!ok) {
+    history.push({ step, text: `refused scroll (${choice ?? "abstain"})` });
+    return refuse();
+  }
+  const action: Action = {
+    type: "scroll",
+    dx: 0,
+    dy: SCROLL_STEP_PX,
+    ...(element ? { target: { token: element.token } } : {}),
+  };
+  const describe = element ? `scroll near ${element.role} "${element.name}"` : "scroll the page";
+  const key = `scroll|${element?.stableId ?? PAGE}|`;
+  ctx.stall.attempt(key);
+  deps.events.emit({
+    type: "action",
+    step,
+    action,
+    ...(element ? { target: { stableId: element.stableId, role: element.role, name: element.name } } : {}),
+    mode: "B",
+  });
+  const t = clock.now();
+  ctx.acted.count++;
+  const result = await execute(deps.computer, action);
+  ctx.timing.actMs = clock.now() - t;
+  deps.events.emit({ type: "effect", step, result });
+  if (result.effect === "suspected_noop" || result.effect === "refused") ctx.triedNoEffect.add(key);
+  history.push({ step, text: `${describe} (${result.effect})` });
+  return { kind: "continue" };
+}
+
+/** The replay fingerprint of an element (action events). */
+export const fingerprintOf = (e: Element) => ({
+  stableId: e.stableId,
+  role: e.role,
+  name: e.name,
+  ...(e.automationId ? { automationId: e.automationId } : {}),
+});
 
 const UNSURE_GATES = new Set<GateName>(["operation_confidence", "target_confidence", "target_named"]);
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Launches the web Computer (installed browser + named profile) for a run.
 import { launchWebComputer, type WebComputer } from "@ghosthand/driver-playwright";
+import { CONTROL_ORIGIN } from "@ghosthand/testbed-kit";
 import type { ComputerLauncher } from "./run-agent.ts";
 import type { EngineRuntime } from "./runtime.ts";
 import type { BrowserCookie } from "./testbed.ts";
@@ -12,6 +13,8 @@ export interface WebLaunchOptions {
   profile?: string;
   headless?: boolean;
   cookies?: BrowserCookie[];
+  /** Files `set_value` may upload into file inputs (by base name). */
+  uploadDir?: string;
 }
 
 /** Launches the browser and returns the WebComputer itself (QA mode needs its page and error log). */
@@ -30,7 +33,9 @@ export async function launchWeb(
     secrets: rt.secrets,
     startUrl: opts.startUrl,
     allowOrigins: opts.allowOrigins ?? [],
-    blockOrigins: rt.config.blockedOrigins,
+    // The testbed control API is always blocked (the driver blocks :4401; this covers a port offset).
+    blockOrigins: [...rt.config.blockedOrigins, CONTROL_ORIGIN],
+    ...(opts.uploadDir ? { uploadDir: opts.uploadDir } : {}),
     logger: rt.logger.child({ pkg: "driver-playwright" }),
   });
   if (!launched.ok)

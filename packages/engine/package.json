@@ -25,6 +25,7 @@
     "@ghosthand/driver-playwright": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
     "@ghosthand/models": "workspace:*",
+    "@ghosthand/knowledge": "workspace:*",
     "@ghosthand/qa": "workspace:*",
     "@ghosthand/voice": "workspace:*"
   },

@@ -11,7 +11,7 @@ export function toTaskSpec(task: TestbedTask, appOrigin: string = APP_ORIGIN): T
     mode: "do",
     instruction: task.instruction,
     startUrl: new URL(task.start, appOrigin).href,
-    allowOrigins: [new URL(appOrigin).origin],
+    allowOrigins: [new URL(appOrigin).origin, ...task.allowOrigins],
     plan: {
       source: "task",
       subgoals: [{ id: task.id, goal: task.instruction, doneWhen: task.doneWhen }],

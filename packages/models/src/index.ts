@@ -186,6 +186,18 @@ export {
   readOpenAICall,
 } from "./vision/native-grounding.ts";
 export {
+  createVisionDriver,
+  DRIVER_SYSTEM,
+  type DriveOutcome,
+  type DriveRequest,
+  drivePrompt,
+  JsonDriveAnswer,
+  mapPoints,
+  readAnthropicDrive,
+  readOpenAIDrive,
+  type VisionDriver,
+} from "./vision/vision-driver.ts";
+export {
   createVisionGrounder,
   GROUNDING_GUARD,
   type GroundingMethod,

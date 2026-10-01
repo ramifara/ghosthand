@@ -36,7 +36,7 @@ export function progressPrinter(write: (line: string) => void = (l) => process.s
         if (!e.passed) write(`  gate ${e.gate} refused${e.detail ? `: ${e.detail}` : ""}`);
         break;
       case "escalate":
-        write(`  escalate ${e.from} → ${e.to}: ${e.reason}`);
+        write(`  ${e.direction === "down" ? "de-escalate" : "escalate"} ${e.from} → ${e.to}: ${e.reason}`);
         break;
       case "model.call":
         write(`  ${e.role} (${e.model}) ${ms(e.latencyMs)}${e.summary ? `: ${e.summary}` : ""}`);
@@ -45,7 +45,9 @@ export function progressPrinter(write: (line: string) => void = (l) => process.s
         write(`  verify ${e.state} (by ${e.decidedBy})`);
         break;
       case "run.end": {
+        const order = ["A", "B", "C", "D1", "D2", "H"];
         const shares = Object.entries(e.modeShares)
+          .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
           .map(([m, v]) => `${m} ${Math.round(v * 100)}%`)
           .join(", ");
         write(

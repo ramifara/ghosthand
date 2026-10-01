@@ -39,10 +39,68 @@ export interface ActionFacts {
   /** Editable combobox (an input), as opposed to a native or ARIA select. */
   editable: boolean;
   pointer: boolean;
+  /** Drag source (draggable="true", aria-grabbed, a "draggable"/"sortable" role description). */
+  drag?: boolean | undefined;
+  /** Drop target (aria-dropeffect, a "drop" role description). */
+  drop?: boolean | undefined;
+  /** aria-haspopup="menu" (or "true"). */
+  menu?: boolean | undefined;
 }
 
-/** Operations offered for an element. Disabled elements keep their actions; the core filters them. */
+/** Roles that open their own popup on press; aria-haspopup on them is not a context menu. */
+const PRESS_POPUP_ROLES = new Set([
+  "button",
+  "link",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "combobox",
+  "textbox",
+  "searchbox",
+  "tab",
+  "switch",
+  "checkbox",
+  "option",
+]);
+
+/** Containers that only take drops: offering "press" on them would be noise. */
+const CONTAINER_ROLES = new Set([
+  "list",
+  "listbox",
+  "grid",
+  "table",
+  "rowgroup",
+  "tree",
+  "region",
+  "group",
+  "generic",
+  "main",
+  "section",
+  "article",
+  "feed",
+  "tabpanel",
+]);
+
+/**
+ * Operations offered for an element. Disabled elements keep their actions; the core filters them.
+ * Markup adds "drag" (drag sources), "drop" (drop targets) and "context_menu" (aria-haspopup="menu" on
+ * rows, list items, cells, tree items and articles); file inputs take a file name through set_value.
+ */
 export function actionsFor(f: ActionFacts): ElementAction[] {
+  if (f.tag === "input" && f.inputType === "file") return ["set_value", "focus", "scroll_into_view"];
+  const own = roleActions(f);
+  const extra: ElementAction[] = [];
+  if (f.drag) extra.push("drag");
+  if (f.drop) extra.push("drop");
+  if (f.menu && !PRESS_POPUP_ROLES.has(f.role)) extra.push("context_menu");
+  if (extra.length === 0) return own;
+  // A pure drop zone (a column, a list) is only a destination.
+  if (f.drop && !f.drag && !f.menu && !f.pointer && CONTAINER_ROLES.has(f.role))
+    return ["drop", "scroll_into_view"];
+  return [...extra, ...own.filter((a) => !extra.includes(a))];
+}
+
+function roleActions(f: ActionFacts): ElementAction[] {
   const base: ElementAction[] = ["focus", "scroll_into_view"];
   switch (f.role) {
     case "heading":

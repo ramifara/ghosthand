@@ -11,7 +11,7 @@ import {
   type Questions,
   type RegionSummary,
 } from "@ghosthand/protocol";
-import { type CandidateTable, OPERATIONS, type Operation } from "./candidates.ts";
+import { type CandidateTable, DROP_HEAD, OPERATIONS, type Operation } from "./candidates.ts";
 import { describeTextOption, type TextOption } from "./literals.ts";
 import { describeRegion } from "./state-builder.ts";
 
@@ -22,6 +22,8 @@ export const NONE = "none";
 export const AMBIGUOUS = "ambiguous";
 export const WAIT = "wait";
 export const BLOCKED = "blocked";
+/** Scroll target meaning "the whole page". */
+export const PAGE = "page";
 
 /** Long option lists are asked in partitions of this size. */
 export const OPTION_CHUNK = 64;
@@ -34,6 +36,9 @@ const OPERATION_TEXT: Record<Operation, string> = {
   toggle: "Check or uncheck a checkbox, radio button or switch.",
   select_option: "Choose an option in a dropdown or list box.",
   select_text: "Select a word or phrase inside a text field or editor (to format, copy or replace it).",
+  drag: "Drag an item and drop it somewhere else (move a card, reorder a list).",
+  context_menu: "Open the right-click (context) menu of an item to reach actions only listed there.",
+  scroll: "Scroll down to load or reveal items that are not listed yet (long, endless or virtualized lists).",
 };
 
 const TARGET_TEXT: Record<Operation, string> = {
@@ -43,6 +48,10 @@ const TARGET_TEXT: Record<Operation, string> = {
   select_option: "Which dropdown or list box should be set next to make progress on `task.goal`?",
   select_text:
     "In which text field or editor should a word or phrase be selected next to make progress on `task.goal`?",
+  drag: "Which item should be dragged next to make progress on `task.goal`?",
+  context_menu: "Which item's context menu should be opened next to make progress on `task.goal`?",
+  scroll:
+    "Which list, feed or panel should be scrolled to reveal more items for `task.goal`? Pick an element inside it, or the whole page.",
 };
 
 export const targetHead = (op: Operation): string => `${op}_target`;
@@ -94,11 +103,26 @@ export function buildActQuestions({
     const criteria: ChoiceQuestion["criteria"] = {};
     for (const el of candidates[op].slice(0, MAX_CHOICE_OPTIONS - 2))
       criteria[el.token] = describeElement(el);
+    if (op === "scroll") criteria[PAGE] = "Scroll the whole page.";
     criteria[NONE] = "None of the listed elements is the right target.";
     criteria[AMBIGUOUS] = "Several listed elements fit equally well and the state does not tell them apart.";
     questions[targetHead(op)] = {
       type: "choice",
       instructions: withSuffix(`${TARGET_TEXT[op]} Choose by the element's role, name and context.`),
+      criteria,
+    };
+  }
+  if (offered.includes("drag")) {
+    const criteria: ChoiceQuestion["criteria"] = {};
+    for (const el of candidates.drop.slice(0, MAX_CHOICE_OPTIONS - 2))
+      criteria[el.token] = describeElement(el);
+    criteria[NONE] = "None of the listed places is where the item should go.";
+    criteria[AMBIGUOUS] = "Several listed places fit equally well.";
+    questions[DROP_HEAD] = {
+      type: "choice",
+      instructions: withSuffix(
+        "If an item is dragged next, where should it be dropped to make progress on `task.goal`? Choose by the place's role, name and context.",
+      ),
       criteria,
     };
   }

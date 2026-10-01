@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // In-memory SQLite schema. Every reset opens a fresh database.
 import { Database } from "bun:sqlite";
+import { AUTH_SCHEMA, AUTH_TABLES } from "./auth-db.ts";
+import { LAB_SCHEMA, LAB_TABLES } from "./lab-db.ts";
 
 const SCHEMA = `
 create table users (
@@ -93,10 +95,14 @@ export const TABLES = [
   "bios",
   "cart_items",
   "pickup_stores",
+  ...LAB_TABLES,
+  ...AUTH_TABLES,
 ] as const;
 
 export function openDatabase(): Database {
   const db = new Database(":memory:", { strict: true });
   db.exec(SCHEMA);
+  db.exec(LAB_SCHEMA);
+  db.exec(AUTH_SCHEMA);
   return db;
 }

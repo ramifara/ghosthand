@@ -3,6 +3,7 @@
 // Seeded fixture data. Same seed in, same rows out.
 import type { Database } from "bun:sqlite";
 import { ALICE_EMAIL, BOB_EMAIL, createRng, fixtureSecrets, type Rng } from "@ghosthand/testbed-kit";
+import { authSeeds } from "./auth-seeds.ts";
 import { hashPassword } from "./password.ts";
 import { nameHash, seedShop } from "./shop-seed.ts";
 
@@ -146,4 +147,5 @@ export const namedSeeds: Record<string, NamedSeed> = {
     );
     for (let i = 0; i < 5; i++) insertUser(db, rng, generatedUser(rng, taken));
   },
+  ...authSeeds,
 };

@@ -51,6 +51,12 @@ export const DomInfo = z.object({
   frameLabel: z.string().optional(),
   /** Key of the nearest page region (dialog, form, named section, landmark), or "page". */
   section: z.string().optional(),
+  /** Can be dragged: `draggable="true"`, `aria-grabbed`, or a "drag"/"sortable" role description. */
+  drag: z.boolean().optional(),
+  /** Accepts drops: `aria-dropeffect` other than "none", or a "drop" role description. */
+  drop: z.boolean().optional(),
+  /** Opens a menu on right-click: `aria-haspopup="menu"` (or "true"). */
+  menu: z.boolean().optional(),
 });
 export type DomInfo = z.infer<typeof DomInfo>;
 
@@ -61,6 +67,11 @@ export const PageInfo = z.object({
   scrollX: z.number(),
   scrollY: z.number(),
   devicePixelRatio: z.number(),
+  /**
+   * Scrolling would reveal content that is not in the DOM yet: a feed, a list whose aria-setsize (or a grid
+   * whose aria-rowcount) exceeds its rendered items, or a visible infinite-scroll sentinel.
+   */
+  moreContent: z.boolean().optional(),
 });
 export type PageInfo = z.infer<typeof PageInfo>;
 
@@ -108,7 +119,22 @@ export const PageState = z.object({
 });
 export type PageState = z.infer<typeof PageState>;
 
-export type EngineCommand = { op: "enrich"; refs: string[]; sectionText?: string } | { op: "state" };
+/** One element the aria snapshot gave a ref to that drags, takes drops or opens a context menu. */
+export const MarkInfo = z.object({
+  ref: z.string(),
+  drag: z.boolean(),
+  drop: z.boolean(),
+  menu: z.boolean(),
+});
+export type MarkInfo = z.infer<typeof MarkInfo>;
+
+export const MarksResult = z.object({ marks: z.array(MarkInfo) });
+export type MarksResult = z.infer<typeof MarksResult>;
+
+export type EngineCommand =
+  | { op: "enrich"; refs: string[]; sectionText?: string }
+  | { op: "state" }
+  | { op: "marks" };
 
 /** Before/after read-back of a single target, taken with `locator.evaluate`. */
 export const TargetProbe = z.object({

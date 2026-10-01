@@ -38,3 +38,6 @@ export function generateTotp(secret: string, opts: TotpOptions = {}): Result<str
     return err("not a valid base32 TOTP secret");
   }
 }
+
+/** Secrets whose name ends in `_TOTP` are TOTP seeds; typing one types the current code instead. */
+export const isTotpSecretName = (name: string): boolean => /_TOTP$/.test(name);

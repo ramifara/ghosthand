@@ -153,6 +153,17 @@ export async function runDoctor(rt: EngineRuntime, opts: DoctorOptions = {}): Pr
   });
   checks.push(...(await decisionChecks(rt, opts)));
   checks.push(...providerKeyChecks(rt, env));
+  const vision = providerKeys(rt, env).filter(
+    (k) => k.env && ["openai", "anthropic", "google"].includes(k.provider),
+  );
+  checks.push({
+    name: "vision (modes D1/D2)",
+    ok: true,
+    detail:
+      vision.length > 0
+        ? `via ${vision.map((k) => k.provider).join(", ")}`
+        : "no vision provider (optional; vision steps escalate to a human)",
+  });
   checks.push(...(await localServerChecks(rt, opts)));
 
   if (opts.skipBinaries !== true) {

@@ -5,9 +5,11 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Planner, Writer } from "@ghosthand/core";
 import {
+  type AgentLoopExtras,
   type ComputerLauncher,
   type EngineRuntime,
   gitSha,
+  type KnowledgeOptions,
   type PreparedTestbedRun,
   prepareTestbedRun,
   runAgent,
@@ -38,6 +40,12 @@ export interface RunSuiteOptions {
   /** Mode C planner and writer hand-off (optional). */
   planner?: Planner;
   writer?: Writer;
+  /** Recipes (mode A) and learning. */
+  knowledge?: KnowledgeOptions;
+  /** Per-run loop extras (vision assist, source-aware seeding and navigation). */
+  loopFor?: (prepared: PreparedTestbedRun) => AgentLoopExtras | undefined;
+  /** Experiment: start every task at this path instead of its own start (same for every mode). */
+  startPath?: string;
 }
 
 export interface SuiteReport {
@@ -66,16 +74,28 @@ export async function runSuite(
 
   for (const task of selected.value) {
     for (let attempt = 1; attempt <= opts.n; attempt++) {
-      const prepared = await prepare(task.id);
-      if (!prepared.ok) return prepared;
+      const got = await prepare(task.id);
+      if (!got.ok) return got;
+      const prepared = opts.startPath
+        ? {
+            ok: true as const,
+            value: {
+              ...got.value,
+              spec: { ...got.value.spec, startUrl: new URL(opts.startPath, got.value.spec.startUrl).href },
+            },
+          }
+        : got;
       for (const [name, value] of Object.entries(prepared.value.secrets)) rt.secrets.register(name, value);
       const decision = opts.decision(prepared.value.spec);
+      const loop = opts.loopFor?.(prepared.value);
       const run = await runAgent(rt, {
         task: prepared.value.spec,
         launch: opts.launcherFor(prepared.value),
         decision,
         ...(opts.planner ? { planner: opts.planner } : {}),
         ...(opts.writer ? { writer: opts.writer } : {}),
+        ...(opts.knowledge ? { knowledge: opts.knowledge } : {}),
+        ...(loop ? { loop } : {}),
         hooks: { oracle: prepared.value.oracle },
       });
       const base = {

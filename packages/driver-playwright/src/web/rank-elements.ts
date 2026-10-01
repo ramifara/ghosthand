@@ -22,7 +22,15 @@ const REGION_RANK: Record<Region, number> = {
   footer: 5,
 };
 
-const INTERACTIVE_ACTIONS = new Set(["press", "set_value", "toggle", "select_option"]);
+const INTERACTIVE_ACTIONS = new Set([
+  "press",
+  "set_value",
+  "toggle",
+  "select_option",
+  "drag",
+  "drop",
+  "context_menu",
+]);
 
 export const isInteractive = (el: Element): boolean => el.actions.some((a) => INTERACTIVE_ACTIONS.has(a));
 

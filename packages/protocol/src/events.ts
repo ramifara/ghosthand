@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Action, ActionResult } from "./action.ts";
 import { Answer, DecisionError, Questions } from "./decision.ts";
 import { Rect } from "./geometry.ts";
-import { Plan, Predicate, TaskSpec } from "./task.ts";
+import { EffectClass, Plan, Predicate, TaskSpec } from "./task.ts";
 
 const Base = { t: z.number().int().nonnegative(), seq: z.number().int().nonnegative(), runId: z.string() };
 
@@ -58,6 +58,10 @@ export const RunEvent = z.discriminatedUnion("type", [
     elementCount: z.number().int(),
     tokenEstimate: z.number().int(),
     screenshot: z.string().optional(),
+    /** Screen fingerprint key (app map). */
+    screen: z.string().optional(),
+    /** Code-measured surface quality of the element table (0-1). */
+    quality: z.number().min(0).max(1).optional(),
   }),
   z.object({
     ...Base,
@@ -118,6 +122,17 @@ export const RunEvent = z.discriminatedUnion("type", [
         confidence: z.number().min(0).max(1).optional(),
       })
       .optional(),
+    /** Effect class the gates allowed (advance/commit), for recipes. */
+    effectClass: EffectClass.optional(),
+    /** Fingerprint of a drag's drop zone, for replay. */
+    destination: z
+      .object({
+        stableId: z.string(),
+        role: z.string(),
+        name: z.string(),
+        automationId: z.string().optional(),
+      })
+      .optional(),
     mode: RouterMode,
   }),
   z.object({ ...Base, type: z.literal("effect"), step: z.number().int(), result: ActionResult }),
@@ -136,6 +151,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     from: RouterMode,
     to: RouterMode,
     reason: z.string(),
+    /** "down" for a de-escalation (back to a cheaper mode); absent means up. */
+    direction: z.enum(["up", "down"]).optional(),
   }),
   z.object({
     ...Base,
@@ -173,7 +190,7 @@ export const RunEvent = z.discriminatedUnion("type", [
     modeShares: z.record(z.string(), z.number()),
     /** The agent's reported answer, for tasks that ask for one (redacted like everything else). */
     answer: z.string().optional(),
-    answeredBy: z.enum(["decision", "writer"]).optional(),
+    answeredBy: z.enum(["decision", "writer", "vision"]).optional(),
   }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;

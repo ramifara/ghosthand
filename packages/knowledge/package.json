@@ -9,8 +9,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@babel/parser": "7.29.9",
+    "@babel/types": "7.29.8",
     "@ghosthand/core": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "zod": "catalog:"
   },
   "scripts": {
     "test": "vitest run"

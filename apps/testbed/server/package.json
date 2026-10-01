@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@ghosthand/testbed-kit": "workspace:*",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "otpauth": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:"
