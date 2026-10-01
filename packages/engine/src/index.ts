@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 export * from "./config-loader.ts";
 export * from "./create-logger.ts";
+export * from "./doctor.ts";
 export * from "./env-file.ts";
 export * from "./replay.ts";
 export * from "./run-agent.ts";

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
+import { doctorCommand } from "./commands/doctor.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
 import { runsCommand } from "./commands/runs.ts";
 import { fail, out } from "./io.ts";
@@ -48,6 +49,8 @@ export async function main(argv: string[]): Promise<number> {
       return profileCommand(rest, json);
     case "browsers":
       return browsersCommand(json);
+    case "doctor":
+      return doctorCommand(json);
     default:
       return fail(`unknown command "${command}"\n\n${HELP}`, 2);
   }
