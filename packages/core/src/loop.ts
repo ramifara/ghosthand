@@ -1406,11 +1406,15 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const result = await execute(deps.computer, action);
   ctx.timing.actMs = clock.now() - t;
   deps.events.emit({ type: "effect", step, result });
-  if (result.effect === "suspected_noop" || result.effect === "refused") ctx.triedNoEffect.add(key);
+  // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
+  // in the table at its rank, and the history says why it did not work.
+  const covered = result.error?.kind === "hit_test_failed";
+  if ((result.effect === "suspected_noop" || result.effect === "refused") && !covered)
+    ctx.triedNoEffect.add(key);
   if (result.effect === "confirmed") ctx.handoffs.count = 0;
   history.push({
     step,
-    text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""})`,
+    text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""}${covered ? "; it was covered by something else, so it can be tried again once that is gone" : ""})`,
   });
   return { kind: "continue" };
 }
