@@ -23,11 +23,17 @@ gi.require_version("Atk", "1.0")
 from gi.repository import Atk, Gtk  # noqa: E402
 
 PLANS = ("Free", "Pro", "Team")
-SEEDS = {"default": ["Eggs", "Bread", "Coffee"], "empty": []}
+# Seeds: shopping list items and a prefilled profile form (name, email).
+SEEDS = {
+    "default": (["Eggs", "Bread", "Coffee"], None),
+    "filled": (["Eggs", "Bread", "Coffee"], ("Grace Hopper", "grace@example.com")),
+    "empty": ([], None),
+}
 
 
 class Testbed:
-    def __init__(self, state_path, items):
+    def __init__(self, state_path, seed):
+        items, prefill = seed
         self.state_path = state_path
         self.items = list(items)
         self.saved = None
@@ -89,6 +95,9 @@ class Testbed:
         self.status.get_accessible().set_name("Status")
         root.pack_start(self.status, False, False, 0)
 
+        if prefill is not None:
+            self.name.set_text(prefill[0])
+            self.email.set_text(prefill[1])
         self.render_list()
         self.write_state("start")
         self.win.show_all()
@@ -141,7 +150,9 @@ class Testbed:
             "plan": self.plan.get_active_text(),
             "newsletter": self.newsletter.get_active(),
         }
-        self.status.set_text("Profile saved.")
+        # The status names what was saved, so a done check can read it without the state file.
+        news = "on" if self.saved["newsletter"] else "off"
+        self.status.set_text(f"Profile saved: {self.saved['plan']} plan, newsletter {news}.")
         self.write_state("save")
 
     def on_add(self, _widget):
@@ -152,14 +163,14 @@ class Testbed:
         self.items.append(text)
         self.new_item.set_text("")
         self.render_list()
-        self.status.set_text(f"Added {text}.")
+        self.status.set_text(f"Item added ({len(self.items)} items).")
         self.write_state("add")
 
     def on_remove(self, _button, item):
         if item in self.items:
             self.items.remove(item)
         self.render_list()
-        self.status.set_text(f"Removed {item}.")
+        self.status.set_text(f"Item removed ({len(self.items)} items).")
         self.write_state("remove")
 
     def write_state(self, event):

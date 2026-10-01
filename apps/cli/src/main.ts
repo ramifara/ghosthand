@@ -11,7 +11,8 @@ import { modelsCommand } from "./commands/models.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
 import { replayCommand } from "./commands/replay.ts";
-import { type RunFlags, runCommand } from "./commands/run.ts";
+import { runCommand } from "./commands/run.ts";
+import type { RunFlags } from "./commands/run-flags.ts";
 import { runsCommand } from "./commands/runs.ts";
 import { tasksCommand } from "./commands/tasks.ts";
 import { testCommand } from "./commands/test.ts";
@@ -23,6 +24,8 @@ export const HELP = `ghosthand, a Jev CUA
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
                 [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
+  ghosthand run --surface x11|wayland|windows|macos (--task desktop-<id> | --app "<command>" "<goal>")
+                [--runtime auto|docker|podman|host] [--vnc-port <port>] [--network] [--allow-host-desktop] [--yes]
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
   ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
@@ -81,8 +84,15 @@ export async function main(argv: string[]): Promise<number> {
         ...(values.all ? { all: true } : {}),
         ...(values.config ? { config: values.config } : {}),
       });
-    case "run":
-      return runCommand(runFlags(parsed));
+    case "run": {
+      let flags: RunFlags;
+      try {
+        flags = runFlags(parsed);
+      } catch (e) {
+        return fail(e instanceof Error ? e.message : String(e), 2);
+      }
+      return runCommand(flags);
+    }
     case "replay":
       return replayCommand(rest[0], {
         headless: values.headless ?? false,
@@ -168,7 +178,29 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     writer: (["models", "codex", "none"].includes(values.writer ?? "")
       ? values.writer
       : "auto") as WriterChoice,
+    ...(values.surface ? { surface: surfaceFlag(values.surface) } : {}),
+    ...(values.app ? { app: values.app } : {}),
+    ...(values.runtime ? { runtime: runtimeFlag(values.runtime) } : {}),
+    ...(values["vnc-port"] ? { vncPort: Number(values["vnc-port"]) } : {}),
+    ...(values.network ? { network: true } : {}),
+    ...(values["allow-host-desktop"] ? { allowHostDesktop: true } : {}),
   };
+}
+
+const SURFACES = ["web", "x11", "wayland", "windows", "macos"] as const;
+const RUNTIMES = ["auto", "docker", "podman", "host"] as const;
+
+/** Throws on an unknown value (reported as a usage error by `main`). */
+export function surfaceFlag(v: string): (typeof SURFACES)[number] {
+  const hit = SURFACES.find((s) => s === v);
+  if (!hit) throw new Error(`--surface must be one of ${SURFACES.join(", ")}`);
+  return hit;
+}
+
+export function runtimeFlag(v: string): (typeof RUNTIMES)[number] {
+  const hit = RUNTIMES.find((s) => s === v);
+  if (!hit) throw new Error(`--runtime must be one of ${RUNTIMES.join(", ")}`);
+  return hit;
 }
 
 export function parse(argv: string[]) {
@@ -204,6 +236,12 @@ export function parse(argv: string[]) {
       model: { type: "string" },
       language: { type: "string" },
       "models-dir": { type: "string" },
+      surface: { type: "string" },
+      app: { type: "string" },
+      runtime: { type: "string" },
+      "vnc-port": { type: "string" },
+      network: { type: "boolean" },
+      "allow-host-desktop": { type: "boolean" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
     },

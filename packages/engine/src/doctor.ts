@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // `ghosthand doctor`: Node, env file, decision carrier key and auth, model provider keys, local model
-// servers, browser, Codex and Claude CLIs, runs folder. No paid calls; keys are only checked for
+// servers, browser, Codex and Claude CLIs, desktop drivers (per OS), runs folder. No paid calls; keys are only checked for
 // presence and against free endpoints.
 import { accessSync, constants } from "node:fs";
 import { createClaudeConsultant, createCodexConsultant } from "@ghosthand/consultants";
+import { desktopDoctorChecks } from "@ghosthand/driver-desktop";
 import { detectBrowsers, nodeBrowserHost } from "@ghosthand/driver-playwright";
 import { DEFAULT_LOCAL_SERVERS, discoverLocalModels } from "@ghosthand/models";
 import type { DoctorCheck } from "@ghosthand/protocol";
@@ -174,6 +175,7 @@ export async function runDoctor(rt: EngineRuntime, opts: DoctorOptions = {}): Pr
         : `${codex.version ?? "?"}, auth ${codex.auth}${codex.plan ? `, plan ${codex.plan}` : ""}, ${codex.models.length} models`,
     });
     checks.push(await claudeCheck(rt, opts));
+    checks.push(...(await desktopDoctorChecks()));
   }
 
   try {

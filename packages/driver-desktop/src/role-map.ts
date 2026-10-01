@@ -321,6 +321,13 @@ export function actionsFor(role: string, node: RpcNode): ElementAction[] {
       return ["toggle", ...base];
     case "img":
       return hasNativeAction(node) ? ["press", ...base] : [];
+    case "option":
+    case "treeitem":
+    case "row":
+    case "cell":
+      // A row that can neither be activated nor selected (e.g. a GTK list in selection mode NONE) is only a
+      // container for its buttons; offering it splits the chooser between the row and its "Remove" button.
+      return hasNativeAction(node) || node.states.includes("selectable") ? ["press", ...base] : [];
     default:
       return ["press", ...base];
   }

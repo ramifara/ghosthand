@@ -5,32 +5,18 @@ import {
   createAssistants,
   createDecisionProvider,
   type EngineRuntime,
+  isDesktopTask,
   openRuntime,
-  type PlannerChoice,
   prepareTestbedRun,
   runAgent,
-  type WriterChoice,
   webLauncher,
 } from "@ghosthand/engine";
 import { TaskSpec } from "@ghosthand/protocol";
 import { createApprover } from "../approve.ts";
 import { fail, out } from "../io.ts";
 import { progressPrinter } from "../progress.ts";
-
-export interface RunFlags {
-  url?: string;
-  task?: string;
-  goal?: string;
-  profile?: string;
-  allowOrigins: string[];
-  headless: boolean;
-  yes: boolean;
-  trace: boolean;
-  json: boolean;
-  config?: string;
-  planner: PlannerChoice;
-  writer: WriterChoice;
-}
+import { runDesktopCommand } from "./run-desktop.ts";
+import type { RunFlags } from "./run-flags.ts";
 
 /** Origins the browser may navigate to: the task's allowlist plus every `--allow-origin`, deduplicated. */
 export function launchOrigins(task: Pick<TaskSpec, "allowOrigins">, extra: readonly string[]): string[] {
@@ -38,6 +24,8 @@ export function launchOrigins(task: Pick<TaskSpec, "allowOrigins">, extra: reado
 }
 
 export async function runCommand(flags: RunFlags): Promise<number> {
+  const surface = flags.surface ?? (flags.task !== undefined && isDesktopTask(flags.task) ? "x11" : "web");
+  if (surface !== "web") return runDesktopCommand(flags, surface);
   if (!flags.task && !flags.goal) return fail('give a testbed task (--task <id>) or a goal ("...")', 2);
   if (!flags.task && !flags.url) return fail("--url is required with a free-text goal", 2);
   const opened = await openRuntime({ ...(flags.config ? { configPath: flags.config } : {}) });

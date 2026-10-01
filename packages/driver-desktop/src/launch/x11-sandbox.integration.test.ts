@@ -144,7 +144,7 @@ describe.skipIf(runtime === undefined)("X11 sandbox (live)", () => {
   it("verifies predicates without invalidating the latest snapshot", async () => {
     const s = await sb.computer.observe();
     if (!s.ok) throw new Error(s.error.message);
-    const res = await sb.computer.verify([{ kind: "text", text: "Added Milk" }]);
+    const res = await sb.computer.verify([{ kind: "text", text: "Item added" }]);
     expect(res[0]?.state).toBe("satisfied");
     const focus = await sb.computer.focus(find(s.value, "textbox", "Full name").token);
     expect(focus.effect).not.toBe("refused");

@@ -21,6 +21,7 @@
     "playwright-core": "catalog:",
     "zod": "catalog:",
     "@ghosthand/consultants": "workspace:*",
+    "@ghosthand/driver-desktop": "workspace:*",
     "@ghosthand/driver-playwright": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
     "@ghosthand/models": "workspace:*",

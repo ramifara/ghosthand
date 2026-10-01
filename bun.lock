@@ -210,6 +210,7 @@
         "@ghosthand/consultants": "workspace:*",
         "@ghosthand/core": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
+        "@ghosthand/driver-desktop": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
         "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
