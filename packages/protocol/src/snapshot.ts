@@ -65,6 +65,12 @@ export const Snapshot = z.object({
   pageTokenEstimate: z.number().int().nonnegative().optional(),
   /** Id of the region this snapshot is scoped to (`observe({region})`). */
   scope: z.string().optional(),
+  /**
+   * Scrolling would reveal content that is not in the element table yet (an ARIA feed or infinite list,
+   * or a virtualized list whose aria-setsize/aria-rowcount exceeds the rendered items). The loop offers
+   * the `scroll` operation only then.
+   */
+  canScroll: z.boolean().optional(),
 });
 export type Snapshot = z.infer<typeof Snapshot>;
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-import { ANTI_INJECTION, buildCandidates, describeElement } from "@ghosthand/core";
+import { ANTI_INJECTION, buildCandidates, describeElement, emptyCandidates } from "@ghosthand/core";
 import {
   type ChoiceQuestion,
   type Element,
@@ -79,7 +79,7 @@ describe("Jev question builders (voice)", () => {
     const empty = buildVoiceDecision({
       utterance: "x",
       page: { title: "" },
-      candidates: { press: [], set_value: [], toggle: [], select_option: [], select_text: [] },
+      candidates: emptyCandidates(),
       askIntent: false,
       operations: ["press"],
     });

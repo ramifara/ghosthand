@@ -24,7 +24,7 @@ import type {
 } from "@ghosthand/protocol";
 import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
-import { buildCandidates, findByToken, type Operation } from "./candidates.ts";
+import { buildCandidates, DROP_HEAD, findByToken, type Operation } from "./candidates.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
@@ -37,6 +37,7 @@ import {
   buildActQuestions,
   NONE,
   optionQuestions,
+  PAGE,
   regionQuestion,
   targetHead,
   WAIT,
@@ -747,6 +748,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     return (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
   }
   const operation = op as Operation;
+  if (operation === "scroll") return scrollStep(ctx, answers);
   const targetAnswer = answers[targetHead(operation)];
   const targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
   const element =
@@ -796,6 +798,23 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
         }
         break;
       }
+      case "drag": {
+        const dropAnswer = answers[DROP_HEAD];
+        const dropToken = dropAnswer?.type === "choice" ? dropAnswer.choice : undefined;
+        const drop =
+          dropToken && dropToken !== NONE && dropToken !== AMBIGUOUS
+            ? findByToken(snapshot, dropToken)
+            : undefined;
+        if (drop && drop.token !== element.token && choiceConfidence(dropAnswer) >= cfg.gates.target) {
+          action = { type: "drag", from: { token: element.token }, to: { token: drop.token } };
+          describe = `drag ${element.role} "${element.name}" to ${drop.role} "${drop.name}"`;
+        }
+        break;
+      }
+      case "context_menu":
+        action = { type: "click", target: { token: element.token }, button: "right" };
+        describe = `open the context menu of ${element.role} "${element.name}"`;
+        break;
     }
   }
 
@@ -820,7 +839,12 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     gates.push({
       gate: "target_named",
       passed: false,
-      detail: operation === "set_value" ? "no text option chosen" : "no option chosen",
+      detail:
+        operation === "set_value"
+          ? "no text option chosen"
+          : operation === "drag"
+            ? "no drop target chosen"
+            : "no option chosen",
     });
   for (const g of gates) gate(ctx, g.gate, g.passed, g.detail);
   if (!allPassed(gates) || !action || !element) {
@@ -886,6 +910,53 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     step,
     text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""})`,
   });
+  return { kind: "continue" };
+}
+
+/** Pixels per scroll step: most of a typical viewport, so consecutive views overlap a little. */
+export const SCROLL_STEP_PX = 600;
+
+/** The `scroll` operation: wheel-scrolls the list under the chosen element, or the page. Never a commit. */
+async function scrollStep(ctx: DecideContext, answers: Record<string, Answer>): Promise<DecideOutcome> {
+  const { deps, step, history, clock, cfg } = ctx;
+  const a = answers[targetHead("scroll")];
+  const choice = a?.type === "choice" ? a.choice : undefined;
+  const confident = choiceConfidence(a) >= cfg.gates.target;
+  const element = choice && choice !== PAGE ? findByToken(ctx.snapshot, choice) : undefined;
+  const ok = confident && (choice === PAGE || element !== undefined);
+  gate(
+    ctx,
+    "target_confidence",
+    ok,
+    `${choiceConfidence(a).toFixed(3)} vs ${cfg.gates.target} (${choice ?? "abstain"})`,
+  );
+  if (!ok) {
+    history.push({ step, text: `refused scroll (${choice ?? "abstain"})` });
+    return refuse();
+  }
+  const action: Action = {
+    type: "scroll",
+    dx: 0,
+    dy: SCROLL_STEP_PX,
+    ...(element ? { target: { token: element.token } } : {}),
+  };
+  const describe = element ? `scroll near ${element.role} "${element.name}"` : "scroll the page";
+  const key = `scroll|${element?.stableId ?? PAGE}|`;
+  ctx.stall.attempt(key);
+  deps.events.emit({
+    type: "action",
+    step,
+    action,
+    ...(element ? { target: { stableId: element.stableId, role: element.role, name: element.name } } : {}),
+    mode: "B",
+  });
+  const t = clock.now();
+  ctx.acted.count++;
+  const result = await execute(deps.computer, action);
+  ctx.timing.actMs = clock.now() - t;
+  deps.events.emit({ type: "effect", step, result });
+  if (result.effect === "suspected_noop" || result.effect === "refused") ctx.triedNoEffect.add(key);
+  history.push({ step, text: `${describe} (${result.effect})` });
   return { kind: "continue" };
 }
 

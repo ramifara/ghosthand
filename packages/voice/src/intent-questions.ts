@@ -136,6 +136,9 @@ const TARGET_TEXT: Record<Operation, string> = {
   toggle: "Which checkbox, radio button or switch did the user mean in `utterance`?",
   select_option: "Which dropdown or list did the user mean in `utterance`?",
   select_text: "In which text field or editor did the user mean to select text in `utterance`?",
+  drag: "Which item did the user mean to drag in `utterance`?",
+  context_menu: "Which item's context menu did the user mean in `utterance`?",
+  scroll: "Which list or panel did the user mean to scroll in `utterance`?",
 };
 
 export function buildTargetQuestion(

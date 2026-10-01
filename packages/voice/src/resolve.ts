@@ -9,6 +9,7 @@ import {
   type CandidateTable,
   choiceConfidence,
   combineEffect,
+  emptyCandidates,
   NONE,
   type Operation,
 } from "@ghosthand/core";
@@ -471,13 +472,7 @@ export async function resolveCommand(
   if (code.elements.length === 0)
     return { resolution: { kind: "unresolved", command, reason: "no element on the page fits" } };
 
-  const narrowed: CandidateTable = {
-    press: [],
-    set_value: [],
-    toggle: [],
-    select_option: [],
-    select_text: [],
-  };
+  const narrowed: CandidateTable = emptyCandidates();
   const headOp: Operation = command.verb === "select" && candidates.select_option.length === 0 ? "press" : op;
   narrowed[headOp] = code.elements;
   const jev = await askJev(ctx, command.utterance, narrowed, false, [headOp]);
