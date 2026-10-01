@@ -24,13 +24,22 @@ import type {
 } from "@ghosthand/protocol";
 import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
-import { buildCandidates, DROP_HEAD, findByToken, type Operation } from "./candidates.ts";
+import { buildCandidates, DROP_HEAD, findByToken, isNamed, type Operation } from "./candidates.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
+import type { EventSink } from "./event-sink.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
 import { runModeA } from "./mode-a.ts";
+import {
+  captureFor,
+  driveStep,
+  groundAndClick,
+  type ModeDEnv,
+  nameUnnamed,
+  unnamedTargets,
+} from "./mode-d.ts";
 import type { Planner } from "./planner.ts";
 import {
   AMBIGUOUS,
@@ -48,16 +57,17 @@ import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import { buildNarrowState, buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
+import {
+  D1_FAILURES_FOR_D2,
+  MAX_D2_STEPS,
+  NO_VISION_PROVIDER,
+  QUALITY_GOOD,
+  QUALITY_POOR,
+  type VisionAssist,
+} from "./vision.ts";
 import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer.ts";
 
-/** Receives typed events; the recorder implements it. */
-export interface EventSink {
-  emit(draft: RunEventDraft): void;
-  writeScreenshot?(step: number, bytes: Uint8Array): string;
-  /** The file name writeScreenshot will use for `step`, so the capture can finish off the critical path. */
-  screenshotName?(step: number): string;
-  writeState?(step: number, purpose: string, state: unknown): string;
-}
+export type { EventSink } from "./event-sink.ts";
 
 export interface ApprovalRequest {
   step: number;
@@ -118,6 +128,12 @@ export interface LoopDeps {
   recipes?: RecipeBook;
   /** Sees every observed snapshot with its fingerprint (app map learning). Must be cheap and not throw. */
   onSnapshot?: (snapshot: Snapshot, fingerprint: ScreenFingerprint, step: number) => void;
+  /** Modes D1/D2. Absent: vision steps degrade to a human escalation with a clear reason. */
+  vision?: VisionAssist;
+  /** Source-aware mode: extra element names to rank first for this subgoal and screen. */
+  seedTargets?: (subgoal: Subgoal, snapshot: Snapshot) => string[];
+  /** Source-aware mode: routes and test ids from the app's code, for the planner prompt. */
+  plannerContext?: string;
 }
 
 /**
@@ -141,7 +157,7 @@ export interface RunResult {
   timings: StepTiming[];
   /** Reported answer for tasks that ask for one. */
   answer?: string;
-  answeredBy?: "decision" | "writer";
+  answeredBy?: "decision" | "writer" | "vision";
   /** Mode A: what the recipe replay did (absent when no recipe matched). */
   replay?: ReplayReport;
 }
@@ -191,6 +207,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let replay: ReplayReport | undefined;
   /** Actions executed by mode A before the subgoal loop. */
   let replayedActions = 0;
+  /** Set when a vision step was needed but could not run; appended to failure reasons. */
+  let visionNeeded: string | undefined;
+  /** Mode of the previous step, for de-escalation events. */
+  let lastMode: RouterMode = "B";
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
   /** A human held the run (takeover): credit the time budget and record it. */
@@ -204,7 +224,22 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       granted: true,
     });
   };
-  const finish = (outcome: RunOutcome, reason: string, answered?: AnswerResult): RunResult => {
+  const noteVisionNeeded = (at: number, why: string, missing: string): void => {
+    if (visionNeeded !== undefined) return;
+    visionNeeded = `${why}; ${missing}`;
+    emit({
+      type: "escalate",
+      step: Math.max(at, 1),
+      from: "B",
+      to: "H",
+      reason: `vision needed (${why}) but ${missing}`,
+    });
+  };
+  const finish = (outcome: RunOutcome, rawReason: string, answered?: AnswerResult): RunResult => {
+    const reason =
+      visionNeeded !== undefined && outcome !== "success"
+        ? `${rawReason}; vision needed: ${visionNeeded}`
+        : rawReason;
     const total = Object.values(modeCounts).reduce((a, b) => a + (b ?? 0), 0);
     const modeShares: Record<string, number> = {};
     for (const [m, n] of Object.entries(modeCounts)) modeShares[m] = total > 0 ? (n ?? 0) / total : 0;
@@ -273,6 +308,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         goal: task.instruction,
         startUrl: task.startUrl,
         ...(first.ok ? { pageSummary: pageSummary(first.value, deps.secrets) } : {}),
+        ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
         maxSubgoals: 12,
       },
       deps.signal ? { signal: deps.signal } : {},
@@ -334,6 +370,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         goal: task.instruction,
         startUrl: task.startUrl,
         ...(now.ok ? { pageSummary: pageSummary(now.value, deps.secrets) } : {}),
+        ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
         maxSubgoals: 12,
         plan,
         failedSubgoalId: failed.id,
@@ -363,6 +400,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const handoffs = { count: 0 };
     const acted = { count: 0 };
     const extraTexts: string[] = [];
+    // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
+    const d1Failures = new Map<string, number>();
+    let driving: { remaining: number } | undefined;
+    const noneStreak = { screen: "", count: 0 };
+    let poorStreak = 0;
 
     while (true) {
       if (deps.control) {
@@ -477,6 +519,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         handoffs,
         extraTexts,
         acted,
+        screenKey: fingerprint.key,
+        d1Failures,
+        noneStreak,
+        mode: { current: "B" },
+        noteVisionNeeded: (why, missing) => noteVisionNeeded(current, why, missing),
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -546,11 +593,80 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         timing.observeMs += clock.now() - t;
         if (scoped) ctx.snapshot = scoped;
       }
+      // Router: D2 for a poor surface (two observations in a row) or after two D1 failures on this screen;
+      // back to B as soon as the element table is good again.
+      const q = snapshot.quality.score;
+      const poor =
+        q < QUALITY_POOR && (snapshot.quality.unnamedInteractive > 0 || snapshot.elements.length < 3);
+      poorStreak = poor ? poorStreak + 1 : 0;
+      if (driving && q >= QUALITY_GOOD) {
+        emit({
+          type: "escalate",
+          step,
+          from: "D2",
+          to: "B",
+          reason: `element table good again (q=${q.toFixed(2)})`,
+          direction: "down",
+        });
+        driving = undefined;
+      } else if (lastMode === "D1" && q >= QUALITY_GOOD) {
+        emit({
+          type: "escalate",
+          step,
+          from: "D1",
+          to: "B",
+          reason: `back to Jev (q=${q.toFixed(2)})`,
+          direction: "down",
+        });
+      }
+      const d1Failed = (d1Failures.get(fingerprint.key) ?? 0) >= D1_FAILURES_FOR_D2;
+      if (!driving && (poorStreak >= 2 || d1Failed)) {
+        const why = d1Failed
+          ? "vision assist failed twice on this screen"
+          : `poor surface (q=${q.toFixed(2)})`;
+        if (deps.vision?.drive) {
+          driving = { remaining: MAX_D2_STEPS };
+          emit({ type: "escalate", step, from: lastMode === "D1" ? "D1" : "B", to: "D2", reason: why });
+        } else
+          noteVisionNeeded(
+            step,
+            why,
+            deps.vision ? "the vision provider has no computer-use model" : NO_VISION_PROVIDER,
+          );
+      }
+      if (driving && deps.vision) {
+        if (speculative) await speculative.response;
+        t = clock.now();
+        const o = await driveStep(modeDEnv(ctx, deps.vision), execute);
+        timing.actMs = clock.now() - t;
+        driving.remaining--;
+        modeCounts.D2 = (modeCounts.D2 ?? 0) + 1;
+        timings.push(timing);
+        await pendingShot;
+        emit({ type: "step.end", step, timing, mode: "D2" });
+        lastMode = "D2";
+        if (o.kind === "acted") acted.count++;
+        if (o.kind === "safety") {
+          emit({ type: "escalate", step, from: "D2", to: "H", reason: `provider safety check: ${o.reason}` });
+          emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
+          return finish("stuck", `a provider safety check needs a human decision: ${o.reason}`);
+        }
+        if (o.kind !== "acted" || driving.remaining <= 0) {
+          const why = o.kind === "acted" ? `D2 segment used ${MAX_D2_STEPS} steps` : o.reason;
+          emit({ type: "escalate", step, from: "D2", to: "B", reason: why, direction: "down" });
+          driving = undefined;
+          d1Failures.delete(fingerprint.key);
+        }
+        continue;
+      }
+
       const outcome = await decideAndAct(ctx, speculative);
-      modeCounts.B = (modeCounts.B ?? 0) + 1;
+      const stepMode = ctx.mode.current;
+      modeCounts[stepMode] = (modeCounts[stepMode] ?? 0) + 1;
+      lastMode = stepMode;
       timings.push(timing);
       await pendingShot;
-      emit({ type: "step.end", step, timing, mode: "B" });
+      emit({ type: "step.end", step, timing, mode: stepMode });
 
       if (outcome.kind === "answer") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
@@ -598,6 +714,40 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       budget.spend(answered.costUsd);
       return finish("success", `${why}; answer reported`, answered);
     }
+    // The answer may be drawn rather than written (canvas charts): ask the vision model (D1 describe).
+    if (deps.vision) {
+      const shot = await captureFor(deps.computer);
+      const r = shot
+        ? await deps.vision.describe({
+            screenshot: shot,
+            question: `Answer from what the screen shows, as briefly as possible: ${task.instruction}`,
+            ...(deps.signal ? { signal: deps.signal } : {}),
+          })
+        : undefined;
+      if (r) {
+        modelCalls++;
+        if (r.ok) budget.spend(r.value.costUsd);
+        emit({
+          type: "model.call",
+          step,
+          role: "vision_reviewer",
+          model: r.ok ? r.value.model : deps.vision.id,
+          latencyMs: r.ok ? r.value.latencyMs : 0,
+          ...(r.ok ? { costUsd: r.value.costUsd } : {}),
+          ok: r.ok,
+          summary: r.ok ? "answer read from the screen" : `${r.error.kind}: ${r.error.message}`,
+        });
+        modeCounts.D1 = (modeCounts.D1 ?? 0) + 1;
+      }
+      if (r?.ok && r.value.text.trim() !== "")
+        return finish("success", `${why}; answer read from the screen by vision`, {
+          answer: deps.secrets.redact(r.value.text.trim()).slice(0, 500),
+          by: "vision",
+          costUsd: r.value.costUsd,
+          decisionCalls: 0,
+          modelCalls: 1,
+        });
+    } else noteVisionNeeded(step, "the answer is not in the page text", NO_VISION_PROVIDER);
     return finish("failure", `${why}, but no answer could be read from the page`);
   }
 }
@@ -630,6 +780,93 @@ interface DecideContext {
   hint?: string;
   /** Actions executed in this subgoal. */
   acted: { count: number };
+  /** Fingerprint key of this step's screen. */
+  screenKey: string;
+  /** D1 attempts that changed nothing, per screen key. */
+  d1Failures: Map<string, number>;
+  /** Consecutive steps on one screen where Jev found no target. */
+  noneStreak: { screen: string; count: number };
+  /** The mode this step ends up in (B, or D1 when vision assisted). */
+  mode: { current: RouterMode };
+  /** Vision was already tried this step. */
+  visionTried?: boolean;
+  noteVisionNeeded: (why: string, missing: string) => void;
+}
+
+function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
+  return {
+    computer: ctx.deps.computer,
+    events: ctx.deps.events,
+    vision,
+    secrets: ctx.deps.secrets,
+    clock: ctx.clock,
+    step: ctx.step,
+    goal: ctx.hint ?? ctx.subgoal.goal,
+    history: ctx.history,
+    textOptions: buildTextOptions(textGoal(ctx), ctx.task.secrets, ctx.deps.secrets),
+    ...(ctx.deps.signal ? { signal: ctx.deps.signal } : {}),
+    onModelCall: ctx.onModelCall,
+  };
+}
+
+/** D1 screen-to-text: vision names unlabeled controls, then Jev is asked again on the named table. */
+async function visionName(ctx: DecideContext, why: string): Promise<DecideOutcome | undefined> {
+  if (ctx.visionTried) return undefined;
+  const vision = ctx.deps.vision;
+  if (!vision) {
+    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER);
+    return undefined;
+  }
+  ctx.deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D1", reason: why });
+  const named = await nameUnnamed(modeDEnv(ctx, vision), ctx.snapshot);
+  if (!named) {
+    ctx.d1Failures.set(ctx.screenKey, (ctx.d1Failures.get(ctx.screenKey) ?? 0) + 1);
+    return undefined;
+  }
+  ctx.mode.current = "D1";
+  return decideAndAct({ ...ctx, snapshot: named, visionTried: true });
+}
+
+/** D1 ground: vision points at the next target, the loop clicks that point. */
+async function visionGround(
+  ctx: DecideContext,
+  why: string,
+  effect: EffectClass,
+): Promise<DecideOutcome | undefined> {
+  if (ctx.visionTried) return undefined;
+  const vision = ctx.deps.vision;
+  if (!vision) {
+    ctx.noteVisionNeeded(why, NO_VISION_PROVIDER);
+    return undefined;
+  }
+  if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
+  ctx.deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D1", reason: why });
+  const instruction = ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`;
+  const t = ctx.clock.now();
+  const r = await groundAndClick(modeDEnv(ctx, vision), instruction, effect);
+  ctx.timing.actMs = ctx.clock.now() - t;
+  ctx.mode.current = "D1";
+  if (!r.result || r.result.effect === "suspected_noop" || r.result.effect === "refused") {
+    ctx.d1Failures.set(ctx.screenKey, (ctx.d1Failures.get(ctx.screenKey) ?? 0) + 1);
+    ctx.history.push({ step: ctx.step, text: `vision assist failed: ${r.reason}` });
+    return r.result ? { kind: "continue" } : undefined;
+  }
+  ctx.acted.count++;
+  return { kind: "continue" };
+}
+
+/** Tracks consecutive "no target" answers on one screen; returns the streak length. */
+function noteNone(ctx: DecideContext, none: boolean): number {
+  if (!none || ctx.visionTried) {
+    if (!ctx.visionTried) ctx.noneStreak.count = 0;
+    return 0;
+  }
+  if (ctx.noneStreak.screen === ctx.screenKey) ctx.noneStreak.count++;
+  else {
+    ctx.noneStreak.screen = ctx.screenKey;
+    ctx.noneStreak.count = 1;
+  }
+  return ctx.noneStreak.count;
 }
 
 /** Literal source for the text head: goal, instruction and writer-supplied texts. */
@@ -698,7 +935,8 @@ function prepareAct(ctx: DecideContext): PreparedAct {
   const triedHere = new Set(
     [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
   );
-  const candidates = buildCandidates(snapshot, { seedTargets: subgoal.seedTargets, triedHere });
+  const seeds = [...subgoal.seedTargets, ...(deps.seedTargets?.(subgoal, snapshot) ?? [])];
+  const candidates = buildCandidates(snapshot, { seedTargets: seeds, triedHere });
   const textOptions = buildTextOptions(textGoal(ctx), task.secrets, deps.secrets);
   const { questions, offered } = buildActQuestions({ candidates, textOptions, forbidden: task.forbidden });
 
@@ -805,7 +1043,12 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
-    return (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
+    const streak = noteNone(ctx, op === BLOCKED);
+    const viaVision =
+      streak >= 2
+        ? await visionGround(ctx, `no listed element fits (${streak} times on this screen)`, "advance")
+        : undefined;
+    return viaVision ?? (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
   }
   const operation = op as Operation;
   if (operation === "scroll") return scrollStep(ctx, answers);
@@ -923,12 +1166,33 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     });
     if (unsure) {
       const reason = failed.map((g) => `${g.gate} ${g.detail ?? ""}`.trim()).join("; ");
+      // Mode D1: an unnamed target or a poorly named table goes to vision before the writer.
+      const unnamedChosen = element !== undefined && !isNamed(element);
+      const poorTable = snapshot.quality.score < QUALITY_GOOD && unnamedTargets(snapshot).length > 0;
+      const streak = noteNone(ctx, targetToken === NONE);
+      const viaVision =
+        unnamedChosen || poorTable
+          ? await visionName(
+              ctx,
+              unnamedChosen
+                ? "the chosen target has no name"
+                : `unnamed controls (q=${snapshot.quality.score.toFixed(2)})`,
+            )
+          : streak >= 2
+            ? await visionGround(
+                ctx,
+                `no listed element fits (${streak} times on this screen)`,
+                effect === "forbidden" ? "advance" : effect,
+              )
+            : undefined;
+      if (viaVision) return viaVision;
       const handed = await handOff(ctx, reason, needsText ? element?.name : undefined);
       if (handed) return handed;
     }
     return refuse();
   }
 
+  noteNone(ctx, false);
   // Never retry a mutation: the same commit on the same screen is refused.
   const key = `${action.type}|${element.stableId}|${"value" in action ? JSON.stringify(action.value) : ""}`;
   const before = ctx.stall.attempt(key);

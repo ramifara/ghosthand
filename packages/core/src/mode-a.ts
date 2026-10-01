@@ -15,9 +15,9 @@ import type {
   TaskSpec,
 } from "@ghosthand/protocol";
 import { type ForbiddenRule, matchForbidden } from "./effect-rules.ts";
+import type { EventSink } from "./event-sink.ts";
 import { choiceConfidence } from "./gates.ts";
 import type { Clock } from "./logger.ts";
-import type { EventSink } from "./loop.ts";
 import { NONE } from "./questions.ts";
 import {
   actionToken,

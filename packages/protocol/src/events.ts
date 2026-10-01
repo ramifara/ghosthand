@@ -190,7 +190,7 @@ export const RunEvent = z.discriminatedUnion("type", [
     modeShares: z.record(z.string(), z.number()),
     /** The agent's reported answer, for tasks that ask for one (redacted like everything else). */
     answer: z.string().optional(),
-    answeredBy: z.enum(["decision", "writer"]).optional(),
+    answeredBy: z.enum(["decision", "writer", "vision"]).optional(),
   }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;
