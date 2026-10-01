@@ -10,6 +10,7 @@ import {
   createDecisionProvider,
   type EngineRuntime,
   launchWeb,
+  listRecipeSummaries,
   prepareTestbedRun,
   runAgent,
   runQaSpecFile,
@@ -160,7 +161,7 @@ export function createEngineBackend(rt: EngineRuntime): McpBackend {
       }
     },
 
-    listRecipes: () => [],
+    listRecipes: () => listRecipeSummaries(rt),
 
     async observe(input) {
       if (!session) {

@@ -8,6 +8,18 @@ import { type Knowledge, type LearningSession, openKnowledge } from "@ghosthand/
 import type { RunEvent, TaskSpec } from "@ghosthand/protocol";
 import type { EngineRuntime } from "./runtime.ts";
 
+/** Active recipes as `{id, title}` (MCP `list_recipes`). */
+export function listRecipeSummaries(rt: EngineRuntime): Array<{ id: string; title: string }> {
+  const kb = openKnowledgeFor(rt);
+  if (!kb) return [];
+  try {
+    const r = kb.recipes.list({ status: "active" });
+    return r.ok ? r.value.map((x) => ({ id: x.id, title: x.intent })) : [];
+  } finally {
+    kb.close();
+  }
+}
+
 export interface KnowledgeOptions {
   kb: Knowledge;
   /** Offer verified recipes to the loop (mode A). */
