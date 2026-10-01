@@ -1,0 +1,9 @@
+{
+  "description": "Synthetic: a 200 whose body lacks usage. Treated as a server error.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.13.0", "questions": ["goal_done"] },
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_aaaabbbbccccddddeeeeffff00001111" },
+    "body": { "model": "jev-1.13.0", "answers": { "goal_done": { "type": "noul", "noul": 0.5 } } }
+  }
+}

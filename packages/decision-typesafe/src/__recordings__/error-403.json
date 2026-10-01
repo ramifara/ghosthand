@@ -1,0 +1,9 @@
+{
+  "description": "Missing API key (probed: the API answers 403, not 401).",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 403,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_403403403403403403403403403403ab" },
+    "body": { "detail": { "error_type": "authentication_error", "message": "Must supply an API key!" } }
+  }
+}

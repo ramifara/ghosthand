@@ -1,0 +1,13 @@
+{
+  "description": "Request validation failure (FastAPI list form).",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 422,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_422422422422422422422422422422ab" },
+    "body": {
+      "detail": [
+        { "loc": ["body", "questions", "target", "criteria"], "msg": "Dictionary should have at most 255 items", "type": "too_long" }
+      ]
+    }
+  }
+}

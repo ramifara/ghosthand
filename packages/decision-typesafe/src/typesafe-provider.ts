@@ -1,0 +1,283 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+// DecisionProvider over the direct TypeSafe API (ADR 0004). This package is the only importer of
+// `@typesafe-ai/sdk`; nothing SDK-shaped leaves it.
+import type {
+  DecisionAskOptions,
+  DecisionCapabilities,
+  DecisionError,
+  DecisionProvider,
+  DecisionResponse,
+  Entry,
+  Question,
+  Questions,
+  Result,
+} from "@ghosthand/protocol";
+import { err, MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS, ok } from "@ghosthand/protocol";
+import type {
+  Logger as SdkLogger,
+  Question as SdkQuestion,
+  Questions as SdkQuestions,
+} from "@typesafe-ai/sdk";
+import { TypeSafeClient } from "@typesafe-ai/sdk";
+import type { CostMeter } from "./cost-meter.ts";
+import { costUsd, DEFAULT_PRICE_INPUT_PER_M } from "./cost-meter.ts";
+import type { DecisionLogger } from "./logger.ts";
+import { silentLogger } from "./logger.ts";
+import { mapSdkError } from "./map-sdk-error.ts";
+import type { TokenEstimate } from "./preflight.ts";
+import { estimateRequestTokens, preflight } from "./preflight.ts";
+import { abstainedNames, validateAnswers } from "./validate-response.ts";
+import { WireResponse } from "./wire.ts";
+
+export const PROVIDER_NAME = "typesafe";
+export const DEFAULT_MODEL = "jev-1.13.0";
+export const DEFAULT_BASE_URL = "https://api.typesafe.ai";
+export const DEFAULT_TIMEOUT_MS = 2500;
+export const DEFAULT_RETRIES = 1;
+
+/** Limits of the direct API (docs /models, /api). */
+export const TYPESAFE_DIRECT_CAPABILITIES: DecisionCapabilities = {
+  maxOptions: MAX_CHOICE_OPTIONS,
+  maxLevels: MAX_SCORE_LEVELS,
+  contextTokens: 64_000,
+  perQuestionContextTokens: 32_000,
+  zdr: false,
+};
+
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface TypeSafeDecisionProviderOptions {
+  apiKey: string;
+  /** Pinned model ID. Default `jev-1.13.0`. */
+  model?: string;
+  /** Per-attempt timeout. Default 2500 ms. */
+  timeoutMs?: number;
+  /** Retries after the first attempt on 408/429/5xx, timeouts and connection errors. Default 1. */
+  retries?: number;
+  /** API root. Defaults to the direct API; the `TYPESAFE_BASE_URL` env var is deliberately ignored. */
+  baseUrl?: string;
+  /** Custom fetch (tests, Electron `net.fetch`). Must support `Response.clone()` and stream bodies. */
+  fetch?: FetchLike;
+  /** USD per million input tokens. Default 0.042. */
+  priceInputPerM?: number;
+  logger?: DecisionLogger;
+  /** Shared spend meter. When set, calls fail with `budget` once the cap is reached. */
+  costMeter?: CostMeter;
+  /** Overrides for the advertised limits, e.g. for a gateway with a smaller context or a limits probe. */
+  capabilities?: Partial<DecisionCapabilities>;
+  /** Send requests without local shape and size checks. Only for `scripts/probe-jev.ts` limit probes. */
+  skipPreflight?: boolean;
+  /** Monotonic clock in ms, for latency. Default `performance.now`. */
+  now?: () => number;
+}
+
+/** Forwards only SDK warnings and errors, without their arguments, which can carry request bodies. */
+function sdkLoggerFor(logger: DecisionLogger): SdkLogger {
+  const drop = (): void => {};
+  return {
+    debug: drop,
+    info: drop,
+    warn: (message: string) => logger.warn({ provider: PROVIDER_NAME, sdk: true }, message),
+    error: (message: string) => logger.error({ provider: PROVIDER_NAME, sdk: true }, message),
+  };
+}
+
+/** Rebuilds a protocol question in the SDK's shape, dropping undefined optionals. */
+function toSdkQuestion(q: Question): SdkQuestion {
+  switch (q.type) {
+    case "noul": {
+      const out: SdkQuestion = { type: "noul" };
+      if (q.instructions !== undefined) out.instructions = q.instructions;
+      if (q.criteria !== undefined) {
+        const criteria: { true?: Entry; false?: Entry } = {};
+        if (q.criteria.true !== undefined) criteria.true = q.criteria.true;
+        if (q.criteria.false !== undefined) criteria.false = q.criteria.false;
+        out.criteria = criteria;
+      }
+      return out;
+    }
+    case "choice": {
+      const out: SdkQuestion = { type: "choice", criteria: q.criteria };
+      if (q.instructions !== undefined) out.instructions = q.instructions;
+      return out;
+    }
+    case "score": {
+      // Preflight guarantees at least two levels; the SDK's type wants that as a tuple.
+      const [first = null, second = null, ...rest] = q.criteria;
+      const out: SdkQuestion = { type: "score", criteria: [first, second, ...rest] };
+      if (q.instructions !== undefined) out.instructions = q.instructions;
+      return out;
+    }
+  }
+}
+
+function toSdkQuestions(questions: Questions): SdkQuestions {
+  const out: SdkQuestions = {};
+  for (const [name, q] of Object.entries(questions)) out[name] = toSdkQuestion(q);
+  return out;
+}
+
+/** Question names, types and sizes only. Never instructions, criteria text or state. */
+function describeQuestions(questions: Questions): Array<Record<string, unknown>> {
+  return Object.entries(questions).map(([name, q]) => {
+    if (q.type === "choice") return { name, type: q.type, options: Object.keys(q.criteria).length };
+    if (q.type === "score") return { name, type: q.type, levels: q.criteria.length };
+    return { name, type: q.type };
+  });
+}
+
+export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOptions): DecisionProvider {
+  const model = opts.model ?? DEFAULT_MODEL;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const retries = opts.retries ?? DEFAULT_RETRIES;
+  const price = opts.priceInputPerM ?? DEFAULT_PRICE_INPUT_PER_M;
+  const logger = opts.logger ?? silentLogger;
+  const now = opts.now ?? (() => performance.now());
+  const capabilities: DecisionCapabilities = { ...TYPESAFE_DIRECT_CAPABILITIES, ...opts.capabilities };
+  const provider = PROVIDER_NAME;
+
+  let client: TypeSafeClient | undefined;
+
+  /** Built on first use so a missing key surfaces as a Result, not a constructor throw. */
+  function getClient(): Result<TypeSafeClient, DecisionError> {
+    if (client) return ok(client);
+    if (opts.apiKey.trim() === "") {
+      return err({ kind: "auth", provider, message: "no TypeSafe API key configured (TYPESAFE_API_KEY)" });
+    }
+    try {
+      client = new TypeSafeClient({
+        apiKey: opts.apiKey,
+        baseURL: opts.baseUrl ?? DEFAULT_BASE_URL,
+        defaultModel: model,
+        timeout: timeoutMs,
+        retry: { maxRetries: retries, backoffInitialMs: 200, backoffMaxMs: 800, maxRetryAfterMs: 1000 },
+        // Never `debug`: it logs full request bodies (the screen state). Explicit, so env can't override.
+        logLevel: "warn",
+        logger: sdkLoggerFor(logger),
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      });
+      return ok(client);
+    } catch (e) {
+      return err(mapSdkError(e, provider));
+    }
+  }
+
+  async function ask(
+    state: Entry,
+    questions: Questions,
+    askOpts: DecisionAskOptions = {},
+  ): Promise<Result<DecisionResponse, DecisionError>> {
+    const { signal } = askOpts;
+    if (signal?.aborted) return err({ kind: "aborted", provider, message: "aborted before sending" });
+
+    let estimate: TokenEstimate;
+    if (opts.skipPreflight) {
+      estimate = estimateRequestTokens(state, questions);
+    } else {
+      const pre = preflight(state, questions, capabilities, provider);
+      if (!pre.ok) {
+        logger.warn(
+          { provider, model, kind: pre.error.kind, questions: describeQuestions(questions) },
+          pre.error.message,
+        );
+        return pre;
+      }
+      estimate = pre.value;
+    }
+
+    if (opts.costMeter) {
+      const budget = opts.costMeter.check(costUsd(estimate.total, price));
+      if (!budget.ok) {
+        logger.warn(
+          { provider, model, kind: "budget", spentUsd: opts.costMeter.spentUsd },
+          "decision.budget",
+        );
+        return budget;
+      }
+    }
+
+    const c = getClient();
+    if (!c.ok) return c;
+
+    logger.debug(
+      { provider, model, questions: describeQuestions(questions), estimatedTokens: estimate.total },
+      "decision.request",
+    );
+
+    const started = now();
+    let data: unknown;
+    let requestId: string | undefined;
+    try {
+      const res = await c.value
+        .systemOne({ state, questions: toSdkQuestions(questions), model }, signal ? { signal } : {})
+        .withResponse();
+      data = res.data;
+      requestId = res.requestId;
+    } catch (e) {
+      const error = mapSdkError(e, provider);
+      const latencyMs = Math.round(now() - started);
+      logger.warn(
+        { provider, model, kind: error.kind, status: error.status, requestId: error.requestId, latencyMs },
+        "decision.error",
+      );
+      return err(error);
+    }
+    const latencyMs = Math.max(0, now() - started);
+
+    const envelope = WireResponse.safeParse(data);
+    if (!envelope.success) {
+      const error: DecisionError = { kind: "server", provider, message: "malformed response body" };
+      if (requestId !== undefined) error.requestId = requestId;
+      logger.warn({ provider, model, kind: error.kind, requestId, latencyMs }, "decision.error");
+      return err(error);
+    }
+    const body = envelope.data;
+    if (body.model !== model) {
+      logger.warn({ provider, requested: model, reported: body.model, requestId }, "decision.model_mismatch");
+    }
+
+    const answers = validateAnswers(questions, body.answers);
+    const inputTokens = body.usage.input_tokens;
+    const outputTokens = body.usage.output_tokens;
+    const cost = opts.costMeter ? opts.costMeter.add(inputTokens) : costUsd(inputTokens, price);
+    const abstained = abstainedNames(answers);
+
+    logger.info(
+      {
+        provider,
+        model: body.model,
+        requestId,
+        latencyMs: Math.round(latencyMs),
+        inputTokens,
+        outputTokens,
+        estimatedTokens: estimate.total,
+        costUsd: cost,
+        abstained,
+      },
+      "decision.response",
+    );
+    if (abstained.length > 0) {
+      const reasons: Record<string, string> = {};
+      for (const name of abstained) {
+        const a = answers[name];
+        if (a?.type === "abstain") reasons[name] = a.reason;
+      }
+      logger.warn({ provider, requestId, reasons }, "decision.abstain");
+    }
+
+    const response: DecisionResponse = {
+      answers,
+      model: body.model,
+      provider,
+      usage: { inputTokens, outputTokens },
+      costUsd: cost,
+      latencyMs,
+      calibration: "native",
+    };
+    if (requestId !== undefined) response.requestId = requestId;
+    return ok(response);
+  }
+
+  return { id: `${provider}:${model}`, capabilities, ask };
+}

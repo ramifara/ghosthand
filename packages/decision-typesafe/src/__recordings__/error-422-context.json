@@ -1,0 +1,9 @@
+{
+  "description": "Hypothetical over-context rejection. The real status and wording are undocumented; update from scripts/probe-jev.ts results.",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 422,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_422c422c422c422c422c422c422c42ab" },
+    "body": { "detail": { "error_type": "invalid_request_error", "message": "Input exceeds the context window of 64000 tokens." } }
+  }
+}

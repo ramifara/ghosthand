@@ -1,0 +1,20 @@
+{
+  "description": "A choice whose top two options tie; the reported choice is one of the tied maxima.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.13.0", "questions": ["target"] },
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_0a1b2c3d4e5f60718293a4b5c6d7e8f9" },
+    "body": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "target": {
+          "type": "choice",
+          "choice": "e1",
+          "confidence": 0.5,
+          "probabilities": { "e1": 0.48, "e2": 0.48, "e3": 0.02, "none": 0.02 }
+        }
+      },
+      "usage": { "input_tokens": 912, "output_tokens": 5 }
+    }
+  }
+}

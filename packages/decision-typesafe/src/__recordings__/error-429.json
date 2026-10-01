@@ -1,0 +1,13 @@
+{
+  "description": "Rate limited, with a retry-after-ms hint.",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "x-typesafe-request-id": "req_429429429429429429429429429429ab",
+      "retry-after-ms": "750"
+    },
+    "body": { "detail": { "error_type": "rate_limit_error", "message": "Rate limit exceeded: 40 requests per second." } }
+  }
+}
