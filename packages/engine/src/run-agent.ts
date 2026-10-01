@@ -53,7 +53,8 @@ export interface RunReport {
   result: RunResult | ReplayResult;
 }
 
-interface Session {
+/** Recorder, tracing and per-run log for one run folder. */
+export interface RunSession {
   recorder: RunRecorder;
   tracing: RunTracing;
   sink: EventSink;
@@ -61,10 +62,10 @@ interface Session {
   errors: string[];
 }
 
-function openSession(
+export function openSession(
   rt: EngineRuntime,
   hooks: RunHooks,
-): { ok: true; value: Session } | { ok: false; error: string } {
+): { ok: true; value: RunSession } | { ok: false; error: string } {
   const redact = (text: string) => rt.secrets.redact(text);
   const rec = createRunRecorder({ runsDir: rt.runsDir, redact, index: rt.index });
   if (!rec.ok) return { ok: false, error: rec.error.message };
@@ -96,8 +97,8 @@ function openSession(
   return { ok: true, value: { recorder, tracing, sink, flushLog: flush, errors } };
 }
 
-async function closeSession(
-  s: Session,
+export async function closeSession(
+  s: RunSession,
   launched: LaunchedComputer | undefined,
 ): Promise<RunSummary | undefined> {
   if (launched) {

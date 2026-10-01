@@ -24,7 +24,8 @@
     "@ghosthand/driver-playwright": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
     "@ghosthand/models": "workspace:*",
-    "@ghosthand/qa": "workspace:*"
+    "@ghosthand/qa": "workspace:*",
+    "@ghosthand/voice": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"

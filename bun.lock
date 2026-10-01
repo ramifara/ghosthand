@@ -36,6 +36,7 @@
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
         "@ghosthand/testbed-kit": "workspace:*",
+        "@ghosthand/voice": "workspace:*",
       },
       "devDependencies": {
         "vitest": "catalog:",
@@ -158,6 +159,7 @@
         "@ghosthand/qa": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
         "@ghosthand/testbed-kit": "workspace:*",
+        "@ghosthand/voice": "workspace:*",
         "@opentelemetry/api": "catalog:",
         "@opentelemetry/core": "2.11.0",
         "@opentelemetry/resources": "2.11.0",

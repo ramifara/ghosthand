@@ -18,4 +18,6 @@ export * from "./run-agent.ts";
 export * from "./runtime.ts";
 export * from "./testbed.ts";
 export * from "./tracing.ts";
+export * from "./voice-session.ts";
+export * from "./voice-stt.ts";
 export * from "./web-launcher.ts";

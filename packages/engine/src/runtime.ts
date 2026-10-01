@@ -35,6 +35,9 @@ const NON_AGENT_KEYS = new Set([
   "GEMINI_API_KEY",
   "OPENROUTER_API_KEY",
   "AI_GATEWAY_API_KEY",
+  "DEEPGRAM_API_KEY",
+  "ASSEMBLYAI_API_KEY",
+  "ELEVENLABS_API_KEY",
 ]);
 
 /** Provider key names, including any custom `apiKeyEnv` from config. */
