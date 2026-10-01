@@ -1,0 +1,20 @@
+{
+  "name": "@ghosthand/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Task model, step loop, question builders, gates, budgets",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

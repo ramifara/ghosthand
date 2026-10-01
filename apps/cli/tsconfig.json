@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../node_modules/.cache/tsc/cli",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/cli.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/engine"
+    }
+  ]
+}

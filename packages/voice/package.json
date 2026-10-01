@@ -1,0 +1,21 @@
+{
+  "name": "@ghosthand/voice",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Push-to-talk, VAD and speech-to-text",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/core": "workspace:*",
+    "@ghosthand/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

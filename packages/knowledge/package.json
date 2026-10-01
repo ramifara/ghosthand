@@ -1,0 +1,21 @@
+{
+  "name": "@ghosthand/knowledge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "App maps, recipes and source maps",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/core": "workspace:*",
+    "@ghosthand/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

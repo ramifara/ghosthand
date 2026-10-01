@@ -1,0 +1,24 @@
+{
+  "name": "@ghosthand/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The ghosthand command",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "ghosthand": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/engine": "workspace:*",
+    "@ghosthand/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

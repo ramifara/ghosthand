@@ -1,0 +1,21 @@
+{
+  "name": "@ghosthand/models",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vercel AI SDK wrapper, model catalog and role bindings",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/core": "workspace:*",
+    "@ghosthand/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

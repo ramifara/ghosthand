@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../node_modules/.cache/tsc/engine",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/engine.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../decision-typesafe"
+    },
+    {
+      "path": "../driver-playwright"
+    },
+    {
+      "path": "../recorder"
+    },
+    {
+      "path": "../consultants"
+    }
+  ]
+}
