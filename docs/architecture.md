@@ -38,7 +38,7 @@ flowchart LR
 | `driver-playwright` | Browser detection, persistent profiles and Chrome profile import; the web `Computer` (observe, act, settle, origin guard). |
 | `driver-desktop` | The desktop `Computer` over JSON-RPC native hosts: role map, element table, tokens, effects and launchers in TS; Python AT-SPI host (X11 container, headless GNOME), C# UIA host, Swift AX host; desktop testbed tasks. |
 | `recorder` | Run folders, redacted `events.jsonl`, screenshots and state sidecars, SQLite run index, replay reader. |
-| `knowledge` | `node:sqlite` knowledge base next to the run index (`knowledge.sqlite`): app map (screen fingerprints, stable elements, transitions, path search), recipes (induce from verified runs, parameters, trust with decay, heal patches, retrieval for mode A), and the React/TS source map extractor (test ids, labels, forms, routes, import graph, diff scoping, source oracles, planner hints). ADR 0010. |
+| `knowledge` | `node:sqlite` knowledge base next to the run index (`knowledge.sqlite`): app map (screen fingerprints, stable elements, transitions, path search), recipes (induce from verified runs, parameters, trust with decay, heal patches, retrieval for mode A), and the React/TS source map extractor (test ids, labels, forms, routes, import graph, diff scoping, source oracles, planner hints). ADR 0011. |
 | `engine` | Composition root: config and env-file loading, pino logger, OpenTelemetry spans from the event stream, run and replay lifecycle, doctor, and the web QA case executor (checkpoints per step, axe audits, console/HTTP errors, thumbnails, vision judge over `vision_reviewer`). |
 | `qa` | QA mode, pure: Markdown spec parser, preflight (one Jev request per case), oracle compiler v2 (spec → `TaskSpec` with one subgoal per step), judge chain (deterministic → oracle → Jev `holds` → vision → inconclusive), rubric with pass^k, single-file HTML report + JSON. Running a case is injected (`CaseExecutor`). |
 | `mcp` | MCP server on stdio over the engine (ADR 0006): `run_task`, `run_spec`, `get_run`, `get_report`, `cancel_run`, `list_recipes`, and `observe`/`act` with `--interactive`. |
@@ -77,7 +77,7 @@ Big pages (P1-06): the driver lists the page's regions in `Snapshot.regions` (op
 
 ## Router ladder
 
-Every mode is live as of Phase 3 (ADR 0010). Each step is counted in `run.end.modeShares` ("who did the work"); `escalate` events carry `direction: "down"` for de-escalations.
+Every mode is live as of Phase 3 (ADR 0011). Each step is counted in `run.end.modeShares` ("who did the work"); `escalate` events carry `direction: "down"` for de-escalations.
 
 - **A, recipe replay.** A verified recipe that matches the task (intent template binds the instruction) and the start screen (fingerprint key or URL pattern) replays before mode B, with 0 model calls when nothing moved. Each step's target must resolve (stable id, test id, unique role + name). One Jev "same control?" question heals a miss. A failed guard hands the rest of the run to B. Final `done_when` checks always run. Source-aware route-first navigation is also counted as A.
 - **B, Jev-first.** The element table, one Jev request per step, code gates. Operations: press, set_value, toggle, select_option, select_text, drag (source + drop zone), context_menu (right-click) and scroll (offered only when `Snapshot.canScroll`).

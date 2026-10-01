@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// Knowledge around a run (ADR 0010): recipes are offered to the loop (mode A) when enabled; after the run
+// Knowledge around a run (ADR 0011): recipes are offered to the loop (mode A) when enabled; after the run
 // the replay outcome updates the recipe's trust, and with `learn` a verified run updates the app map and
 // learns (or re-learns) a recipe.
 import type { ReplayReport } from "@ghosthand/core";

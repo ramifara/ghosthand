@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// Stored recipe shape (ADR 0010). Values and plan texts may hold `{{name}}` parameter placeholders;
+// Stored recipe shape (ADR 0011). Values and plan texts may hold `{{name}}` parameter placeholders;
 // secrets stay `{secretRef: NAME}` and are never stored by value.
 import { Action, EffectClass, Plan } from "@ghosthand/protocol";
 import { z } from "zod";

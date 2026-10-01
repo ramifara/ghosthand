@@ -124,7 +124,7 @@ export async function main(argv: string[]): Promise<number> {
         writer: (["models", "codex", "none"].includes(values.writer ?? "")
           ? values.writer
           : "auto") as WriterChoice,
-        // Evals keep runs independent: recipes and learning only when asked (ADR 0010).
+        // Evals keep runs independent: recipes and learning only when asked (ADR 0011).
         extras: extrasFlags(values, "off"),
         ...(values["start-path"] ? { startPath: values["start-path"] } : {}),
         ...(values.profile ? { profile: values.profile } : {}),
@@ -209,7 +209,7 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
   };
 }
 
-/** Phase 3 flags shared by `run` and `eval`; `recipesDefault` differs (ADR 0010). */
+/** Phase 3 flags shared by `run` and `eval`; `recipesDefault` differs (ADR 0011). */
 export function extrasFlags(
   values: ReturnType<typeof parse>["values"],
   recipesDefault: "auto" | "off",

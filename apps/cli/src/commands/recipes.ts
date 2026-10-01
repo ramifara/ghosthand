@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// `ghosthand recipes list|show|export|remove` and `ghosthand map`: the knowledge base (ADR 0010).
+// `ghosthand recipes list|show|export|remove` and `ghosthand map`: the knowledge base (ADR 0011).
 import { writeFileSync } from "node:fs";
 import { exportPlaywrightSpec, openKnowledgeFor, openRuntime } from "@ghosthand/engine";
 import { bindValue, effectiveTrust, type Knowledge, type Recipe } from "@ghosthand/knowledge";

@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
 # Phase 3 report: speed and knowledge
 
-Date: 2026-10-01. Branch `feat/phase-3-speed-knowledge`. Decisions are in [ADR 0010](../adr/0010-knowledge-recipes-vision-modes.md) (proposed).
+Date: 2026-10-01. Branch `feat/phase-3-speed-knowledge`. Decisions are in [ADR 0011](../adr/0011-knowledge-recipes-vision-modes.md) (proposed).
 
 **Status.** Every Phase 3 piece is built and tested. Measured with real Jev (`jev-1.13.0`, TypeSafe direct) on a dedicated testbed instance:
 
@@ -170,7 +170,7 @@ Per task (median steps with Jev-decided steps in parentheses, median wall):
 ## What's left
 
 1. **Stop earlier when vision is needed and missing.** In the measured runs the loop escalated to H and B carried on: writer hand-offs and Codex replans spent about 8–10 LLM calls before stopping (see the vision rows above). After the measurement, replans are skipped when the page itself needs vision (unnamed target, poorly named table, answer not in the text). They are still allowed after "no target fits twice", because a better plan may fix that, so `l4-closed-shadow-promo` still replans. Writer hand-offs still run in both cases.
-2. **Live D1/D2 measurement** with a key: latency, accuracy and how often D2 de-escalates. D2 actions cannot be checked against the element effect rules (there is no element), so D2 should stay off consequential flows until measured (ADR 0010).
+2. **Live D1/D2 measurement** with a key: latency, accuracy and how often D2 de-escalates. D2 actions cannot be checked against the element effect rules (there is no element), so D2 should stay off consequential flows until measured (ADR 0011).
 3. **The app map is recorded, but the loop does not use it yet.** Path search (`AppMap.findPath`) exists, but no navigation step uses it, and the knowledge level ("recipe / mapped / seen / unknown") does not feed the router.
 4. **Recipe retrieval** has no Jev choice among several candidates (the most trusted wins), no plan templates (APC), no vision-only recipes, and no human-demonstrated recipes from takeover.
 5. **Source maps** have no Next.js, Vue, Svelte or TanStack routes, no schema libraries, and no coverage report. Diff oracles are produced by `ghosthand sourcemap --diff` but QA mode does not run them automatically.

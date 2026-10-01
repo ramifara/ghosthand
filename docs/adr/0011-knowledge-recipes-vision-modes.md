@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
 
-# 0010. Knowledge: fingerprints, recipes, learning defaults, source maps and vision modes
+# 0011. Knowledge: fingerprints, recipes, learning defaults, source maps and vision modes
 
 - Status: proposed
 - Date: 2026-10-01
