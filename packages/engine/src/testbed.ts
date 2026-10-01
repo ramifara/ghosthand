@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Testbed glue: resets and seeds via the control API, signs in per task setup, and grades with the oracle.
 // The oracle is the final verdict only; the agent's own done_when never consults it.
+import { fileURLToPath } from "node:url";
 import type { Predicate, TaskSpec } from "@ghosthand/protocol";
 import {
   APP_ORIGIN,
@@ -14,6 +15,11 @@ import {
   type TestbedTask,
   toTaskSpec,
 } from "@ghosthand/testbed-kit";
+
+/** Fixture files testbed tasks may upload (`apps/testbed/fixtures/uploads`). */
+export const TESTBED_UPLOADS_DIR = fileURLToPath(
+  new URL("../../../apps/testbed/fixtures/uploads", import.meta.url),
+);
 
 export interface BrowserCookie {
   name: string;

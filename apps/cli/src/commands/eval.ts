@@ -6,12 +6,14 @@ import {
   createDecisionProvider,
   openRuntime,
   type PlannerChoice,
+  TESTBED_UPLOADS_DIR,
   type WriterChoice,
   webLauncher,
 } from "@ghosthand/engine";
 import { runSuite } from "@ghosthand/evals";
 import type { DecisionProvider, TaskSpec } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
+import { type ExtrasFlags, setupRunExtras } from "../run-extras.ts";
 
 export interface EvalFlags {
   suite: string;
@@ -24,6 +26,9 @@ export interface EvalFlags {
   json: boolean;
   planner?: PlannerChoice;
   writer?: WriterChoice;
+  extras: ExtrasFlags;
+  /** Experiment: start every task at this path. */
+  startPath?: string;
 }
 
 export async function evalCommand(flags: EvalFlags): Promise<number> {
@@ -47,7 +52,14 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
       ? undefined
       : await createAssistants(rt, { planner: flags.planner ?? "auto", writer: flags.writer ?? "auto" });
   if (assistants) process.stderr.write(`assistants: ${assistants.describe}\n`);
+  const extras = await setupRunExtras(rt, flags.extras);
+  if (!extras.ok) return fail(extras.error);
+  process.stderr.write(`knowledge: ${extras.value.describe}\n`);
   const report = await runSuite(rt, {
+    ...(extras.value.knowledge ? { knowledge: extras.value.knowledge } : {}),
+    loopFor: (p) => extras.value.loopFor(p.spec),
+    mode: extras.value.sourceMap ? "source-aware" : "blind",
+    ...(flags.startPath ? { startPath: flags.startPath } : {}),
     ...(assistants?.planner ? { planner: assistants.planner } : {}),
     ...(assistants?.writer ? { writer: assistants.writer } : {}),
     suite: flags.suite,
@@ -62,6 +74,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
         headless: flags.headless,
         profile: "evals",
         cookies: p.cookies,
+        uploadDir: TESTBED_UPLOADS_DIR,
       }),
     onRow: (row) =>
       process.stderr.write(
@@ -69,6 +82,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
       ),
   });
   await assistants?.close();
+  extras.value.close();
   if (!report.ok) return fail(report.error.message);
   out(
     flags.json

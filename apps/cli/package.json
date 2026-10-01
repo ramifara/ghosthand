@@ -19,6 +19,7 @@
     "@ghosthand/core": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
     "@ghosthand/evals": "workspace:*",
+    "@ghosthand/knowledge": "workspace:*",
     "@ghosthand/mcp": "workspace:*",
     "@ghosthand/voice": "workspace:*"
   },

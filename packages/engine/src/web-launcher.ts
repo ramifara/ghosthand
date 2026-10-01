@@ -13,6 +13,8 @@ export interface WebLaunchOptions {
   profile?: string;
   headless?: boolean;
   cookies?: BrowserCookie[];
+  /** Files `set_value` may upload into file inputs (by base name). */
+  uploadDir?: string;
 }
 
 /** Launches the browser and returns the WebComputer itself (QA mode needs its page and error log). */
