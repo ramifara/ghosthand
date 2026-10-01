@@ -30,6 +30,18 @@ describe("riskFor", () => {
     expect(riskFor({ ...base, role: "button", name: "Delete user", submits: true })).toBe("destructive");
     expect(riskFor({ ...base, role: "button", name: "Cancel subscription" })).toBe("destructive");
     expect(riskFor({ ...base, role: "button", name: "Cancel" })).toBe("unknown");
+    expect(riskFor({ ...base, role: "button", name: "Revoke API key" })).toBe("destructive");
+    expect(riskFor({ ...base, role: "button", name: "Rotate secret" })).toBe("destructive");
+    expect(riskFor({ ...base, role: "button", name: "Close account" })).toBe("destructive");
+  });
+  it("flags payments, sending, publishing, transfers and exports as external", () => {
+    for (const name of ["Pay now", "Purchase", "Send", "Publish", "Transfer", "Export account data"])
+      expect(riskFor({ ...base, role: "button", name }), name).toBe("external");
+    expect(riskFor({ ...base, role: "link", name: "Send feedback", href: "https://app.test/feedback" })).toBe(
+      "external",
+    );
+    // Fields only change a value; the form's submit carries the effect.
+    expect(riskFor({ ...base, role: "checkbox", name: "Subscribe to newsletter" })).toBe("safe");
   });
   it("separates same-origin and external links", () => {
     expect(riskFor({ ...base, role: "link", name: "Docs", href: "https://app.test/docs" })).toBe("navigates");

@@ -36,6 +36,8 @@ function state(overrides: Partial<TestbedState> = {}): TestbedState {
     initialSettings: [],
     bios: [],
     initialBios: [],
+    cart: [],
+    pickupStores: [],
     ...overrides,
   };
 }

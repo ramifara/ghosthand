@@ -7,6 +7,7 @@ import {
   type AuditOutcome,
   type AuditRow,
   type BioRow,
+  type CartItemRow,
   type CustomerRow,
   DEFAULT_NOW,
   DEFAULT_SEED,
@@ -16,6 +17,7 @@ import {
   type OrderRow,
   type OrderStatus,
   type OrderTag,
+  type PickupStoreRow,
   type ResetRequest,
   type SessionRow,
   type SettingsRow,
@@ -219,7 +221,24 @@ export class Testbed {
       initialSettings: this.initialSettings,
       bios: this.bios(),
       initialBios: this.initialBios,
+      cart: this.cart(),
+      pickupStores: this.pickupStores(),
     };
+  }
+
+  cart(userId?: number): CartItemRow[] {
+    const sql = `select user_id as userId, product_id as productId, quantity from cart_items`;
+    if (userId === undefined)
+      return this.db.query<CartItemRow, []>(`${sql} order by user_id, product_id`).all();
+    return this.db
+      .query<CartItemRow, { userId: number }>(`${sql} where user_id = $userId order by product_id`)
+      .all({ userId });
+  }
+
+  pickupStores(): PickupStoreRow[] {
+    return this.db
+      .query<PickupStoreRow, []>("select user_id as userId, store from pickup_stores order by user_id")
+      .all();
   }
 
   customers(): CustomerRow[] {

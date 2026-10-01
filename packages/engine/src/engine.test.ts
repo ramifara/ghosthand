@@ -4,13 +4,13 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeLoginComputer, type Recording, ScriptedDecisionProvider } from "@ghosthand/core";
-import { TaskSpec } from "@ghosthand/protocol";
+import { type DecisionProvider, err, TaskSpec } from "@ghosthand/protocol";
 import { actionsForReplay, readRun } from "@ghosthand/recorder";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config-loader.ts";
 import { loadEnvFile, parseEnv } from "./env-file.ts";
 import { exportPlaywrightSpec } from "./export-spec.ts";
-import { type ComputerLauncher, runAgent, runReplay } from "./run-agent.ts";
+import { type ComputerLauncher, runAgent, runReplay, runSignal } from "./run-agent.ts";
 import { openRuntime } from "./runtime.ts";
 
 const recording = JSON.parse(
@@ -144,6 +144,43 @@ describe("runAgent + replay (fake computer, recorded decisions)", () => {
     expect(replay.value.result.decisionCalls).toBe(0);
     expect(computers.at(-1)?.actions).toEqual(["set_value e3", "set_value e4", "press e5"]);
     expect(existsSync(join(replay.value.folder, "events.jsonl"))).toBe(true);
+  });
+});
+
+describe("budgets: hard wall-clock abort", () => {
+  it("aborts a hanging decision call at the task's time budget and ends as budget_exhausted", async () => {
+    const { rt } = await runtime();
+    const { launch } = launcher(rt);
+    // Waits until its signal aborts (the per-call deadline is 6 s; the task budget is 0.3 s).
+    const hanging: DecisionProvider = {
+      id: "hanging",
+      capabilities: { maxOptions: 255, maxLevels: 10, contextTokens: 64_000, zdr: true },
+      ask: (_state, _questions, opts) =>
+        new Promise((resolve) => {
+          opts?.signal?.addEventListener("abort", () =>
+            resolve(err({ kind: "timeout", message: "aborted", provider: "hanging" })),
+          );
+        }),
+    };
+    const started = Date.now();
+    const run = await runAgent(rt, {
+      task: { ...task, budget: { steps: 10, seconds: 0.3, usd: 1 } },
+      launch,
+      decision: hanging,
+      trace: false,
+    });
+    if (!run.ok) throw new Error(run.error);
+    expect(run.value.outcome).toBe("budget_exhausted");
+    expect(run.value.reason).toContain("wall-clock");
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it("combines the caller's signal with the wall clock", () => {
+    const caller = new AbortController();
+    const signal = runSignal(task, caller.signal);
+    expect(signal.aborted).toBe(false);
+    caller.abort();
+    expect(signal.aborted).toBe(true);
   });
 });
 

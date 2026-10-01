@@ -9,6 +9,7 @@ import {
   type OrdersQuery,
 } from "@ghosthand/testbed-kit/orders";
 import type { FieldErrors, ProfileInput } from "@ghosthand/testbed-kit/profile-schema";
+import { Review } from "@ghosthand/testbed-kit/reviews";
 import { MailRow, UserRow } from "@ghosthand/testbed-kit/schemas";
 import {
   type GeneralSettingsInput,
@@ -50,6 +51,20 @@ const SettingsResponse = z.object({
   message: z.string().optional(),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
+
+const CatalogProduct = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  priceCents: z.number(),
+});
+export type CatalogProduct = z.infer<typeof CatalogProduct>;
+const CatalogSummary = z.object({ store: z.string().nullable(), cartCount: z.number() });
+const Catalog = CatalogSummary.extend({ products: z.array(CatalogProduct), stores: z.array(z.string()) });
+export type Catalog = z.infer<typeof Catalog>;
+const CatalogChanged = CatalogSummary.extend({ message: z.string() });
+export type ReviewItem = Review;
+const Message = z.object({ message: z.string() });
 
 function ordersSearch(query: OrdersQuery): string {
   const params = new URLSearchParams({ page: String(query.page), sort: query.sort, dir: query.dir });
@@ -136,6 +151,15 @@ export const api = {
   rotateWebhookSecret: () =>
     request(SettingsResponse, "/api/settings/webhook-secret/rotate", { method: "POST", body: {} }),
   revokeApiKey: () => request(SettingsResponse, "/api/settings/api-key/revoke", { method: "POST", body: {} }),
+  catalog: () => request(Catalog, "/api/catalog"),
+  saveStore: (store: string) =>
+    request(CatalogChanged, "/api/catalog/store", { method: "POST", body: { store } }),
+  addToCart: (productId: string) =>
+    request(CatalogChanged, "/api/cart", { method: "POST", body: { productId } }),
+  reviews: () => request(z.object({ reviews: z.array(Review) }), "/api/reviews"),
+  changePassword: (current: string, next: string, confirm: string) =>
+    request(Message, "/api/account/password", { method: "POST", body: { current, next, confirm } }),
+  exportAccount: () => request(Message, "/api/account/export", { method: "POST", body: {} }),
   bio: () => request(z.object({ html: z.string() }), "/api/bio"),
   saveBio: (html: string) =>
     request(z.object({ html: z.string(), message: z.string() }), "/api/bio", {

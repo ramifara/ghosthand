@@ -3,7 +3,7 @@
 import { HeuristicDecisionProvider } from "@ghosthand/core";
 import { createDecisionProvider, openRuntime, webLauncher } from "@ghosthand/engine";
 import { runSuite } from "@ghosthand/evals";
-import type { DecisionProvider } from "@ghosthand/protocol";
+import type { DecisionProvider, TaskSpec } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
 
 export interface EvalFlags {
@@ -21,13 +21,14 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
   const opened = await openRuntime({ logLevel: "warn" });
   if (!opened.ok) return fail(opened.error.message);
   const rt = opened.value;
-  let makeDecision: () => DecisionProvider;
+  let makeDecision: (task: TaskSpec) => DecisionProvider;
   if (flags.decision === "heuristic") makeDecision = createHeuristic;
   else {
     const probe = createDecisionProvider(rt, rt.config.budget.usd);
     if (!probe.ok) return fail(probe.error.message);
-    makeDecision = () => {
-      const d = createDecisionProvider(rt, rt.config.budget.usd);
+    // The decision cost meter's cap is the task's dollar budget, as for `ghosthand run`.
+    makeDecision = (task) => {
+      const d = createDecisionProvider(rt, task.budget.usd);
       if (!d.ok) throw new Error(d.error.message);
       return d.value;
     };

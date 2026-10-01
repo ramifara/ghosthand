@@ -12,7 +12,7 @@ import {
   runAgent,
   type TestbedError,
 } from "@ghosthand/engine";
-import type { DecisionProvider } from "@ghosthand/protocol";
+import type { DecisionProvider, TaskSpec } from "@ghosthand/protocol";
 import type { TestbedTask } from "@ghosthand/testbed-kit";
 import { EvalRow } from "./eval-row.ts";
 import { type SuiteError, selectTasks, taskRef } from "./suites.ts";
@@ -25,7 +25,8 @@ export interface RunSuiteOptions {
   mode?: "blind" | "source-aware";
   /** Where results go; default `<runsDir>/../evals/<timestamp>-<suite>`. */
   outDir?: string;
-  decision: () => DecisionProvider;
+  /** Builds the decision provider for one run; its cost cap should be the task's dollar budget. */
+  decision: (task: TaskSpec) => DecisionProvider;
   /** Builds a launcher for a prepared task (adds its cookies, allowlist, secrets). */
   launcherFor: (prepared: PreparedTestbedRun) => ComputerLauncher;
   prepare?: (
@@ -64,7 +65,7 @@ export async function runSuite(
       const prepared = await prepare(task.id);
       if (!prepared.ok) return prepared;
       for (const [name, value] of Object.entries(prepared.value.secrets)) rt.secrets.register(name, value);
-      const decision = opts.decision();
+      const decision = opts.decision(prepared.value.spec);
       const run = await runAgent(rt, {
         task: prepared.value.spec,
         launch: opts.launcherFor(prepared.value),

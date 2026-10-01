@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // One observation: AI aria snapshot (all frames) → flat nodes → one engine call per frame for DOM facts →
 // elements with redacted values. Ranking, capping and snapshot ids are the caller's business.
-import type { ComputerError, Element, Rect, Region, Result } from "@ghosthand/protocol";
+import type { ComputerError, Element, Rect, Region, RegionSummary, Result } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
 import type { Frame, Page } from "playwright-core";
 import { AriaSnapshotSchema, flattenAriaSnapshot } from "./aria-tree.ts";
 import type { FrameGeometry } from "./build-elements.ts";
 import { buildElements } from "./build-elements.ts";
 import { runEngine } from "./engine-client.ts";
-import type { DomInfo, PageInfo } from "./in-page/page-types.ts";
+import type { DomInfo, PageInfo, SectionInfo } from "./in-page/page-types.ts";
 import { EnrichResult } from "./in-page/page-types.ts";
 import type { SecretScope } from "./secret-scope.ts";
 import { isSecretField } from "./secret-scope.ts";
@@ -37,6 +37,12 @@ export interface Captured {
   ancestors: Map<string, string[]>;
   /** Tokens of password-like fields (their values are never shown). */
   secretTokens: Set<string>;
+  /** Element token → region id (see `regions`). */
+  sections: Map<string, string>;
+  /** Page regions with their element counts, in document order. */
+  regions: RegionSummary[];
+  /** Text of the region asked for with `sectionText`, redacted. */
+  sectionText?: string;
   timings: CaptureTimings;
   /** True when the in-page engine was unavailable and elements carry aria facts only. */
   degraded: boolean;
@@ -47,8 +53,12 @@ export interface CaptureInput {
   scope: SecretScope;
   snapshotId: string;
   timeoutMs: number;
+  /** Region id whose readable text should be returned (scoped observation). */
+  sectionText?: string;
   now?: () => number;
 }
+
+const SAMPLE_PER_REGION = 4;
 
 const originOf = (url: string): string | undefined => {
   try {
@@ -115,17 +125,28 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
 
   const dom = new Map<string, DomInfo | null>();
   const pageInfo = new Map<string, PageInfo>();
+  let sectionInfo: SectionInfo[] = [];
+  let sectionText: string | undefined;
   let degraded = false;
   await Promise.all(
     [...byFrame].map(async ([key, refs]) => {
       const frame = frames.get(key);
       if (!frame) return;
-      const r = await runEngine(frame, { op: "enrich", refs }, EnrichResult, input.timeoutMs);
+      const command =
+        key === "" && input.sectionText !== undefined
+          ? { op: "enrich" as const, refs, sectionText: input.sectionText }
+          : { op: "enrich" as const, refs };
+      const r = await runEngine(frame, command, EnrichResult, input.timeoutMs);
       if (!r.ok) {
         degraded = true;
         return;
       }
       pageInfo.set(key, r.value.page);
+      // Regions come from the top document; framed content belongs to its iframe's region.
+      if (key === "") {
+        sectionInfo = r.value.sections;
+        sectionText = r.value.sectionText;
+      }
       refs.forEach((ref, i) => {
         dom.set(ref, r.value.items[i] ?? null);
       });
@@ -205,14 +226,28 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
   const refs = new Map<string, string>();
   const ancestors = new Map<string, string[]>();
   const secretTokens = new Set<string>();
+  const sections = new Map<string, string>();
   const byRef = new Map(tree.nodes.map((n) => [n.ref, n]));
+  const iframeParent = new Map(tree.iframes.map((f) => [f.ref, f.frameKey]));
+  const sectionOfRef = (ref: string, frameKey: string): string => {
+    let key = frameKey;
+    let own = ref;
+    for (let guard = 0; key !== "" && guard < 16; guard++) {
+      own = key;
+      key = iframeParent.get(key) ?? "";
+    }
+    return dom.get(own)?.section ?? "page";
+  };
   for (const el of elements) {
     const ref = el.token.slice(0, el.token.length - input.snapshotId.length);
     refs.set(el.token, ref);
-    ancestors.set(ref, byRef.get(ref)?.ancestors ?? []);
+    const node = byRef.get(ref);
+    ancestors.set(ref, node?.ancestors ?? []);
     const info = dom.get(ref);
     if (info && isSecretField(info)) secretTokens.add(el.token);
+    sections.set(el.token, sectionOfRef(ref, node?.frameKey ?? ""));
   }
+  const regions = summarizeRegions(elements, sections, sectionInfo, scope);
   let title = "";
   try {
     title = scope.redact(await page.title());
@@ -230,7 +265,42 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
     refs,
     ancestors,
     secretTokens,
+    sections,
+    regions,
+    ...(sectionText !== undefined ? { sectionText: scope.redact(sectionText) } : {}),
     timings: { ariaMs: t1 - t0, enrichMs: t2 - t1, buildMs: t3 - t2 },
     degraded,
   });
+}
+
+/** Counts elements per region (document order of first element) and samples a few interactive names. */
+function summarizeRegions(
+  elements: Element[],
+  sections: Map<string, string>,
+  info: SectionInfo[],
+  scope: SecretScope,
+): RegionSummary[] {
+  const byKey = new Map(info.map((s) => [s.key, s]));
+  const out = new Map<string, RegionSummary>();
+  for (const el of elements) {
+    const key = sections.get(el.token) ?? "page";
+    let r = out.get(key);
+    if (!r) {
+      const s = byKey.get(key);
+      r = {
+        id: key,
+        label: scope.redact(s?.label ?? "Rest of the page"),
+        kind: s?.kind ?? "other",
+        elementCount: 0,
+        sample: [],
+      };
+      out.set(key, r);
+    }
+    r.elementCount++;
+    const named = el.name.trim();
+    const interactive = el.actions.some((a) => a !== "focus" && a !== "scroll_into_view");
+    if (interactive && named && r.sample && r.sample.length < SAMPLE_PER_REGION && !r.sample.includes(named))
+      r.sample.push(named.slice(0, 60));
+  }
+  return [...out.values()];
 }

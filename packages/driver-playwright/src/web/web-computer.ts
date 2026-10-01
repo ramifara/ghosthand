@@ -45,7 +45,7 @@ import {
 } from "./in-page/target-scripts.ts";
 import { NetworkTracker } from "./network-tracker.ts";
 import { OriginGuard } from "./origin-guard.ts";
-import { capElements, measureQuality } from "./rank-elements.ts";
+import { capElements, estimateSnapshotTokens, measureQuality } from "./rank-elements.ts";
 import { redactZip } from "./redact-zip.ts";
 import { SecretScope } from "./secret-scope.ts";
 import type { DomState, SettleOptions, SettleResult } from "./settle.ts";
@@ -411,11 +411,19 @@ export class WebComputer implements Computer {
       scope: this.#scope,
       snapshotId: id,
       timeoutMs: this.#timeout,
+      ...(scope?.region !== undefined ? { sectionText: scope.region } : {}),
     });
     if (!cap.ok) return cap;
     const c = cap.value;
     let elements = c.elements;
-    if (scope?.region !== undefined) {
+    let text = c.text;
+    let scopedTo: string | undefined;
+    if (scope?.region !== undefined && c.regions.some((r) => r.id === scope.region)) {
+      // A region from `Snapshot.regions`: its elements and its own text (P1-06 narrowing).
+      scopedTo = scope.region;
+      elements = elements.filter((e) => c.sections.get(e.token) === scopedTo);
+      if (c.sectionText !== undefined) text = c.sectionText;
+    } else if (scope?.region !== undefined) {
       const region = Region.safeParse(scope.region);
       if (region.success) elements = elements.filter((e) => e.region === region.data);
       else {
@@ -426,7 +434,7 @@ export class WebComputer implements Computer {
         });
       }
     }
-    const capped = capElements(elements, c.text, scope?.maxElements ?? this.#maxElements, this.#maxTokens);
+    const capped = capElements(elements, text, scope?.maxElements ?? this.#maxElements, this.#maxTokens);
     const snapshot: Snapshot = {
       id,
       surface: "web",
@@ -435,10 +443,13 @@ export class WebComputer implements Computer {
       title: c.title,
       viewport: c.viewport,
       elements: capped.elements,
-      text: c.text,
+      text,
       tokenEstimate: capped.tokenEstimate,
       quality: measureQuality(capped.elements),
-      narrowed: capped.narrowed,
+      narrowed: capped.narrowed || scopedTo !== undefined,
+      regions: c.regions,
+      pageTokenEstimate: estimateSnapshotTokens(c.elements, c.text),
+      ...(scopedTo !== undefined ? { scope: scopedTo } : {}),
     };
     const refs = new Map<string, string>();
     for (const el of capped.elements) {

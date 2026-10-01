@@ -50,6 +50,7 @@ export async function startFixtureServer(): Promise<FixtureServer> {
       return;
     }
     if (url.pathname === "/elsewhere") return send(200, "text/html", page("Elsewhere", "<h1>Elsewhere</h1>"));
+    if (url.pathname === "/catalog.html") return send(200, "text/html", catalogFixture());
     if (url.pathname === "/help" || url.pathname === "/privacy")
       return send(200, "text/html", page("Help", "<h1>Help</h1>"));
     const name = url.pathname.replace(/^\//, "") || "login.html";
@@ -75,6 +76,46 @@ export async function startFixtureServer(): Promise<FixtureServer> {
         server.close(() => resolve());
       }),
   };
+}
+
+export const CATALOG_CATEGORIES = [
+  "Kitchen",
+  "Garden",
+  "Office",
+  "Bath",
+  "Toys",
+  "Books",
+  "Sports",
+  "Travel",
+  "Audio",
+  "Lighting",
+  "Pets",
+  "Crafts",
+];
+export const CATALOG_PER_CATEGORY = 125;
+export const CATALOG_STORES = 300;
+
+/**
+ * An oversized page like the testbed's /catalog: a pickup-store form with a 300-option select and 12
+ * named sections of 125 product cards (1500 "Add to cart" buttons).
+ */
+export function catalogFixture(): string {
+  const stores = Array.from(
+    { length: CATALOG_STORES },
+    (_, i) => `<option>Store ${String(i + 1).padStart(3, "0")}</option>`,
+  ).join("");
+  const sections = CATALOG_CATEGORIES.map((c, s) => {
+    const cards = Array.from({ length: CATALOG_PER_CATEGORY }, (_, i) => {
+      const name = c === "Lighting" && i === 42 ? "Walnut Desk Lamp" : `${c} item ${i + 1}`;
+      return `<article class="product"><h3>${name}</h3><p>$${(5 + ((s * 7 + i) % 90)).toFixed(2)}</p><button type="button">Add to cart</button></article>`;
+    }).join("");
+    return `<section aria-labelledby="h-${s}"><h2 id="h-${s}">${c}</h2>${cards}</section>`;
+  }).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Catalog</title></head><body>
+<header><nav aria-label="Main"><a href="/catalog.html">Catalog</a> <a href="/help">Help</a></nav></header>
+<main><h1>Catalog</h1>
+<form aria-label="Pickup store"><label>Pickup store <select name="store">${stores}</select></label><button type="submit">Save store</button></form>
+${sections}</main><footer><a href="/privacy">Privacy</a></footer></body></html>`;
 }
 
 export type BrowserLaunch = { channel: "chrome" } | { executablePath: string };

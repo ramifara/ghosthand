@@ -176,6 +176,7 @@ export async function runAgent(
   }
   const { computer } = launched.value;
   if (opts.trace !== false) await computer.startRecording(s.recorder.paths.folder);
+  const signal = runSignal(opts.task, hooks.signal);
   let result: RunResult;
   try {
     result = await runTask(opts.task, {
@@ -189,7 +190,7 @@ export async function runAgent(
       ...(hooks.approve ? { approve: hooks.approve } : {}),
       ...(opts.planner ? { planner: opts.planner } : {}),
       ...(opts.writer ? { writer: opts.writer } : {}),
-      ...(hooks.signal ? { signal: hooks.signal } : {}),
+      signal,
     });
   } catch (e) {
     const reason = `engine error: ${e instanceof Error ? e.message : String(e)}`;
@@ -230,6 +231,15 @@ export async function runAgent(
       result,
     },
   };
+}
+
+/**
+ * Hard wall-clock cap: the task's time budget aborts the run's signal (decision, planner and writer calls
+ * stop at once; the loop ends as budget_exhausted), combined with the caller's own signal.
+ */
+export function runSignal(task: TaskSpec, caller?: AbortSignal): AbortSignal {
+  const wall = AbortSignal.timeout(Math.max(1, Math.ceil(task.budget.seconds * 1000)));
+  return caller ? AbortSignal.any([caller, wall]) : wall;
 }
 
 export interface ReplayRunOptions {

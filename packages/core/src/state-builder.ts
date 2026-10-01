@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Renders a snapshot, the goal and recent history into the state object Jev evaluates.
 // Key order is stable on purpose: the model is sensitive to request shape.
-import type { Element, JsonValue, Snapshot } from "@ghosthand/protocol";
+import type { Element, JsonValue, RegionSummary, Snapshot } from "@ghosthand/protocol";
 import type { SecretsRegistry } from "./secrets.ts";
 
 export const HISTORY_WINDOW = 8;
@@ -74,6 +74,8 @@ export function buildState(input: StateInput, registry?: SecretsRegistry): Recor
   page.title = snapshot.title;
   page.dialog_open = snapshot.elements.some((e) => e.region === "dialog");
   if (snapshot.narrowed) page.narrowed = true;
+  if (snapshot.scope !== undefined)
+    page.region = snapshot.regions?.find((r) => r.id === snapshot.scope)?.label ?? snapshot.scope;
   if (omitted > 0) page.omitted_elements = omitted;
 
   const task: Record<string, JsonValue> = {
@@ -90,6 +92,40 @@ export function buildState(input: StateInput, registry?: SecretsRegistry): Recor
     elements: elements.map(renderElement),
     texts: clip(snapshot.text, MAX_PAGE_TEXT_CHARS),
     inputs: input.inputs.map((name) => `[input:${name}]`),
+    history: input.history.slice(-HISTORY_WINDOW).map((h) => `${h.step}. ${h.text}`),
+  };
+  return registry ? registry.redactValue(state) : state;
+}
+
+/** One line per region for the narrowing question and its state. */
+export function describeRegion(r: RegionSummary): string {
+  const sample = (r.sample ?? []).map((n) => clip(n, 40)).join(", ");
+  return `${r.kind} ${JSON.stringify(clip(r.label, MAX_NAME_CHARS))} · ${r.elementCount} elements${sample ? ` · e.g. ${sample}` : ""}`;
+}
+
+/** State for the region choice: the task, the page, its regions and a short text excerpt. */
+export function buildNarrowState(
+  input: Omit<StateInput, "phase" | "elements">,
+  registry?: SecretsRegistry,
+): Record<string, JsonValue> {
+  const { snapshot } = input;
+  const page: Record<string, JsonValue> = {};
+  const path = pagePath(snapshot.url);
+  if (path) page.url = path;
+  page.title = snapshot.title;
+  page.element_count = snapshot.elements.length;
+  const task: Record<string, JsonValue> = {
+    instruction: input.instruction,
+    goal: input.goal,
+    step: input.step,
+    phase: "narrow",
+  };
+  if (input.hint) task.hint = input.hint;
+  const state: Record<string, JsonValue> = {
+    task,
+    page,
+    regions: (snapshot.regions ?? []).map((r) => ({ id: r.id, region: describeRegion(r) })),
+    texts: clip(snapshot.text, 1200),
     history: input.history.slice(-HISTORY_WINDOW).map((h) => `${h.step}. ${h.text}`),
   };
   return registry ? registry.redactValue(state) : state;

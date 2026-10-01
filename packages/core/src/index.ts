@@ -3,6 +3,7 @@
 export * from "./budget.ts";
 export * from "./candidates.ts";
 export * from "./done-when.ts";
+export * from "./effect-rules.ts";
 export * from "./expectations.ts";
 export * from "./gates.ts";
 export * from "./literals.ts";

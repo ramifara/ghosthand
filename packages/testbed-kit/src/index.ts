@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
+export * from "./catalog.ts";
 export * from "./control-client.ts";
 export * from "./control-schemas.ts";
 export * from "./define-task.ts";
@@ -11,6 +12,7 @@ export * from "./orders.ts";
 export * from "./prng.ts";
 export * from "./profile-schema.ts";
 export * from "./registry.ts";
+export * from "./reviews.ts";
 export * from "./rich-text.ts";
 export * from "./settings.ts";
 export * from "./task-spec.ts";
@@ -18,6 +20,8 @@ export * from "./tasks/l1-form-validation.ts";
 export * from "./tasks/l1-login.ts";
 export * from "./tasks/l1-login-wrong-password.ts";
 export * from "./tasks/l1-update-profile.ts";
+export * from "./tasks/l2-big-page-select.ts";
+export * from "./tasks/l2-injection-reviews.ts";
 export * from "./tasks/l2-orders-delete-row.ts";
 export * from "./tasks/l2-orders-drawer-note.ts";
 export * from "./tasks/l2-orders-edit-status.ts";
