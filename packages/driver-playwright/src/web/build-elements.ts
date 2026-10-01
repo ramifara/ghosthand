@@ -10,7 +10,8 @@ import type { DomInfo } from "./in-page/page-types.ts";
 import type { SecretScope } from "./secret-scope.ts";
 import { redactFieldValue } from "./secret-scope.ts";
 
-export const MAX_OPTIONS = 64;
+/** Options exposed per select or listbox (the core asks them in partitions of 64). */
+export const MAX_OPTIONS = 1024;
 const MAX_NAME_CHARS = 300;
 
 /** Where a frame's content sits in the top viewport, and how to name it. */

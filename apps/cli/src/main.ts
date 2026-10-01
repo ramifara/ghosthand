@@ -8,7 +8,7 @@ import { exportCommand } from "./commands/export.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
 import { replayCommand } from "./commands/replay.ts";
-import { runCommand } from "./commands/run.ts";
+import { type RunFlags, runCommand } from "./commands/run.ts";
 import { runsCommand } from "./commands/runs.ts";
 import { tasksCommand } from "./commands/tasks.ts";
 import { fail, out } from "./io.ts";
@@ -62,27 +62,7 @@ export async function main(argv: string[]): Promise<number> {
     case "doctor":
       return doctorCommand(json);
     case "run":
-      return runCommand({
-        ...(values.url ? { url: values.url } : {}),
-        ...(values.task ? { task: values.task } : {}),
-        ...(rest.length > 0 ? { goal: rest.join(" ") } : {}),
-        ...(values.profile ? { profile: values.profile } : {}),
-        ...(values.config ? { config: values.config } : {}),
-        allowOrigins: values["allow-origin"] ?? [],
-        headless: values.headless ?? false,
-        yes: values.yes ?? false,
-        trace: !(values["no-trace"] ?? false),
-        json,
-        planner: (["codex", "models", "none"].includes(values.planner ?? "") ? values.planner : "auto") as
-          | "auto"
-          | "codex"
-          | "models"
-          | "none",
-        writer: (["models", "none"].includes(values.writer ?? "") ? values.writer : "auto") as
-          | "auto"
-          | "models"
-          | "none",
-      });
+      return runCommand(runFlags(parsed));
     case "replay":
       return replayCommand(rest[0], {
         headless: values.headless ?? false,
@@ -115,7 +95,33 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-function parse(argv: string[]) {
+/** `ghosthand run` flags from parsed arguments (every `--allow-origin` is kept, in order). */
+export function runFlags({ values, positionals }: ReturnType<typeof parse>): RunFlags {
+  const rest = positionals.slice(1);
+  return {
+    ...(values.url ? { url: values.url } : {}),
+    ...(values.task ? { task: values.task } : {}),
+    ...(rest.length > 0 ? { goal: rest.join(" ") } : {}),
+    ...(values.profile ? { profile: values.profile } : {}),
+    ...(values.config ? { config: values.config } : {}),
+    allowOrigins: values["allow-origin"] ?? [],
+    headless: values.headless ?? false,
+    yes: values.yes ?? false,
+    trace: !(values["no-trace"] ?? false),
+    json: values.json ?? false,
+    planner: (["codex", "models", "none"].includes(values.planner ?? "") ? values.planner : "auto") as
+      | "auto"
+      | "codex"
+      | "models"
+      | "none",
+    writer: (["models", "none"].includes(values.writer ?? "") ? values.writer : "auto") as
+      | "auto"
+      | "models"
+      | "none",
+  };
+}
+
+export function parse(argv: string[]) {
   return parseArgs({
     args: argv,
     allowPositionals: true,

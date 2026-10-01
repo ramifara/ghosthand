@@ -25,6 +25,7 @@ import type {
 import { BudgetTracker } from "./budget.ts";
 import { buildCandidates, findByToken, type Operation } from "./candidates.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
+import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
@@ -35,12 +36,13 @@ import {
   buildActQuestions,
   NONE,
   optionQuestions,
+  regionQuestion,
   targetHead,
   WAIT,
 } from "./questions.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
-import { buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
+import { buildNarrowState, buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
 import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer.ts";
 
 /** Receives typed events; the recorder implements it. */
@@ -148,6 +150,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   const clock = deps.clock ?? systemClock;
   const log = deps.logger ?? noopLogger;
   const budget = new BudgetTracker(task.budget, clock);
+  const forbidden = forbiddenRules(task.forbidden, task.instruction);
   const started = clock.now();
   let plan = task.plan ?? defaultPlan(task);
   let replans = 0;
@@ -273,7 +276,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const extraTexts: string[] = [];
 
     while (true) {
-      if (deps.signal?.aborted) return finish("aborted", "aborted by caller");
+      if (deps.signal?.aborted) return finish(...abortOutcome(deps.signal));
       const over = budget.exceeded();
       if (over) {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
@@ -319,6 +322,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         ...(screenshot ? { screenshot } : {}),
       });
       stall.observe(screenSignature(snapshot));
+      // P1-06: a page too large for one request is narrowed to a region before the act decision.
+      const oversized = needsNarrowing(snapshot, task, subgoal, current, history, cfg, deps);
 
       // done_when (deterministic and oracle every step; model predicates only when the goal looks done)
       t = clock.now();
@@ -345,6 +350,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         step: current,
         history,
         triedNoEffect,
+        forbidden,
         stall,
         timing,
         clock,
@@ -366,7 +372,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
       const speculative =
-        cfg.speculate && checkModel && subgoal.doneWhen.all.some((p) => p.kind === "model")
+        cfg.speculate && !oversized && checkModel && subgoal.doneWhen.all.some((p) => p.kind === "model")
           ? startAct(ctx)
           : undefined;
       const done = await evaluateDoneWhen(
@@ -416,6 +422,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         return finish("stuck", verdict.reason ?? "stalled");
       }
 
+      if (oversized) {
+        t = clock.now();
+        const scoped = await narrow(ctx);
+        timing.observeMs += clock.now() - t;
+        if (scoped) ctx.snapshot = scoped;
+      }
       const outcome = await decideAndAct(ctx, speculative);
       modeCounts.B = (modeCounts.B ?? 0) + 1;
       timings.push(timing);
@@ -456,6 +468,8 @@ interface DecideContext {
   step: number;
   history: HistoryEntry[];
   triedNoEffect: Set<string>;
+  /** Forbidden phrases the code enforces (see effect-rules). */
+  forbidden: ForbiddenRule[];
   stall: StallDetector;
   timing: StepTiming;
   clock: Clock;
@@ -539,7 +553,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
   );
   const candidates = buildCandidates(snapshot, { seedTargets: subgoal.seedTargets, triedHere });
   const textOptions = buildTextOptions(textGoal(ctx), task.secrets, deps.secrets);
-  const { questions, offered } = buildActQuestions({ candidates, textOptions });
+  const { questions, offered } = buildActQuestions({ candidates, textOptions, forbidden: task.forbidden });
 
   // Elements shown in state: everything offered in any head (deduplicated), plus non-actionable context.
   const offeredTokens = new Set(offered.flatMap((op) => candidates[op].map((e) => e.token)));
@@ -606,6 +620,10 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const { offered } = pending.prepared;
   const r = await pending.response;
   ctx.timing.decideMs = clock.now() - t;
+  if (deps.signal?.aborted) {
+    const [outcome, reason] = abortOutcome(deps.signal);
+    return { kind: "end", outcome, reason };
+  }
   if (!r.ok) {
     if (r.error.kind === "auth" || r.error.kind === "budget")
       return { kind: "end", outcome: "error", reason: `decision ${r.error.kind}: ${r.error.message}` };
@@ -641,7 +659,9 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       : undefined;
   const effectAnswer = answers.effect;
   const modelEffect = effectAnswer?.type === "choice" ? (effectAnswer.choice as EffectClass) : undefined;
-  const effect = combineEffect(element, modelEffect);
+  // Code check: a target whose name (and row/card context) matches a forbidden phrase is never acted on.
+  const forbiddenHit = element ? matchForbidden(element, ctx.forbidden) : undefined;
+  const effect: EffectClass = forbiddenHit ? "forbidden" : combineEffect(element, modelEffect);
 
   // Build the action.
   let action: Action | undefined;
@@ -686,6 +706,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   });
   // A commit outside allowedEffects can still be approved by a human.
   const effectGate = gates.find((g) => g.gate === "effect_allowed");
+  if (effectGate && forbiddenHit) effectGate.detail = `matches forbidden "${forbiddenHit}"`;
   if (effectGate && !effectGate.passed && effect === "commit" && action && deps.approve) {
     const granted = await deps.approve({ step, action, element, effect, subgoal });
     deps.events.emit({ type: "human", step, kind: "approval", detail: describe, granted });
@@ -883,14 +904,113 @@ async function pickOption(ctx: DecideContext, element: Element): Promise<string 
     },
     ctx.deps.secrets,
   );
+  // Every partition goes in one request; exactly one may name an option.
   const r = await ask(ctx, "act", state, questions);
   if (!r.ok) return undefined;
-  const picks = Object.values(r.value.answers)
-    .filter((a): a is Extract<Answer, { type: "choice" }> => a.type === "choice" && a.choice !== NONE)
-    .filter((a) => choiceConfidence(a) >= ctx.cfg.gates.target);
-  if (picks.length !== 1 || !picks[0]) return undefined;
-  const idx = Number(picks[0].choice.slice(1));
-  return options[idx];
+  return pickedOption(r.value.answers, options, ctx.cfg.gates.target);
+}
+
+/**
+ * The option chosen across partitions: exactly one partition must name an option with enough confidence;
+ * an `ambiguous` partition, a second pick or an abstention means no option.
+ */
+export function pickedOption(
+  answers: Record<string, Answer>,
+  options: readonly string[],
+  threshold: number,
+): string | undefined {
+  const parts = Object.entries(answers).filter(([name]) => name.startsWith("option_"));
+  if (parts.length === 0) return undefined;
+  const picks: Extract<Answer, { type: "choice" }>[] = [];
+  for (const [, a] of parts) {
+    if (a.type !== "choice" || a.choice === AMBIGUOUS) return undefined;
+    if (a.choice !== NONE) picks.push(a);
+  }
+  const pick = picks[0];
+  if (picks.length !== 1 || !pick || choiceConfidence(pick) < threshold) return undefined;
+  return options[Number(pick.choice.slice(1))];
+}
+
+/** Outcome for an aborted signal: the engine's wall-clock budget ends the run as budget_exhausted. */
+function abortOutcome(signal: AbortSignal): [RunOutcome, string] {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error && reason.name === "TimeoutError"
+    ? ["budget_exhausted", "wall-clock budget exceeded (hard abort)"]
+    : ["aborted", "aborted by caller"];
+}
+
+/** True when the page needs a region choice: no scope yet, at least two regions, and too many tokens. */
+function needsNarrowing(
+  snapshot: Snapshot,
+  task: TaskSpec,
+  subgoal: Subgoal,
+  step: number,
+  history: HistoryEntry[],
+  cfg: LoopConfig,
+  deps: LoopDeps,
+): boolean {
+  if (snapshot.scope !== undefined || (snapshot.regions?.length ?? 0) < 2) return false;
+  if ((snapshot.pageTokenEstimate ?? 0) > cfg.maxStateTokens) return true;
+  const full = buildState(
+    {
+      instruction: task.instruction,
+      goal: subgoal.goal,
+      step,
+      phase: "act",
+      snapshot,
+      history,
+      inputs: task.secrets,
+    },
+    deps.secrets,
+  );
+  return estimateTokens(full) > cfg.maxStateTokens;
+}
+
+/**
+ * Region narrowing (P1-06): an open dialog is taken without asking; otherwise one Jev request picks a
+ * region, and the page is observed again inside it. Returns undefined to keep the full snapshot (then the
+ * act state is truncated as the last fallback).
+ */
+async function narrow(ctx: DecideContext): Promise<Snapshot | undefined> {
+  const { deps, snapshot } = ctx;
+  const regions = snapshot.regions ?? [];
+  let chosen = regions.find((r) => r.kind === "dialog")?.id;
+  if (chosen === undefined) {
+    const state = buildNarrowState(
+      {
+        instruction: ctx.task.instruction,
+        goal: ctx.subgoal.goal,
+        step: ctx.step,
+        snapshot,
+        history: ctx.history,
+        inputs: ctx.task.secrets,
+        ...(ctx.hint ? { hint: ctx.hint } : {}),
+      },
+      deps.secrets,
+    );
+    const r = await ask(ctx, "narrow", state, { region: regionQuestion(regions) });
+    const a = r.ok ? r.value.answers.region : undefined;
+    if (a?.type !== "choice" || a.choice === NONE || choiceConfidence(a) < ctx.cfg.gates.operation) {
+      ctx.log.debug({ step: ctx.step }, "no region chosen; the act state will be truncated");
+      return undefined;
+    }
+    chosen = a.choice;
+  }
+  const scoped = await deps.computer.observe({ region: chosen });
+  if (!scoped.ok || scoped.value.elements.length === 0) {
+    ctx.log.warn({ step: ctx.step, region: chosen }, "region observation failed; keeping the full page");
+    return undefined;
+  }
+  const s = scoped.value;
+  deps.events.emit({
+    type: "observe",
+    step: ctx.step,
+    snapshotId: s.id,
+    ...(s.url ? { url: s.url } : {}),
+    elementCount: s.elements.length,
+    tokenEstimate: s.tokenEstimate,
+  });
+  return s;
 }
 
 export function execute(computer: Computer, action: Action): Promise<ActionResult> {

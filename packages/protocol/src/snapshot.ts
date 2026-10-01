@@ -16,6 +16,34 @@ export const SurfaceQuality = z.object({
 });
 export type SurfaceQuality = z.infer<typeof SurfaceQuality>;
 
+/** Kind of a page region offered for narrowing (landmarks, named sections, forms, dialogs). */
+export const RegionKind = z.enum([
+  "dialog",
+  "main",
+  "section",
+  "form",
+  "nav",
+  "header",
+  "footer",
+  "aside",
+  "other",
+]);
+export type RegionKind = z.infer<typeof RegionKind>;
+
+/** One region of the page the loop can narrow to with `observe({region: id})`. */
+export const RegionSummary = z.object({
+  /** Stable for the same page between observations (kind + label slug), e.g. "section-lighting". */
+  id: z.string().min(1),
+  /** Accessible name or first heading of the region (redacted). */
+  label: z.string(),
+  kind: RegionKind,
+  /** Visible elements inside the region. */
+  elementCount: z.number().int().nonnegative(),
+  /** A few element names from the region, to tell regions apart. */
+  sample: z.array(z.string()).optional(),
+});
+export type RegionSummary = z.infer<typeof RegionSummary>;
+
 export const Snapshot = z.object({
   id: z.string().min(1),
   surface: SurfaceKind,
@@ -31,6 +59,12 @@ export const Snapshot = z.object({
   quality: SurfaceQuality,
   /** True when the snapshot was narrowed to a region because the full page was too large. */
   narrowed: z.boolean(),
+  /** Regions of the whole page (document order), for the narrowing question. */
+  regions: z.array(RegionSummary).optional(),
+  /** Estimated tokens of the whole page's element table before capping or scoping. */
+  pageTokenEstimate: z.number().int().nonnegative().optional(),
+  /** Id of the region this snapshot is scoped to (`observe({region})`). */
+  scope: z.string().optional(),
 });
 export type Snapshot = z.infer<typeof Snapshot>;
 

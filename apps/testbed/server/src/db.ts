@@ -69,6 +69,16 @@ create table bios (
   user_id integer primary key references users(id),
   html text not null
 );
+create table cart_items (
+  user_id integer not null references users(id),
+  product_id text not null,
+  quantity integer not null check (quantity > 0),
+  primary key (user_id, product_id)
+);
+create table pickup_stores (
+  user_id integer primary key references users(id),
+  store text not null
+);
 `;
 
 export const TABLES = [
@@ -81,6 +91,8 @@ export const TABLES = [
   "orders",
   "user_settings",
   "bios",
+  "cart_items",
+  "pickup_stores",
 ] as const;
 
 export function openDatabase(): Database {

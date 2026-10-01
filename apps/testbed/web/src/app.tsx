@@ -5,7 +5,9 @@ import { AppShell } from "./components/app-shell.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { SessionProvider } from "./lib/session-context.tsx";
 import { ToastProvider } from "./lib/toast-context.tsx";
+import { AccountPage } from "./pages/account-page.tsx";
 import { BioPage } from "./pages/bio-page.tsx";
+import { CatalogPage } from "./pages/catalog-page.tsx";
 import { HomePage } from "./pages/home-page.tsx";
 import { InboxPage } from "./pages/inbox-page.tsx";
 import { LoginPage } from "./pages/login-page.tsx";
@@ -13,6 +15,7 @@ import { NotFoundPage } from "./pages/not-found-page.tsx";
 import { OrdersPage } from "./pages/orders-page.tsx";
 import { ProfilePage } from "./pages/profile-page.tsx";
 import { ReportsPage } from "./pages/reports-page.tsx";
+import { ReviewsPage } from "./pages/reviews-page.tsx";
 import { SettingsPage } from "./pages/settings-page.tsx";
 
 export function App({ now }: { now: string }) {
@@ -31,6 +34,9 @@ export function App({ now }: { now: string }) {
                 <Route path="reports" element={<ReportsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="bio" element={<BioPage />} />
+                <Route path="catalog" element={<CatalogPage />} />
+                <Route path="reviews" element={<ReviewsPage />} />
+                <Route path="account" element={<AccountPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Routes>

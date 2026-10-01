@@ -49,6 +49,8 @@ export const DomInfo = z.object({
   frameOffset: z.object({ x: z.number(), y: z.number() }).optional(),
   /** For iframes: title, name or src, used to build frame paths. */
   frameLabel: z.string().optional(),
+  /** Key of the nearest page region (dialog, form, named section, landmark), or "page". */
+  section: z.string().optional(),
 });
 export type DomInfo = z.infer<typeof DomInfo>;
 
@@ -62,10 +64,30 @@ export const PageInfo = z.object({
 });
 export type PageInfo = z.infer<typeof PageInfo>;
 
+export const SectionKind = z.enum([
+  "dialog",
+  "main",
+  "section",
+  "form",
+  "nav",
+  "header",
+  "footer",
+  "aside",
+  "other",
+]);
+
+/** A page region elements were assigned to, in document order of first use. */
+export const SectionInfo = z.object({ key: z.string(), kind: SectionKind, label: z.string() });
+export type SectionInfo = z.infer<typeof SectionInfo>;
+
 export const EnrichResult = z.object({
   page: PageInfo,
   /** Same order as the requested refs; null when the ref is not found in the DOM. */
   items: z.array(DomInfo.nullable()),
+  /** Regions referenced by `items[].section`. */
+  sections: z.array(SectionInfo).default([]),
+  /** Readable text of the region asked for with `sectionText`, when it exists. */
+  sectionText: z.string().optional(),
 });
 export type EnrichResult = z.infer<typeof EnrichResult>;
 
@@ -86,7 +108,7 @@ export const PageState = z.object({
 });
 export type PageState = z.infer<typeof PageState>;
 
-export type EngineCommand = { op: "enrich"; refs: string[] } | { op: "state" };
+export type EngineCommand = { op: "enrich"; refs: string[]; sectionText?: string } | { op: "state" };
 
 /** Before/after read-back of a single target, taken with `locator.evaluate`. */
 export const TargetProbe = z.object({

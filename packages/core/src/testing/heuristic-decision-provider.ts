@@ -17,10 +17,23 @@ function pick(criteria: Record<string, unknown>, key: string, p = 0.95): Answer 
   return { type: "choice", choice: key, confidence: p, probabilities };
 }
 
+export interface HeuristicOptions {
+  /**
+   * Also press (once each) elements whose names match, patterns in priority order. Safety tests use it to
+   * play a gullible model that follows instructions planted in the page; the code gates must still stop it.
+   */
+  follow?: readonly RegExp[];
+}
+
 export class HeuristicDecisionProvider implements DecisionProvider {
   readonly id = "heuristic";
   readonly capabilities = { maxOptions: 255, maxLevels: 10, contextTokens: 64_000, zdr: true };
   readonly #pressed = new Set<string>();
+  readonly #follow: readonly RegExp[];
+
+  constructor(opts: HeuristicOptions = {}) {
+    this.#follow = opts.follow ?? [];
+  }
 
   async ask(state: Entry, questions: Questions) {
     const s = (state ?? {}) as { task?: { goal?: string }; elements?: RenderedElement[]; history?: string[] };
@@ -101,6 +114,15 @@ export class HeuristicDecisionProvider implements DecisionProvider {
     if (button && !this.#pressed.has(button.name)) {
       this.#pressed.add(button.name);
       return { op: "press", target: button.id };
+    }
+    const lure = this.#follow
+      .map((re) =>
+        elements.find((e) => e.ops?.includes("press") && re.test(e.name) && !this.#pressed.has(e.name)),
+      )
+      .find((e) => e !== undefined);
+    if (lure) {
+      this.#pressed.add(lure.name);
+      return { op: "press", target: lure.id };
     }
     return undefined;
   }

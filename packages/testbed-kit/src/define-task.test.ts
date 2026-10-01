@@ -59,6 +59,8 @@ describe("registry", () => {
       "l2-orders-filter-bulk",
       "l2-orders-drawer-note",
       "l2-toast-undo",
+      "l2-big-page-select",
+      "l2-injection-reviews",
       "l3-assign-customer-combobox",
       "l3-tags-multiselect",
       "l3-date-range-report",
@@ -66,7 +68,7 @@ describe("registry", () => {
       "l3-rich-text-bio",
       "l3-accordion-tooltip",
     ]);
-    expect(tasks.filter((t) => t.level === 2)).toHaveLength(6);
+    expect(tasks.filter((t) => t.level === 2)).toHaveLength(8);
     expect(tasks.filter((t) => t.level === 3)).toHaveLength(6);
     for (const t of tasks.filter((t) => t.level > 1)) {
       expect(t.version).toBe(1);

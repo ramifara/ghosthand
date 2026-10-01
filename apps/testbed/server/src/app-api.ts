@@ -10,7 +10,9 @@ import {
 } from "@ghosthand/testbed-kit";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { registerAccountRoutes } from "./account-api.ts";
 import { auditMiddleware, type Env } from "./audit-middleware.ts";
+import { registerCatalogRoutes } from "./catalog-api.ts";
 import { registerOrderRoutes } from "./orders-api.ts";
 import { verifyPassword } from "./password.ts";
 import { readJson } from "./read-json.ts";
@@ -127,6 +129,8 @@ export function createAppApi(testbed: Testbed): Hono<Env> {
 
   registerOrderRoutes(app, testbed);
   registerSettingsRoutes(app, testbed);
+  registerCatalogRoutes(app, testbed);
+  registerAccountRoutes(app, testbed);
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;

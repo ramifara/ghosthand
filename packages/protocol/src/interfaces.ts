@@ -27,7 +27,10 @@ export interface DoctorCheck {
 }
 
 export interface ObserveScope {
-  /** Restrict to a region (e.g. a dialog) by element token or region name. */
+  /**
+   * Restrict to a region: an id from `Snapshot.regions` (e.g. "section-lighting"), a coarse region name
+   * ("dialog", "main", ...) or an element token (its descendants).
+   */
   region?: string;
   maxElements?: number;
 }

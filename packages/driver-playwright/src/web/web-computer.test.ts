@@ -5,7 +5,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SecretsRegistry } from "@ghosthand/core";
+import { buildState, estimateTokens, SecretsRegistry } from "@ghosthand/core";
 import type {
   ActionResult,
   Element as ProtocolElement,
@@ -17,7 +17,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { registerGhosthandEngine } from "./engine-client.ts";
 import { readZipEntries, redactZip } from "./redact-zip.ts";
 import type { BrowserLaunch, FixtureServer } from "./test-support.ts";
-import { findTestBrowser, launchTestBrowser, percentile, startFixtureServer } from "./test-support.ts";
+import {
+  CATALOG_CATEGORIES,
+  CATALOG_PER_CATEGORY,
+  CATALOG_STORES,
+  findTestBrowser,
+  launchTestBrowser,
+  percentile,
+  startFixtureServer,
+} from "./test-support.ts";
 import { generateTotp } from "./totp.ts";
 import type { WebComputer, WebComputerOptions } from "./web-computer.ts";
 import { createWebComputer } from "./web-computer.ts";
@@ -226,6 +234,72 @@ describe.skipIf(skip)("WebComputer on fixture pages", () => {
     expect(t.narrowed).toBe(true);
     expect(small.lastObserveStats?.oversized).toBe(true);
   });
+
+  it("lists regions of an oversized page and narrows the act state under 20k tokens (P1-06)", async () => {
+    const c = await open("catalog.html");
+    const full = await observe(c);
+    expect(full.scope).toBeUndefined();
+    const ids = (full.regions ?? []).map((r) => r.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "nav-main",
+        "form-pickup-store",
+        ...CATALOG_CATEGORIES.map((cat) => `section-${cat.toLowerCase()}`),
+      ]),
+    );
+    const lighting = full.regions?.find((r) => r.id === "section-lighting");
+    expect(lighting).toMatchObject({
+      kind: "section",
+      label: "Lighting",
+      elementCount: 2 * CATALOG_PER_CATEGORY + 1,
+    });
+    // The whole page is far over the guard, and the capped table cannot show every product.
+    expect(full.pageTokenEstimate ?? 0).toBeGreaterThan(20_000);
+    expect(full.elements.length).toBeLessThanOrEqual(200);
+    const fullState = buildState({
+      instruction: "Add the Walnut Desk Lamp to the cart",
+      goal: "Add the Walnut Desk Lamp to the cart",
+      step: 1,
+      phase: "act",
+      snapshot: full,
+      history: [],
+      inputs: [],
+    });
+
+    const scoped = await c.observe({ region: "section-lighting" });
+    if (!scoped.ok) throw new Error(scoped.error.message);
+    const s = scoped.value;
+    expect(s).toMatchObject({ scope: "section-lighting", narrowed: true });
+    expect(s.elements.filter((e) => e.name === "Add to cart")).toHaveLength(CATALOG_PER_CATEGORY);
+    expect(s.elements.some((e) => e.context?.startsWith("Walnut Desk Lamp"))).toBe(true);
+    expect(s.text).toContain("Walnut Desk Lamp");
+    expect(s.text).not.toContain("Kitchen item");
+    const state = buildState({
+      instruction: "Add the Walnut Desk Lamp to the cart",
+      goal: "Add the Walnut Desk Lamp to the cart",
+      step: 1,
+      phase: "act",
+      snapshot: s,
+      history: [],
+      inputs: [],
+    });
+    expect(estimateTokens(state)).toBeLessThan(20_000);
+    console.log(
+      `catalog: page ${full.pageTokenEstimate} tokens (${full.regions?.reduce((n, r) => n + r.elementCount, 0)} elements), capped act state ${estimateTokens(fullState)} tokens, narrowed act state ${estimateTokens(state)} tokens (${s.elements.length} elements)`,
+    );
+    // Tokens of the scoped snapshot act; the product is pressed in its own card.
+    const lamp = s.elements.find((e) => e.context?.startsWith("Walnut Desk Lamp"));
+    if (!lamp) throw new Error("no lamp");
+    expect((await act(c.press(lamp.token))).error).toBeUndefined();
+
+    const form = await c.observe({ region: "form-pickup-store" });
+    if (!form.ok) throw new Error(form.error.message);
+    const select = find(form.value, "Pickup store", "combobox");
+    expect(select.options).toHaveLength(CATALOG_STORES);
+    expect(select.optionCount).toBe(CATALOG_STORES);
+    expect(select.options?.at(-1)).toBe("Store 300");
+    expectConfirmed(await act(c.selectOption(select.token, "Store 271")));
+  }, 60_000);
 
   // ---- actions -----------------------------------------------------------------------------------
 

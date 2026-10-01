@@ -7,7 +7,15 @@
 // carrier element whose text is the JSON result, read back with `locator.textContent()`.
 // Everything below runs in the browser and must stay self-contained (it is serialized with toString()).
 
-import type { DomInfo, EngineCommand, EnrichResult, PageRect, PageRegion, PageState } from "./page-types.ts";
+import type {
+  DomInfo,
+  EngineCommand,
+  EnrichResult,
+  PageRect,
+  PageRegion,
+  PageState,
+  SectionInfo,
+} from "./page-types.ts";
 
 interface SelectorEngine {
   queryAll(root: Node, body: string): Element[];
@@ -15,7 +23,8 @@ interface SelectorEngine {
 
 export function createGhosthandEngine(): SelectorEngine {
   type RefElement = Element & { _ariaRef?: { ref?: string } };
-  const MAX_OPTIONS = 64;
+  const MAX_OPTIONS = 1024;
+  const MAX_SECTION_TEXT = 6000;
   const MAX_CONTEXT = 160;
   const state = { installed: false, mutations: 0, lastMutation: 0 };
 
@@ -102,6 +111,81 @@ export function createGhosthandEngine(): SelectorEngine {
     return nearest ?? "other";
   };
 
+  // Regions for narrowing: open dialogs, forms, named sections and landmarks. The nearest one wins.
+  const SECTION_SELECTOR =
+    "dialog, [role=dialog], [role=alertdialog], form, [role=form], [role=search], section, [role=region], " +
+    "main, [role=main], nav, [role=navigation], aside, [role=complementary], header, [role=banner], " +
+    "footer, [role=contentinfo]";
+  const KIND_LABEL: Record<SectionInfo["kind"], string> = {
+    dialog: "Dialog",
+    main: "Main content",
+    section: "Section",
+    form: "Form",
+    nav: "Navigation",
+    header: "Page header",
+    footer: "Page footer",
+    aside: "Sidebar",
+    other: "Rest of the page",
+  };
+
+  const sectionKind = (el: Element): SectionInfo["kind"] | undefined => {
+    if (!el.matches(SECTION_SELECTOR)) return undefined;
+    const tag = el.localName;
+    const role = el.getAttribute("role");
+    if (isDialog(el)) return "dialog";
+    if (tag === "form" || role === "form" || role === "search") return "form";
+    if (tag === "section" || role === "region") return nameOfContainer(el) ? "section" : undefined;
+    if (tag === "main" || role === "main") return "main";
+    if (tag === "nav" || role === "navigation") return "nav";
+    if (tag === "aside" || role === "complementary") return "aside";
+    // header/footer are page landmarks only outside main, articles and sections.
+    const parent = parentOf(el);
+    if (parent && closestComposed(parent, "main, [role=main], article, section")) return undefined;
+    if (tag === "header" || role === "banner") return "header";
+    if (tag === "footer" || role === "contentinfo") return "footer";
+    return undefined;
+  };
+
+  const slug = (s: string): string =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+
+  interface SectionIndex {
+    byElement: Map<Element, SectionInfo>;
+    used: SectionInfo[];
+  }
+
+  /** Keys are kind + label slug, numbered in document order when repeated, so they stay stable between observations. */
+  const indexSections = (doc: Document): SectionIndex => {
+    const byElement = new Map<Element, SectionInfo>();
+    const counts = new Map<string, number>();
+    for (const el of Array.from(doc.querySelectorAll(SECTION_SELECTOR))) {
+      const kind = sectionKind(el);
+      if (!kind) continue;
+      const label = clip(nameOfContainer(el), 80) || KIND_LABEL[kind];
+      const base = `${kind}-${slug(label) || kind}`;
+      const n = (counts.get(base) ?? 0) + 1;
+      counts.set(base, n);
+      byElement.set(el, { key: n > 1 ? `${base}-${n}` : base, kind, label });
+    }
+    return { byElement, used: [] };
+  };
+
+  const OTHER_SECTION: SectionInfo = { key: "page", kind: "other", label: KIND_LABEL.other };
+
+  const sectionOf = (el: Element, index: SectionIndex): SectionInfo => {
+    let cur = parentOf(el);
+    while (cur) {
+      const found = index.byElement.get(cur);
+      if (found) return found;
+      cur = parentOf(cur);
+    }
+    return OTHER_SECTION;
+  };
+
   const CARD = /(^|[\s_-])(card|tile|item|product|result|entry|listing)([\s_-]|$)/i;
 
   const contextOf = (el: Element): string | undefined => {
@@ -179,7 +263,7 @@ export function createGhosthandEngine(): SelectorEngine {
     return { labels: all.slice(0, MAX_OPTIONS).map((o) => textOf(o)), count: all.length };
   };
 
-  const describe = (el: Element, modal: Element | null, doc: Document): DomInfo => {
+  const describe = (el: Element, modal: Element | null, doc: Document, index: SectionIndex): DomInfo => {
     const tag = el.localName;
     const info: DomInfo = {
       tag,
@@ -281,6 +365,9 @@ export function createGhosthandEngine(): SelectorEngine {
 
     const context = contextOf(el);
     if (context) info.context = context;
+    const section = sectionOf(el, index);
+    if (!index.used.includes(section)) index.used.push(section);
+    info.section = section.key;
 
     if (el instanceof HTMLIFrameElement || el instanceof HTMLFrameElement) {
       const style = getComputedStyle(el);
@@ -360,16 +447,24 @@ export function createGhosthandEngine(): SelectorEngine {
     };
   };
 
-  const enrich = (doc: Document, refs: string[]): EnrichResult => {
+  const enrich = (doc: Document, refs: string[], sectionKey?: string): EnrichResult => {
     install(doc);
     const found = findRefs(doc, new Set(refs));
     const modal = doc.querySelector("dialog:modal");
+    const index = indexSections(doc);
     const items = refs.map((ref) => {
       const el = found.get(ref);
-      return el ? describe(el, modal, doc) : null;
+      return el ? describe(el, modal, doc, index) : null;
     });
+    let sectionText: string | undefined;
+    if (sectionKey !== undefined) {
+      for (const [el, info] of index.byElement)
+        if (info.key === sectionKey) sectionText = clip(textOf(el), MAX_SECTION_TEXT);
+    }
     const win = doc.defaultView;
     return {
+      sections: index.used,
+      ...(sectionText !== undefined ? { sectionText } : {}),
       page: {
         url: doc.location?.href ?? "",
         innerWidth: win?.innerWidth ?? 0,
@@ -393,7 +488,8 @@ export function createGhosthandEngine(): SelectorEngine {
     queryAll(root: Node, body: string): Element[] {
       const doc = root.ownerDocument ?? (root as Document);
       const command = decode(body);
-      const result = command.op === "enrich" ? enrich(doc, command.refs) : pageState(doc);
+      const result =
+        command.op === "enrich" ? enrich(doc, command.refs, command.sectionText) : pageState(doc);
       const carrier = doc.createElement("ghosthand-result");
       carrier.textContent = JSON.stringify(result);
       return [carrier];

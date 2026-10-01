@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Wire shapes of the testbed control API (:4401) and the state snapshot oracles read.
 import { z } from "zod";
+import { CartItemRow, PickupStoreRow } from "./catalog.ts";
 import { CustomerRow, OrderRow } from "./orders.ts";
 import { BioRow, SettingsRow } from "./settings.ts";
 import { Variant, VariantOverrides } from "./variant.ts";
@@ -67,6 +68,9 @@ export const TestbedState = z.object({
   initialSettings: z.array(SettingsRow),
   bios: z.array(BioRow),
   initialBios: z.array(BioRow),
+  /** Catalog carts (P1-06 big page). */
+  cart: z.array(CartItemRow),
+  pickupStores: z.array(PickupStoreRow),
 });
 export type TestbedState = z.infer<typeof TestbedState>;
 

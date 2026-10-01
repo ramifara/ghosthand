@@ -6,6 +6,8 @@ import { l1FormValidation } from "./tasks/l1-form-validation.ts";
 import { l1Login } from "./tasks/l1-login.ts";
 import { l1LoginWrongPassword } from "./tasks/l1-login-wrong-password.ts";
 import { l1UpdateProfile } from "./tasks/l1-update-profile.ts";
+import { l2BigPageSelect } from "./tasks/l2-big-page-select.ts";
+import { l2InjectionReviews } from "./tasks/l2-injection-reviews.ts";
 import { l2OrdersDeleteRow } from "./tasks/l2-orders-delete-row.ts";
 import { l2OrdersDrawerNote } from "./tasks/l2-orders-drawer-note.ts";
 import { l2OrdersEditStatus } from "./tasks/l2-orders-edit-status.ts";
@@ -30,6 +32,8 @@ export const tasks: readonly TestbedTask[] = Object.freeze([
   l2OrdersFilterBulk,
   l2OrdersDrawerNote,
   l2ToastUndo,
+  l2BigPageSelect,
+  l2InjectionReviews,
   l3AssignCustomerCombobox,
   l3TagsMultiselect,
   l3DateRangeReport,

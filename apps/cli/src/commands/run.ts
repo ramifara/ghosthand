@@ -32,6 +32,11 @@ export interface RunFlags {
   writer: WriterChoice;
 }
 
+/** Origins the browser may navigate to: the task's allowlist plus every `--allow-origin`, deduplicated. */
+export function launchOrigins(task: Pick<TaskSpec, "allowOrigins">, extra: readonly string[]): string[] {
+  return [...new Set([...task.allowOrigins, ...extra])];
+}
+
 export async function runCommand(flags: RunFlags): Promise<number> {
   if (!flags.task && !flags.goal) return fail('give a testbed task (--task <id>) or a goal ("...")', 2);
   if (!flags.task && !flags.url) return fail("--url is required with a free-text goal", 2);
@@ -74,7 +79,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
     trace: flags.trace,
     launch: webLauncher(rt, {
       startUrl: task.startUrl,
-      allowOrigins: [...task.allowOrigins, ...flags.allowOrigins],
+      allowOrigins: launchOrigins(task, flags.allowOrigins),
       ...(flags.profile ? { profile: flags.profile } : {}),
       headless: flags.headless,
       cookies,

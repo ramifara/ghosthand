@@ -152,7 +152,12 @@ describe("question builders", () => {
     const sel = el("e9", { role: "combobox", options: Array.from({ length: 130 }, (_, i) => `Opt ${i}`) });
     const qs = optionQuestions(sel, "pick Opt 100");
     expect(Object.keys(qs)).toEqual(["option_0", "option_1", "option_2"]);
-    expect(Object.keys((qs.option_2 as { criteria: object }).criteria)).toEqual(["o128", "o129", "none"]);
+    expect(Object.keys((qs.option_2 as { criteria: object }).criteria)).toEqual([
+      "o128",
+      "o129",
+      "none",
+      "ambiguous",
+    ]);
   });
 });
 

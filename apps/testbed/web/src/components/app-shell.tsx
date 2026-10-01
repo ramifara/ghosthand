@@ -16,6 +16,7 @@ const links = [
   { to: "/reports", label: "Reports", id: "nav.reports" },
   { to: "/settings", label: "Settings", id: "nav.settings" },
   { to: "/bio", label: "Bio", id: "nav.bio" },
+  { to: "/account", label: "Account", id: "nav.account" },
 ];
 
 export function AppShell({ now }: { now: string }) {

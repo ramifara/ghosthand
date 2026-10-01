@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Code rules for role classes, offered actions and risk. No model judgement here.
+import { riskFromName } from "@ghosthand/core";
 import type { ElementAction, ElementRisk, RoleClass } from "@ghosthand/protocol";
 
 const ROLE_CLASS: Record<string, RoleClass> = {
@@ -69,8 +70,18 @@ export function actionsFor(f: ActionFacts): ElementAction[] {
   }
 }
 
-const DESTRUCTIVE =
-  /\b(delete|remove|destroy|erase|discard|wipe|purge|terminate|deactivate|revoke|unsubscribe|close (my |your |the )?account|cancel (my |your |the )?(subscription|plan|membership|order))\b/i;
+const FIELD_ROLES = new Set([
+  "textbox",
+  "searchbox",
+  "spinbutton",
+  "combobox",
+  "listbox",
+  "checkbox",
+  "switch",
+  "radio",
+  "slider",
+  "option",
+]);
 
 export interface RiskFacts {
   role: string;
@@ -83,8 +94,11 @@ export interface RiskFacts {
   pageOrigin?: string | undefined;
 }
 
+/** Name phrases first (destructive, then external: pay, send, publish, export ...), then link targets and form submits. */
 export function riskFor(f: RiskFacts): ElementRisk {
-  if (DESTRUCTIVE.test(f.name)) return "destructive";
+  // Fields only change a value; their form's submit button carries the consequence.
+  const named = FIELD_ROLES.has(f.role) ? undefined : riskFromName(f.name);
+  if (named) return named;
   if (f.href !== undefined) {
     let target: URL;
     try {
