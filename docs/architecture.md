@@ -19,12 +19,14 @@ flowchart LR
   engine --> consultants["consultants → codex app-server, claude CLI"]
   engine --> driver["driver-playwright → Chrome/Edge/Brave"]
   driver --> site[(Any web app / testbed :4400)]
+  engine --> ddesk["driver-desktop → JSON-RPC native hosts"]
+  ddesk --> hosts[("X11 container / headless GNOME sandbox (AT-SPI), Windows UIA, macOS AX")]
   recorder --> runs[("runs/<id>/ events.jsonl, screenshots, trace.zip, otel.jsonl, log.jsonl, summary.json + index.sqlite")]
 ```
 
 ## Packages and dependency direction
 
-`protocol → core → {decision-typesafe, models, consultants, driver-playwright, knowledge, recorder, voice, qa} → engine → {cli, desktop, mcp, evals}`
+`protocol → core → {decision-typesafe, models, consultants, driver-playwright, driver-desktop, knowledge, recorder, voice, qa} → engine → {cli, desktop, mcp, evals}`
 
 | Package | What it owns |
 |---|---|
@@ -34,6 +36,7 @@ flowchart LR
 | `models` | AI SDK v7 providers (OpenAI, Anthropic, Google, OpenRouter, local OpenAI-compatible), models.dev catalog, role chains, cost cap, planner/writer, `VisionGrounder`, experimental logprob decisions. |
 | `consultants` | Codex app-server JSON-RPC client and `exec` fallback (read-only sandbox, approvals declined); Claude consultant over the user's own `claude` CLI (stream-json, tools off, `dontAsk`). |
 | `driver-playwright` | Browser detection, persistent profiles and Chrome profile import; the web `Computer` (observe, act, settle, origin guard). |
+| `driver-desktop` | The desktop `Computer` over JSON-RPC native hosts: role map, element table, tokens, effects and launchers in TS; Python AT-SPI host (X11 container, headless GNOME), C# UIA host, Swift AX host; desktop testbed tasks. |
 | `recorder` | Run folders, redacted `events.jsonl`, screenshots and state sidecars, SQLite run index, replay reader. |
 | `engine` | Composition root: config and env-file loading, pino logger, OpenTelemetry spans from the event stream, run and replay lifecycle, doctor, and the web QA case executor (checkpoints per step, axe audits, console/HTTP errors, thumbnails, vision judge over `vision_reviewer`). |
 | `qa` | QA mode, pure: Markdown spec parser, preflight (one Jev request per case), oracle compiler v2 (spec → `TaskSpec` with one subgoal per step), judge chain (deterministic → oracle → Jev `holds` → vision → inconclusive), rubric with pass^k, single-file HTML report + JSON. Running a case is injected (`CaseExecutor`). |
@@ -153,3 +156,21 @@ flowchart LR
   summary.json      outcome, steps, cost, calls, mode shares
 <runsDir>/index.sqlite   runs table for `ghosthand runs list`
 ```
+
+## Desktop drivers (Phase 7)
+
+Details in [ADR 0010](adr/0010-desktop-drivers.md) and [desktop-drivers.md](desktop-drivers.md).
+
+```mermaid
+flowchart LR
+  L[core loop] --> C["DesktopComputer (TS): tokens, ARIA roles, redaction, effects"]
+  C -- "JSON-RPC on stdio (desktop-rpc.ts)" --> X["Python host: AT-SPI + XTest + XShm (Xvfb + xfwm4 in a container)"]
+  C -- "JSON-RPC (fd 3)" --> W["Python host: AT-SPI + Mutter RemoteDesktop/ScreenCast (mutter --headless, private D-Bus)"]
+  C -- "JSON-RPC, --allow-host-desktop" --> U["C# host: UIA patterns + SendInput"]
+  C -- "JSON-RPC, --allow-host-desktop" --> A["Swift host: AXUIElement + CGEvent"]
+```
+
+- Hosts report native facts and read-backs; the client maps roles (AT-SPI/UIA/AX → ARIA), builds stable ids (`<host>:<role>:<slug>` + ancestor hash), redacts, and judges effects from the read-backs (window opened/closed, content hash, target state/value).
+- Tokens (`e<ref>d<n>`) are valid for the latest snapshot only, on both sides; nothing is re-resolved.
+- Bounds are exact on X11, Windows (DPI-aware) and macOS (points), untrusted on Wayland, where token clicks are refused.
+- Sandboxes never touch the user's session; Windows and macOS hosts act on the real desktop only with an explicit flag.

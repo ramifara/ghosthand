@@ -8,7 +8,7 @@ GhostHand drives desktop apps through the same `Computer` interface as the web. 
 |---|---|---|---|---|
 | Linux X11 sandbox | `--surface x11` | container (docker/podman) or host Xvfb | no: private display, private D-Bus | works, tested here |
 | GNOME Wayland sandbox | `--surface wayland` | `mutter --headless` on the host | no: private D-Bus, runtime dir and PipeWire | works, tested here |
-| GNOME Wayland host session | — | your GNOME session (portal + libei) | yes | not built; refused |
+| GNOME Wayland host session | none | your GNOME session (portal + libei) | yes | not built; refused |
 | Windows UIA | `--surface windows --allow-host-desktop` | your Windows desktop | yes, opt-in | built in CI; not run here |
 | macOS AX | `--surface macos --allow-host-desktop` | your Mac desktop | yes, opt-in | built in CI; not run here |
 
