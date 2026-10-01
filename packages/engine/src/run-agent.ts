@@ -225,6 +225,8 @@ export interface ReplayRunOptions {
   launch: ComputerLauncher;
   hooks?: RunHooks;
   replayOf: string;
+  /** Enables Jev healing of moved targets (one call per healed step). */
+  decision?: DecisionProvider;
 }
 
 export async function runReplay(
@@ -263,6 +265,7 @@ export async function runReplay(
     computer: launched.value.computer,
     events: s.sink,
     ...(hooks.oracle ? { oracle: hooks.oracle } : {}),
+    ...(opts.decision ? { decision: opts.decision } : {}),
   });
   const oraclePass = hooks.oracle ? await hooks.oracle(opts.task.id) : undefined;
   const summary = await closeSession(s, launched.value);

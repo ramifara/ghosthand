@@ -43,6 +43,8 @@ export interface FakeLoginOptions {
   email: string;
   passwordSecret: string;
   secrets: SecretsRegistry;
+  /** Renames the submit button (simulates a UI change for replay healing tests). */
+  submitLabel?: string;
 }
 
 export class FakeLoginComputer implements Computer {
@@ -95,7 +97,12 @@ export class FakeLoginComputer implements Computer {
             value: this.password ? `[input:${this.#opts.passwordSecret}]` : "<empty>",
             actions: ["set_value", "focus"],
           }),
-          el("e5", { role: "button", name: "Sign in", actions: ["press"], risk: "submits" }),
+          el("e5", {
+            role: "button",
+            name: this.#opts.submitLabel ?? "Sign in",
+            actions: ["press"],
+            risk: "submits",
+          }),
         ];
     return ok({
       id: `s${this.snapshots}`,

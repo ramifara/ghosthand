@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
+import { exportCommand } from "./commands/export.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
 import { replayCommand } from "./commands/replay.ts";
@@ -16,6 +17,7 @@ export const HELP = `ghosthand, a Jev CUA
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
   ghosthand replay <runId> [--headless]
+  ghosthand export <runId> [--out file.spec.ts]
   ghosthand runs list [--limit N] [--task <id>]
   ghosthand doctor
   ghosthand profile create <name> | list | import <chrome-profile-dir> <name> | remove <name>
@@ -76,6 +78,8 @@ export async function main(argv: string[]): Promise<number> {
         heal: !(values["no-heal"] ?? false),
         ...(values.profile ? { profile: values.profile } : {}),
       });
+    case "export":
+      return exportCommand(rest[0], { ...(values.out ? { out: values.out } : {}) });
     case "tasks":
       return tasksCommand(json);
     case "observe":
@@ -104,6 +108,7 @@ function parse(argv: string[]) {
       config: { type: "string" },
       "no-trace": { type: "boolean" },
       "no-heal": { type: "boolean" },
+      out: { type: "string" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
     },
