@@ -1,0 +1,38 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+
+# 0010. Knowledge: fingerprints, recipes, learning defaults, source maps and vision modes
+
+- Status: proposed
+- Date: 2026-10-01
+
+## Context
+Phase 3 (plan §7) adds router modes A and D, app maps, recipes, source/PR maps and speculation v1. The plan names three open decisions: fingerprint design, recipe trust decay and extractor scope. Building it raised more: where knowledge is stored, when recipes are learned and used, how vision steps stay safe, and what source-aware mode may do.
+
+## Decision
+- **Screen fingerprint** (`core/screen-fingerprint.ts`). A URL pattern (origin + path; numeric, UUID, hex, mixed letter-digit and `ABC-123` segments become `:n`/`:id`; query keys only, no values or hash), plus landmarks (dialog title, h1–h3 headings, region kinds and labels) and a control signature (`roleClass:name` of named buttons, links, fields, tabs and menu items). Labels are normalized: lowercase, digits → `#`, quotes and trailing punctuation dropped, and data-like names (emails, money) skipped. `key` hashes the URL pattern and landmarks. Two fingerprints are the same screen when keys match, or when URL patterns match and the control sets overlap by Jaccard ≥ 0.6. The fingerprint lives in core because mode A runs inside the loop.
+- **Storage.** One `node:sqlite` file next to the run index: `<runsDir>/knowledge.sqlite` (tables `screens`, `elements`, `transitions`, `recipes`; migrations via `PRAGMA user_version`). Recipes are JSON bodies validated with Zod on every read.
+- **Recipes** (`knowledge/induce-recipe.ts`). A recipe is learned only from a run that passed its final checks and its oracle (when there is one). Kept: actions that took effect (refused and no-op attempts, waits and answer reads are dropped). Each step keeps its target fingerprint (stable id, role, name, test id), the drop zone for drags, the screen key and its effect class. Literals from the instruction that the run typed or selected become `{{pN}}` parameters (longest first, whole tokens only) in the intent, the step values and the plan. Secrets stay `{secretRef: NAME}`. Steps with screen coordinates (vision) are not learned in v1.
+- **Retrieval** is code-only. A recipe matches when it is active and trusted, belongs to the task's origin, its intent template binds the new instruction, its start screen matches (same key or same URL pattern), and the task offers every secret it types. Among several, the most trusted wins. There is no Jev choice between recipes yet.
+- **Mode A in a run.** A matching recipe replays before mode B. Each step needs its target to resolve (stable id, test id, or a unique role + name). On a miss, one Jev "same control?" question heals that step. A failed heal, a refused action, a forbidden target, a commit the task does not allow, or a step classed forbidden ends the replay, and mode B continues from the current screen. The recipe's plan replaces planning. The loop then checks every subgoal's `done_when` as usual, so final checks are never skipped. Recipes never run a commit the task's allowed effects do not include.
+- **Trust.** New recipes start at 0.6. A clean verified replay moves trust 30% of the way to 1, a healed one 15%, and a failure (guard fallback or failed checks) multiplies it by 0.6. Effective trust halves every 60 days without a success. A recipe is used while it is active, has fewer than 2 consecutive failures, and has effective trust ≥ 0.3. Two consecutive failures retire it until a passing run re-learns it, which creates version + 1 and makes it active again. Healed targets are patched into the recipe as a new version.
+- **Defaults.** `ghosthand run` uses recipes (`--recipes auto`) and learns only with `--learn`. `ghosthand eval` uses neither unless asked (`--recipes auto`, `--learn`), so eval attempts stay independent and pass rates are not inflated by replays. The app map is written only when learning, because element names can carry personal data. Users opt in to keeping them.
+- **App map.** Screens, named actionable elements (≤ 120 per screen), and transitions (screen → action on target → next screen, with success and failure counts) are written once per learning run, in one transaction. `findPath` is a BFS over transitions that succeeded more often than they failed. It is exposed, but the loop does not navigate by it yet.
+- **Source maps.** The extractor covers React/TSX with `@babel/parser` (MIT). TypeScript 7 has no JS compiler API. It extracts `tid()`/`data-testid`, ARIA and label text, visible JSX text, forms, React Router routes, and a relative-import graph. Next.js, Vue, Svelte, TanStack routes and schema libraries are out of scope for v1. **Source-aware mode** (`--source <dir>`) does three things:
+  - seeds element ranking with names relevant to the subgoal on the current route;
+  - gives the planner the route list and the current route's test ids and labels;
+  - navigates straight to the route the goal names, but only when the task starts on the app's home route. This last rule keeps frozen tasks that start on a section unchanged; the guard against navigating to a lookalike route came from probing the testbed's own routes.
+
+  Source is a hint and the page is the truth.
+- **Vision modes.** Core defines `VisionAssist` (ground, name unlabeled controls, describe, drive). The engine builds it over the models layer only when OpenAI, Anthropic or Google has a key, or a local vision model is bound to `vision_grounder`.
+  - **D1** runs first when the chosen target is unnamed or the table has unnamed controls at q < 0.7: a vision model names the controls from their boxes and Jev picks again. D1 also clicks a grounded point on the same capture after two "no target" answers on one screen. Answers that are not in the page text are read off the screen.
+  - **D2** runs at most 8 steps through a provider computer tool after two poor observations (q < 0.4) or two D1 failures on one screen. It ends as soon as q ≥ 0.7. Its typed text must be a goal literal or a stored secret placeholder. Provider safety checks end the run for a human; they are never acknowledged.
+  - **Without a vision provider,** the loop emits `escalate B → H` with the missing keys named, continues in B, and appends "vision needed: …" to a failing run's reason.
+- **De-escalation** reuses the `escalate` event with `direction: "down"`; no new event type is needed.
+- **Speculation v1.** While subgoal k runs, the planner refines k+1..n (`Planner.refine`). The refinement is applied only if k ends satisfied, the plan version is unchanged, and the refinement is already back. Otherwise it is discarded and its request aborted. There are at most 2 per run.
+
+## Consequences
+- With a key-less setup, vision-dependent tasks (canvas values, closed shadow roots, unnamed icon-only controls) end with a clear "vision needed" reason instead of guessing.
+- D2 actions cannot be checked against the element-based effect rules (there is no element). The bound (8 steps), the text rule and provider safety checks are the guards, so D2 should not be enabled on consequential flows without approval. This needs measurement once a key is available.
+- Recipes make repeated tasks fast (0 model calls on a clean replay) but tie a recipe to an origin and a start screen. A redesign triggers one heal per moved control, or retirement after two failures.
+- Speculation pays off only when the planner answers faster than a subgoal runs (API planners, ~2–4 s). With Codex (5–10 s) most refinements arrive too late and are discarded. They are still billed as consultant turns, so speculation is capped at 2 per run.
