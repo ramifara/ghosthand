@@ -47,13 +47,8 @@ describe("AppMap", () => {
       ],
     );
     expect(r.ok).toBe(true);
-    expect(
-      map.screens(app).ok &&
-        map
-          .screens(app)
-          .value.map((s) => s.key)
-          .sort(),
-    ).toEqual(["home", "orders"]);
+    const screens = map.screens(app);
+    expect(screens.ok ? screens.value.map((s) => s.key).sort() : []).toEqual(["home", "orders"]);
     const els = map.elements(app, "home");
     expect(els.ok && els.value[0]).toMatchObject({
       name: "Orders",

@@ -92,6 +92,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ghosthand/testbed-kit": "workspace:*",
+        "otpauth": "catalog:",
       },
       "devDependencies": {
         "@playwright/test": "catalog:",
@@ -213,6 +214,7 @@
         "@ghosthand/decision-typesafe": "workspace:*",
         "@ghosthand/driver-desktop": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
+        "@ghosthand/knowledge": "workspace:*",
         "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/qa": "workspace:*",
