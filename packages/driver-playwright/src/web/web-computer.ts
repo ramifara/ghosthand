@@ -57,6 +57,8 @@ import { NetworkTracker } from "./network-tracker.ts";
 import { OriginGuard } from "./origin-guard.ts";
 import { capElements, estimateSnapshotTokens, measureQuality } from "./rank-elements.ts";
 import { redactZip } from "./redact-zip.ts";
+import type { FrameListener, ScreencastHandle, ScreencastOptions } from "./screencast.ts";
+import { startPageScreencast } from "./screencast.ts";
 import { SecretScope } from "./secret-scope.ts";
 import type { DomState, SettleOptions, SettleResult } from "./settle.ts";
 import { DEFAULT_SETTLE, waitForSettle } from "./settle.ts";
@@ -237,6 +239,7 @@ export class WebComputer implements Computer {
   readonly #httpErrors: HttpErrorRecord[] = [];
   #lastStats: ObserveStats | undefined;
   #closed = false;
+  #screencast: { handle: ScreencastHandle; onFrame: FrameListener; options: ScreencastOptions } | undefined;
 
   constructor(opts: WebComputerOptions, page: Page) {
     this.#context = opts.context;
@@ -379,6 +382,33 @@ export class WebComputer implements Computer {
     this.#detach(this.#page);
     this.#page = page;
     this.#attach(page);
+    // Keep the live view on the page the agent drives.
+    const cast = this.#screencast;
+    if (cast) void this.startScreencast(cast.onFrame, cast.options);
+  }
+
+  // ---- live view -------------------------------------------------------------------------------
+
+  /**
+   * Streams CDP screencast frames of the driven page to `onFrame` (desktop live view). Follows the agent
+   * to popups. Frames are not recorded. Calling it again replaces the previous listener.
+   */
+  async startScreencast(
+    onFrame: FrameListener,
+    options: ScreencastOptions = {},
+  ): Promise<Result<void, ComputerError>> {
+    await this.stopScreencast();
+    if (this.#closed) return err({ kind: "closed", message: "computer is closed" });
+    const started = await startPageScreencast(this.#page, onFrame, options);
+    if (!started.ok) return started;
+    this.#screencast = { handle: started.value, onFrame, options };
+    return ok(undefined);
+  }
+
+  async stopScreencast(): Promise<void> {
+    const cast = this.#screencast;
+    this.#screencast = undefined;
+    await cast?.handle.stop();
   }
 
   // ---- Computer: basics ------------------------------------------------------------------------
@@ -639,6 +669,7 @@ export class WebComputer implements Computer {
     if (this.#closed) return;
     this.#closed = true;
     if (this.#recordingDir !== undefined) await this.stopRecording();
+    await this.stopScreencast();
     this.#detach(this.#page);
     this.#context.off("page", this.#onPopup);
     await this.#context.unroute("**/*", this.#onRoute).catch(() => {});

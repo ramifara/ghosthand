@@ -10,6 +10,7 @@ import type {
   ActionResult,
   Element as ProtocolElement,
   Snapshot as ProtocolSnapshot,
+  ScreencastFrame,
 } from "@ghosthand/protocol";
 import { ActionResult as ActionResultSchema, Element, Snapshot } from "@ghosthand/protocol";
 import type { Browser, BrowserContext } from "playwright-core";
@@ -591,4 +592,28 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     if (!audit.ok) throw new Error(audit.error.message);
     expect(audit.value.violations.map((v) => v.id)).toContain("image-alt");
   }, 20_000);
+
+  it("streams screencast frames of the driven page and stops cleanly", async () => {
+    const c = await open("login.html");
+    const frames: ScreencastFrame[] = [];
+    const started = await c.startScreencast((f) => frames.push(f), { maxWidth: 640, maxHeight: 480 });
+    expect(started.ok).toBe(true);
+    // Force a repaint so Chromium emits at least one frame.
+    await c.page.evaluate(() => {
+      document.body.style.background = "rgb(1, 2, 3)";
+    });
+    const deadline = Date.now() + 5000;
+    while (frames.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(frames.length).toBeGreaterThan(0);
+    const first = frames[0];
+    expect(first?.mimeType).toBe("image/jpeg");
+    expect(first?.metadata.deviceWidth).toBeGreaterThan(0);
+    await c.stopScreencast();
+    const count = frames.length;
+    await c.page.evaluate(() => {
+      document.body.style.background = "rgb(9, 9, 9)";
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(frames.length).toBe(count);
+  });
 });
