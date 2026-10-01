@@ -5,6 +5,7 @@ import {
   type ApprovalRequest,
   type EventSink,
   type Planner,
+  type RunControl,
   type RunResult,
   runTask,
   type Writer,
@@ -40,6 +41,8 @@ export interface RunHooks {
   approve?: (req: ApprovalRequest) => Promise<boolean>;
   onEvent?: (event: RunEvent) => void;
   signal?: AbortSignal;
+  /** Takeover pause/resume (desktop). */
+  control?: RunControl;
 }
 
 export interface RunReport {
@@ -193,6 +196,7 @@ export async function runAgent(
       ...(opts.planner ? { planner: opts.planner } : {}),
       ...(opts.writer ? { writer: opts.writer } : {}),
       signal,
+      ...(hooks.control ? { control: hooks.control } : {}),
     });
   } catch (e) {
     const reason = `engine error: ${e instanceof Error ? e.message : String(e)}`;
