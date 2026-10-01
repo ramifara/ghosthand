@@ -7,6 +7,7 @@ export * from "./create-logger.ts";
 export * from "./doctor.ts";
 export * from "./env-file.ts";
 export * from "./export-spec.ts";
+export * from "./model-providers.ts";
 export * from "./replay.ts";
 export * from "./run-agent.ts";
 export * from "./runtime.ts";

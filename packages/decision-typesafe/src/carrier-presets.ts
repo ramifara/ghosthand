@@ -6,12 +6,10 @@
 //   (state plus questions), `usage.cost` in each response.
 // - Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`, model
 //   `typesafe-ai/jev`, cost in `provider_metadata.gateway.cost`.
-import type { DecisionCapabilities, DecisionProvider } from "@ghosthand/protocol";
+import type { DecisionCapabilities, DecisionCarrier, DecisionProvider } from "@ghosthand/protocol";
 import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "@ghosthand/protocol";
 import type { TypeSafeDecisionProviderOptions } from "./typesafe-provider.ts";
 import { createTypeSafeDecisionProvider } from "./typesafe-provider.ts";
-
-export type DecisionCarrier = "typesafe" | "openrouter" | "vercel";
 
 export interface CarrierPreset {
   readonly carrier: DecisionCarrier;

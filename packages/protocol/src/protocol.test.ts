@@ -121,7 +121,10 @@ describe("TaskSpec and config defaults", () => {
     expect(t.budget.steps).toBe(25);
     expect(t.mode).toBe("do");
     const c = GhostHandConfig.parse({});
-    expect(c.decision.model).toBe("jev-1.13.0");
+    expect(c.decision.provider).toBe("typesafe");
+    expect(c.decision.model).toBeUndefined();
+    expect(c.models.discoverLocal).toBe(true);
+    expect(c.consultant.claude.enabled).toBe(false);
     expect(c.decision.timeoutMs).toBe(2500);
     expect(c.gates.operation).toBe(0.65);
     expect(c.gates.target).toBe(0.7);
@@ -130,5 +133,10 @@ describe("TaskSpec and config defaults", () => {
   it("rejects bad config", () => {
     expect(GhostHandConfig.safeParse({ gates: { target: 2 } }).success).toBe(false);
     expect(GhostHandConfig.safeParse({ browser: { channel: "firefox" } }).success).toBe(false);
+    expect(GhostHandConfig.safeParse({ decision: { provider: "cloudflare" } }).success).toBe(false);
+    expect(GhostHandConfig.safeParse({ decision: { apiKeyEnv: "sk-or-v1-abc" } }).success).toBe(false);
+    expect(GhostHandConfig.safeParse({ models: { local: [{ id: "vllm", baseUrl: "nope" }] } }).success).toBe(
+      false,
+    );
   });
 });

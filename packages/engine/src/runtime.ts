@@ -3,9 +3,16 @@
 // Composition root: config, env-file secrets, logger, run index and the decision provider.
 import { execFileSync } from "node:child_process";
 import { type Logger, SecretsRegistry } from "@ghosthand/core";
-import { CostMeter, createTypeSafeDecisionProvider } from "@ghosthand/decision-typesafe";
+import {
+  CARRIER_PRESETS,
+  CostMeter,
+  createCarrierDecisionProvider,
+  DEFAULT_MODEL,
+  FallbackDecisionProvider,
+} from "@ghosthand/decision-typesafe";
 import {
   type ConfigError,
+  type DecisionCarrier,
   type DecisionProvider,
   err,
   type GhostHandConfig,
@@ -24,8 +31,20 @@ const NON_AGENT_KEYS = new Set([
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
   "GOOGLE_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GEMINI_API_KEY",
   "OPENROUTER_API_KEY",
+  "AI_GATEWAY_API_KEY",
 ]);
+
+/** Provider key names, including any custom `apiKeyEnv` from config. */
+function configKeyNames(config: GhostHandConfig): Set<string> {
+  const names = new Set(NON_AGENT_KEYS);
+  if (config.decision.apiKeyEnv) names.add(config.decision.apiKeyEnv);
+  if (config.decision.fallback?.apiKeyEnv) names.add(config.decision.fallback.apiKeyEnv);
+  for (const s of config.models.local) if (s.apiKeyEnv) names.add(s.apiKeyEnv);
+  return names;
+}
 
 export interface EngineRuntime {
   config: GhostHandConfig;
@@ -77,36 +96,91 @@ export async function openRuntime(
 }
 
 /** Secret names the agent may type (everything in the env file except provider keys). */
-export const agentSecretNames = (rt: EngineRuntime, extra: string[] = []): string[] => [
-  ...new Set([...[...rt.envFile.values.keys()].filter((k) => !NON_AGENT_KEYS.has(k)), ...extra]),
-];
+export const agentSecretNames = (rt: EngineRuntime, extra: string[] = []): string[] => {
+  const keys = configKeyNames(rt.config);
+  return [...new Set([...[...rt.envFile.values.keys()].filter((k) => !keys.has(k)), ...extra])];
+};
 
+export interface DecisionCarrierSettings {
+  readonly carrier: DecisionCarrier;
+  readonly model: string;
+  readonly keyEnv: string;
+  readonly baseUrl?: string;
+}
+
+/** Carrier, model, key name and base URL for the primary decision carrier, defaults filled in. */
+export function decisionCarrierSettings(
+  config: GhostHandConfig,
+  which: "primary" | "fallback" = "primary",
+): DecisionCarrierSettings | undefined {
+  const d = config.decision;
+  const entry =
+    which === "primary"
+      ? { provider: d.provider, model: d.model, apiKeyEnv: d.apiKeyEnv }
+      : d.fallback === undefined
+        ? undefined
+        : { provider: d.fallback.provider, model: d.fallback.model, apiKeyEnv: d.fallback.apiKeyEnv };
+  if (entry === undefined) return undefined;
+  const preset = entry.provider === "typesafe" ? undefined : CARRIER_PRESETS[entry.provider];
+  return {
+    carrier: entry.provider,
+    model: entry.model ?? preset?.model ?? DEFAULT_MODEL,
+    keyEnv: entry.apiKeyEnv ?? preset?.keyEnv ?? "TYPESAFE_API_KEY",
+    // `decision.baseUrl` overrides the primary carrier only.
+    ...(which === "primary" && d.baseUrl ? { baseUrl: d.baseUrl } : {}),
+  };
+}
+
+/**
+ * The decision provider from config: TypeSafe direct (default), Jev on OpenRouter, or Jev on the
+ * Vercel AI Gateway, optionally wrapped in a failover to a second carrier. Both share one spend cap.
+ */
 export function createDecisionProvider(
   rt: EngineRuntime,
   capUsd: number,
+  env: NodeJS.ProcessEnv = process.env,
 ): Result<DecisionProvider, ConfigError> {
-  const apiKey = envValue("TYPESAFE_API_KEY", rt.envFile);
+  const d = rt.config.decision;
+  const primary = decisionCarrierSettings(rt.config, "primary");
+  if (primary === undefined) throw new Error("unreachable: primary decision settings");
+  const apiKey = envValue(primary.keyEnv, rt.envFile, env);
   if (!apiKey) {
     return err({
       kind: "missing_key",
-      message: `TYPESAFE_API_KEY is not set (add it to ${rt.envFile.path} with mode 0600)`,
+      message: `${primary.keyEnv} is not set (add it to ${rt.envFile.path} with mode 0600)`,
       path: rt.envFile.path,
     });
   }
-  rt.secrets.register("TYPESAFE_API_KEY", apiKey);
-  const d = rt.config.decision;
-  return ok(
-    createTypeSafeDecisionProvider({
-      apiKey,
-      model: d.model,
-      timeoutMs: d.timeoutMs,
-      retries: d.retries,
-      priceInputPerM: d.priceInputPerM,
-      ...(d.baseUrl ? { baseUrl: d.baseUrl } : {}),
-      costMeter: new CostMeter({ capUsd, priceInputPerM: d.priceInputPerM }),
-      logger: rt.logger.child({ pkg: "decision-typesafe" }),
-    }),
-  );
+  rt.secrets.register(primary.keyEnv, apiKey);
+  const costMeter = new CostMeter({ capUsd, priceInputPerM: d.priceInputPerM, provider: primary.carrier });
+  const logger = rt.logger.child({ pkg: "decision-typesafe" });
+  const common = {
+    timeoutMs: d.timeoutMs,
+    retries: d.retries,
+    priceInputPerM: d.priceInputPerM,
+    costMeter,
+    logger,
+  };
+  const first = createCarrierDecisionProvider(primary.carrier, {
+    ...common,
+    apiKey,
+    model: primary.model,
+    ...(primary.baseUrl ? { baseUrl: primary.baseUrl } : {}),
+  });
+  const fallback = decisionCarrierSettings(rt.config, "fallback");
+  if (fallback === undefined) return ok(first);
+  const fallbackKey = envValue(fallback.keyEnv, rt.envFile, env);
+  if (!fallbackKey) {
+    rt.warnings.push(`decision fallback ${fallback.carrier} skipped: ${fallback.keyEnv} is not set`);
+    return ok(first);
+  }
+  rt.secrets.register(fallback.keyEnv, fallbackKey);
+  const second = createCarrierDecisionProvider(fallback.carrier, {
+    ...common,
+    apiKey: fallbackKey,
+    model: fallback.model,
+  });
+  return ok(new FallbackDecisionProvider(first, second, { logger }));
 }
 
 export function gitSha(cwd = process.cwd()): string | undefined {

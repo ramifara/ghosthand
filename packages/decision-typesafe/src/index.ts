@@ -10,7 +10,6 @@ export {
   createCarrierDecisionProvider,
   createOpenRouterDecisionProvider,
   createVercelDecisionProvider,
-  type DecisionCarrier,
   OPENROUTER_DECISION_PRESET,
   VERCEL_DECISION_PRESET,
 } from "./carrier-presets.ts";

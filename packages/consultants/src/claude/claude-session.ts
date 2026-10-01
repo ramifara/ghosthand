@@ -44,7 +44,10 @@ export interface ClaudeTurnStats {
   readonly latencyMs: number;
   /** Process start to `system/init`, when this turn started the process. */
   readonly spawnToInitMs?: number;
-  /** The CLI's own `duration_ms` and `total_cost_usd` (subscription users are not billed per call). */
+  /**
+   * The CLI's own `duration_ms` (this turn) and `total_cost_usd` (cumulative for the process, an API-price
+   * estimate; subscription users are not billed per call).
+   */
   readonly durationMs?: number;
   readonly costUsd?: number;
   readonly model?: string;

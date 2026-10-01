@@ -3,11 +3,31 @@
 import { z } from "zod";
 import { Budget, DEFAULT_BUDGET } from "./task.ts";
 
+/** Carriers for Jev: TypeSafe direct, OpenRouter, Vercel AI Gateway. */
+export const DecisionCarrier = z.enum(["typesafe", "openrouter", "vercel"]);
+export type DecisionCarrier = z.infer<typeof DecisionCarrier>;
+
+/** An env-file variable name (the key itself never goes in config). */
+const EnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
+
 export const GhostHandConfig = z.object({
   decision: z
     .object({
-      provider: z.literal("typesafe").default("typesafe"),
-      model: z.string().default("jev-1.13.0"),
+      provider: DecisionCarrier.default("typesafe"),
+      /**
+       * Model id on the carrier. Default per carrier: `jev-1.13.0` (TypeSafe), `typesafe/jev-1.13`
+       * (OpenRouter), `typesafe-ai/jev` (Vercel).
+       */
+      model: z.string().optional(),
+      /** Env var holding the key. Default per carrier: TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY. */
+      apiKeyEnv: EnvName.optional(),
+      /**
+       * Second carrier, asked only when the first fails with a rate limit, overload, server or network
+       * error or a timeout. Skipped when its key is missing.
+       */
+      fallback: z
+        .object({ provider: DecisionCarrier, model: z.string().optional(), apiKeyEnv: EnvName.optional() })
+        .optional(),
       timeoutMs: z.number().int().positive().default(2500),
       retries: z.number().int().min(0).max(3).default(1),
       baseUrl: z.string().optional(),
@@ -36,9 +56,40 @@ export const GhostHandConfig = z.object({
   /** Origins always blocked for the agent (production systems). */
   blockedOrigins: z.array(z.string()).default([]),
   runsDir: z.string().optional(),
+  models: z
+    .object({
+      /** Role bindings (`planner`, `writer`, …), parsed by @ghosthand/models. Default: per configured provider. */
+      roles: z.record(z.string(), z.unknown()).optional(),
+      /** Catalog overrides (vision flags, grounding conventions, prices), parsed by @ghosthand/models. */
+      overrides: z.array(z.unknown()).optional(),
+      /** Probe the loopback defaults (Ollama 127.0.0.1:11434, LM Studio 127.0.0.1:1234). */
+      discoverLocal: z.boolean().default(true),
+      /** More OpenAI-compatible servers (vLLM, llama.cpp server, …). Only these URLs are contacted. */
+      local: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase id, e.g. vllm"),
+            baseUrl: z.url(),
+            apiKeyEnv: EnvName.optional(),
+          }),
+        )
+        .default([]),
+    })
+    .prefault({}),
   consultant: z
     .object({
       codex: z.object({ enabled: z.boolean().default(true), model: z.string().optional() }).prefault({}),
+      /**
+       * The user's own `claude` CLI. Opt-in: Anthropic's terms for subscription use by third-party
+       * tools can change; an Anthropic API key is the recommended path (ADR 0007).
+       */
+      claude: z
+        .object({
+          enabled: z.boolean().default(false),
+          model: z.string().optional(),
+          binary: z.string().optional(),
+        })
+        .prefault({}),
     })
     .prefault({}),
 });
