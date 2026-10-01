@@ -4,16 +4,19 @@
 // When a fingerprint no longer resolves, one Jev "same control?" question re-grounds that step (heal).
 // Final checks always re-run.
 import {
-  ANTI_INJECTION,
   buildState,
   type Clock,
   choiceConfidence,
-  describeElement,
   type EventSink,
   evaluateDoneWhen,
   execute,
-  isActionable,
+  HEAL_THRESHOLD,
+  healCandidates,
+  healQuestion,
+  matchTarget,
   NONE,
+  type RecordedTarget,
+  retarget,
   systemClock,
 } from "@ghosthand/core";
 import type {
@@ -21,65 +24,25 @@ import type {
   Computer,
   DecisionProvider,
   Element,
-  Questions,
   RunOutcome,
   Snapshot,
   StepTiming,
   TaskSpec,
 } from "@ghosthand/protocol";
 
-export interface RecordedTarget {
-  stableId: string;
-  role: string;
-  name: string;
-  automationId?: string | undefined;
-}
+export {
+  HEAL_THRESHOLD,
+  healCandidates,
+  healQuestion,
+  matchTarget,
+  type RecordedTarget,
+  retarget,
+} from "@ghosthand/core";
 
 export interface ReplayStep {
   step: number;
   action: Action;
   target: RecordedTarget | null;
-}
-
-/** Finds the element a recorded action targeted: stableId, then automation id, then a unique role+name. */
-export function matchTarget(snapshot: Snapshot, target: RecordedTarget): Element | undefined {
-  const byStable = snapshot.elements.filter((e) => e.stableId === target.stableId);
-  if (byStable.length === 1) return byStable[0];
-  if (target.automationId) {
-    const byId = snapshot.elements.filter((e) => e.automationId === target.automationId);
-    if (byId.length === 1) return byId[0];
-  }
-  const byName = snapshot.elements.filter((e) => e.role === target.role && e.name === target.name);
-  return byName.length === 1 ? byName[0] : undefined;
-}
-
-/** Rewrites token references in an action to the element found in the new snapshot. */
-export function retarget(action: Action, element: Element): Action {
-  return "token" in action ? ({ ...action, token: element.token } as Action) : action;
-}
-
-export const HEAL_THRESHOLD = 0.7;
-
-/** The single Jev question used to re-ground a recorded target on a changed page. */
-export function healQuestion(target: RecordedTarget, candidates: Element[]): Questions {
-  const criteria: Record<string, string> = {};
-  for (const el of candidates.slice(0, 254)) criteria[el.token] = describeElement(el);
-  criteria[NONE] = "None of these is the same control.";
-  return {
-    same_control: {
-      type: "choice",
-      instructions: `A recorded step acted on the ${target.role} named ${JSON.stringify(target.name)}${
-        target.automationId ? ` (test id ${JSON.stringify(target.automationId)})` : ""
-      }. The page changed. Which listed element is the same control, serving the same purpose? ${ANTI_INJECTION}`,
-      criteria,
-    },
-  };
-}
-
-/** Candidates for healing: actionable elements, same role first. */
-export function healCandidates(snapshot: Snapshot, target: RecordedTarget): Element[] {
-  const pool = snapshot.elements.filter(isActionable);
-  return [...pool.filter((e) => e.role === target.role), ...pool.filter((e) => e.role !== target.role)];
 }
 
 export interface ReplayDeps {

@@ -13,6 +13,8 @@ export * from "./logger.ts";
 export * from "./loop.ts";
 export * from "./planner.ts";
 export * from "./questions.ts";
+export * from "./recipe.ts";
+export * from "./screen-fingerprint.ts";
 export * from "./secrets.ts";
 export * from "./stall.ts";
 export * from "./state-builder.ts";

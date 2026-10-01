@@ -58,6 +58,10 @@ export const RunEvent = z.discriminatedUnion("type", [
     elementCount: z.number().int(),
     tokenEstimate: z.number().int(),
     screenshot: z.string().optional(),
+    /** Screen fingerprint key (app map). */
+    screen: z.string().optional(),
+    /** Code-measured surface quality of the element table (0-1). */
+    quality: z.number().min(0).max(1).optional(),
   }),
   z.object({
     ...Base,
@@ -118,6 +122,15 @@ export const RunEvent = z.discriminatedUnion("type", [
         confidence: z.number().min(0).max(1).optional(),
       })
       .optional(),
+    /** Fingerprint of a drag's drop zone, for replay. */
+    destination: z
+      .object({
+        stableId: z.string(),
+        role: z.string(),
+        name: z.string(),
+        automationId: z.string().optional(),
+      })
+      .optional(),
     mode: RouterMode,
   }),
   z.object({ ...Base, type: z.literal("effect"), step: z.number().int(), result: ActionResult }),
@@ -136,6 +149,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     from: RouterMode,
     to: RouterMode,
     reason: z.string(),
+    /** "down" for a de-escalation (back to a cheaper mode); absent means up. */
+    direction: z.enum(["up", "down"]).optional(),
   }),
   z.object({
     ...Base,

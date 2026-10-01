@@ -30,6 +30,7 @@ import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rul
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
+import { runModeA } from "./mode-a.ts";
 import type { Planner } from "./planner.ts";
 import {
   AMBIGUOUS,
@@ -42,6 +43,8 @@ import {
   targetHead,
   WAIT,
 } from "./questions.ts";
+import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
+import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import { buildNarrowState, buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
@@ -111,6 +114,10 @@ export interface LoopDeps {
   skipOpen?: boolean;
   /** Pause/resume for human takeover. Checked before every step and right before every act. */
   control?: RunControl;
+  /** Verified recipes (mode A). A match on the start screen is replayed before mode B takes over. */
+  recipes?: RecipeBook;
+  /** Sees every observed snapshot with its fingerprint (app map learning). Must be cheap and not throw. */
+  onSnapshot?: (snapshot: Snapshot, fingerprint: ScreenFingerprint, step: number) => void;
 }
 
 /**
@@ -135,6 +142,8 @@ export interface RunResult {
   /** Reported answer for tasks that ask for one. */
   answer?: string;
   answeredBy?: "decision" | "writer";
+  /** Mode A: what the recipe replay did (absent when no recipe matched). */
+  replay?: ReplayReport;
 }
 
 /** One subgoal per task when no plan is given; the goal itself is checked by the model. */
@@ -179,6 +188,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let decisionCalls = 0;
   let modelCalls = 0;
   let step = 0;
+  let replay: ReplayReport | undefined;
+  /** Actions executed by mode A before the subgoal loop. */
+  let replayedActions = 0;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
   /** A human held the run (takeover): credit the time budget and record it. */
@@ -207,6 +219,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       modeShares,
       timings,
       ...(answered ? { answer: answered.answer, answeredBy: answered.by } : {}),
+      ...(replay ? { replay } : {}),
     };
     emit({
       type: "run.end",
@@ -243,8 +256,17 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     if (!opened.ok) return finish("error", `open failed: ${opened.error.kind}: ${opened.error.message}`);
   }
 
+  // Mode A: a verified recipe for this task on this start screen replays before anything else.
+  let recipe: RecipeMatch | undefined;
+  if (deps.recipes) {
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    const start = await deps.computer.observe();
+    if (start.ok) recipe = deps.recipes.match(task, start.value);
+    if (recipe?.plan && !task.plan) plan = { ...recipe.plan, source: "recipe" };
+  }
+
   // Mode C: without a task plan, the planner plans once from the first screen.
-  if (!task.plan && deps.planner) {
+  if (!task.plan && !recipe?.plan && deps.planner) {
     const first = await deps.computer.observe();
     const r = await deps.planner.plan(
       {
@@ -262,6 +284,39 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     }
   }
   emit({ type: "plan", plan });
+
+  if (recipe) {
+    const allowed = [...new Set(plan.subgoals.flatMap((g) => g.allowedEffects))];
+    const a = await runModeA(
+      recipe,
+      {
+        computer: deps.computer,
+        events: deps.events,
+        decision: deps.decision,
+        secrets: deps.secrets,
+        clock,
+        task,
+        forbidden,
+        allowedEffects: allowed,
+        settleCapMs: cfg.settleCapMs,
+        firstStep: step + 1,
+        ...(deps.signal ? { signal: deps.signal } : {}),
+        onDecision: (costUsd) => {
+          decisionCalls++;
+          budget.spend(costUsd);
+        },
+      },
+      execute,
+    );
+    replay = a.report;
+    replayedActions = a.report.replayed;
+    step += a.steps;
+    for (let k = 0; k < a.steps; k++) budget.step();
+    timings.push(...a.timings);
+    if (a.modeSteps.A > 0) modeCounts.A = (modeCounts.A ?? 0) + a.modeSteps.A;
+    if (a.modeSteps.B > 0) modeCounts.B = (modeCounts.B ?? 0) + a.modeSteps.B;
+    log.info({ recipe: recipe.recipeId, ...a.report }, "recipe replay finished");
+  }
 
   /** Replaces the failed subgoal and the rest of the plan. Returns true when the run should continue. */
   const replan = async (
@@ -344,6 +399,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       if (!observed.ok)
         return finish("error", `observe failed: ${observed.error.kind}: ${observed.error.message}`);
       const snapshot = observed.value;
+      const fingerprint = screenFingerprint(snapshot);
+      deps.onSnapshot?.(snapshot, fingerprint, current);
       let screenshot: string | undefined;
       // With a reserved name the capture runs in parallel with verify/decide and is written at step end.
       let pendingShot: Promise<void> | undefined;
@@ -368,6 +425,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         elementCount: snapshot.elements.length,
         tokenEstimate: snapshot.tokenEstimate,
         ...(screenshot ? { screenshot } : {}),
+        screen: fingerprint.key,
+        quality: snapshot.quality.score,
       });
       stall.observe(screenSignature(snapshot));
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
@@ -452,6 +511,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       const preSatisfied =
         done.state === "satisfied" &&
         acted.count === 0 &&
+        replayedActions === 0 &&
         plan.source === "task" &&
         plan.subgoals.length === 1;
       if (done.state === "satisfied" && !preSatisfied) await pendingShot;
@@ -763,6 +823,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
 
   // Build the action.
   let action: Action | undefined;
+  let destination: Element | undefined;
   let describe = "";
   if (element) {
     switch (operation) {
@@ -806,6 +867,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
             ? findByToken(snapshot, dropToken)
             : undefined;
         if (drop && drop.token !== element.token && choiceConfidence(dropAnswer) >= cfg.gates.target) {
+          destination = drop;
           action = { type: "drag", from: { token: element.token }, to: { token: drop.token } };
           describe = `drag ${element.role} "${element.name}" to ${drop.role} "${drop.name}"`;
         }
@@ -897,6 +959,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       ...(bounds ? { bounds } : {}),
       ...(targetAnswer?.type === "choice" ? { confidence: choiceConfidence(targetAnswer) } : {}),
     },
+    ...(destination ? { destination: fingerprintOf(destination) } : {}),
     mode: "B",
   });
   t = clock.now();
@@ -959,6 +1022,14 @@ async function scrollStep(ctx: DecideContext, answers: Record<string, Answer>): 
   history.push({ step, text: `${describe} (${result.effect})` });
   return { kind: "continue" };
 }
+
+/** The replay fingerprint of an element (action events). */
+export const fingerprintOf = (e: Element) => ({
+  stableId: e.stableId,
+  role: e.role,
+  name: e.name,
+  ...(e.automationId ? { automationId: e.automationId } : {}),
+});
 
 const UNSURE_GATES = new Set<GateName>(["operation_confidence", "target_confidence", "target_named"]);
 
