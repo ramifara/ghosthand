@@ -90,6 +90,17 @@ export {
   modelsListCommand,
 } from "./models-list-command.ts";
 export {
+  adaptSiwcRequestBody,
+  collectSiwcStream,
+  createOpenAIChatGptProvider,
+  createSiwcFetch,
+  type OpenAIChatGptProviderOptions,
+  parseSseEvents,
+  SIWC_API_BASE,
+  SIWC_REJECTED_PARAMS,
+  SIWC_USAGE_LIMIT_CODE,
+} from "./providers/openai-chatgpt-provider.ts";
+export {
   ANTHROPIC_COMPUTER_TOOL_NAME,
   type AnthropicProviderOptions,
   createAnthropicProvider,

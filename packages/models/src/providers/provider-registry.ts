@@ -25,6 +25,7 @@ export type ProviderKind =
 /** Provider kinds with a working factory in this build. */
 export const IMPLEMENTED_PROVIDER_KINDS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
   "openai",
+  "openai-chatgpt",
   "anthropic",
   "google",
   "openrouter",
