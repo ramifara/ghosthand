@@ -225,6 +225,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let replay: ReplayReport | undefined;
   /** Actions executed by mode A before the subgoal loop. */
   let replayedActions = 0;
+  /** Run every done_when check (model ones too) on the first step after a complete replay. */
+  let checkAfterReplay = false;
   /** Set when a vision step was needed but could not run; appended to failure reasons. */
   let visionNeeded: string | undefined;
   /** Mode of the previous step, for de-escalation events. */
@@ -496,6 +498,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     );
     replay = a.report;
     replayedActions = a.report.replayed;
+    // A complete replay should be judged at once, model checks included.
+    checkAfterReplay = a.report.fellBackAt === undefined;
     step += a.steps;
     for (let k = 0; k < a.steps; k++) budget.step();
     timings.push(...a.timings);
@@ -630,7 +634,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // done_when (deterministic and oracle every step; model predicates only when the goal looks done)
       t = clock.now();
       // With deterministic predicates, model predicates only run once those pass (early exit inside).
-      const checkModel = hasDeterministicPredicates(subgoal.doneWhen) || lastGoalDone >= 0.5;
+      const checkModel =
+        hasDeterministicPredicates(subgoal.doneWhen) || lastGoalDone >= 0.5 || checkAfterReplay;
+      checkAfterReplay = false;
       const verifyState = buildState(
         {
           instruction: task.instruction,
@@ -1199,7 +1205,8 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
-    const streak = noteNone(ctx, op === BLOCKED);
+    // "Nothing to do" on a page that looks done is not a vision case.
+    const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
     const viaVision =
       streak >= 2
         ? await visionGround(
