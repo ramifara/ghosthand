@@ -28,6 +28,7 @@ import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
+import type { Planner } from "./planner.ts";
 import {
   AMBIGUOUS,
   BLOCKED,
@@ -69,6 +70,8 @@ export interface LoopConfig {
   settleCapMs: number;
   /** Send the next decision in parallel with a model verify check on the same snapshot. */
   speculate: boolean;
+  /** Mode C replans per run (plan: ≤ 2). */
+  maxReplans: number;
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
@@ -79,6 +82,7 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
   maxConsecutiveRefusals: 3,
   settleCapMs: 5000,
   speculate: true,
+  maxReplans: 2,
 };
 
 export interface LoopDeps {
@@ -95,6 +99,8 @@ export interface LoopDeps {
   signal?: AbortSignal;
   /** Gives a focus hint or free text when Jev is unsure (P1-04). Never picks clicks. */
   writer?: Writer;
+  /** Plans when the task has no plan and replans failed subgoals (mode C). */
+  planner?: Planner;
   /** Skip opening task.startUrl (the caller already navigated). */
   skipOpen?: boolean;
 }
@@ -143,7 +149,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   const log = deps.logger ?? noopLogger;
   const budget = new BudgetTracker(task.budget, clock);
   const started = clock.now();
-  const plan = task.plan ?? defaultPlan(task);
+  let plan = task.plan ?? defaultPlan(task);
+  let replans = 0;
   const modeCounts: Partial<Record<RouterMode, number>> = {};
   const timings: StepTiming[] = [];
   let decisionCalls = 0;
@@ -181,14 +188,80 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     return result;
   };
 
-  emit({ type: "plan", plan });
+  const plannerCall = (r: Awaited<ReturnType<Planner["plan"]>>, role: string) => {
+    modelCalls++;
+    if (r.ok) budget.spend(r.value.costUsd ?? 0);
+    emit({
+      type: "model.call",
+      role,
+      model: r.ok ? (r.value.model ?? r.value.planner) : (deps.planner?.id ?? "planner"),
+      latencyMs: r.ok ? r.value.latencyMs : 0,
+      ...(r.ok && r.value.costUsd !== undefined ? { costUsd: r.value.costUsd } : {}),
+      ok: r.ok,
+      summary: r.ok ? `${r.value.plan.subgoals.length} subgoals` : `${r.error.kind}: ${r.error.message}`,
+    });
+  };
 
   if (!deps.skipOpen) {
     const opened = await deps.computer.open(task.startUrl);
     if (!opened.ok) return finish("error", `open failed: ${opened.error.kind}: ${opened.error.message}`);
   }
 
-  for (const subgoal of plan.subgoals) {
+  // Mode C: without a task plan, the planner plans once from the first screen.
+  if (!task.plan && deps.planner) {
+    const first = await deps.computer.observe();
+    const r = await deps.planner.plan(
+      {
+        goal: task.instruction,
+        startUrl: task.startUrl,
+        ...(first.ok ? { pageSummary: pageSummary(first.value, deps.secrets) } : {}),
+        maxSubgoals: 12,
+      },
+      deps.signal ? { signal: deps.signal } : {},
+    );
+    plannerCall(r, "planner");
+    if (r.ok) {
+      plan = r.value.plan;
+      modeCounts.C = 0;
+    }
+  }
+  emit({ type: "plan", plan });
+
+  /** Replaces the failed subgoal and the rest of the plan. Returns true when the run should continue. */
+  const replan = async (
+    index: number,
+    failed: Subgoal,
+    reason: string,
+    history: HistoryEntry[],
+  ): Promise<boolean> => {
+    if (!deps.planner || replans >= cfg.maxReplans || budget.exceeded()) return false;
+    replans++;
+    emit({ type: "escalate", step, from: "B", to: "C", reason: `replan ${replans}: ${reason}` });
+    const now = await deps.computer.observe();
+    const r = await deps.planner.replan(
+      {
+        goal: task.instruction,
+        startUrl: task.startUrl,
+        ...(now.ok ? { pageSummary: pageSummary(now.value, deps.secrets) } : {}),
+        maxSubgoals: 12,
+        plan,
+        failedSubgoalId: failed.id,
+        failureReason: reason,
+        history: history.slice(-8).map((h) => `${h.step}. ${h.text}`),
+      },
+      deps.signal ? { signal: deps.signal } : {},
+    );
+    plannerCall(r, "planner");
+    if (!r.ok) return false;
+    plan = { source: "planner", subgoals: [...plan.subgoals.slice(0, index), ...r.value.plan.subgoals] };
+    emit({ type: "plan", plan });
+    modeCounts.C = (modeCounts.C ?? 0) + 1;
+    return true;
+  };
+
+  subgoals: for (let i = 0; i < plan.subgoals.length; i++) {
+    const subgoal = plan.subgoals[i];
+    if (!subgoal) break;
     emit({ type: "subgoal.start", subgoalId: subgoal.id, goal: subgoal.goal });
     const stall = new StallDetector();
     const history: HistoryEntry[] = [];
@@ -208,7 +281,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       }
       if (subgoalSteps >= subgoal.maxSteps) {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
-        return finish("budget_exhausted", `subgoal ${subgoal.id} exceeded ${subgoal.maxSteps} steps`);
+        const reason = `subgoal ${subgoal.id} exceeded ${subgoal.maxSteps} steps`;
+        if (await replan(i, subgoal, reason, history)) {
+          i--;
+          continue subgoals;
+        }
+        return finish("budget_exhausted", reason);
       }
 
       const current = step + 1;
@@ -331,6 +409,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         if (speculative) await speculative.response;
         emit({ type: "escalate", step, from: "B", to: "H", reason: verdict.reason ?? "stalled" });
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
+        if (await replan(i, subgoal, verdict.reason ?? "stalled", history)) {
+          i--;
+          continue subgoals;
+        }
         return finish("stuck", verdict.reason ?? "stalled");
       }
 
@@ -341,13 +423,23 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
 
       if (outcome.kind === "end") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
+        if (outcome.outcome === "stuck" && (await replan(i, subgoal, outcome.reason, history))) {
+          i--;
+          continue subgoals;
+        }
         return finish(outcome.outcome, outcome.reason);
       }
       if (outcome.kind === "continue" && "refused" in outcome) refusals++;
+      else refusals = 0;
       if (refusals >= cfg.maxConsecutiveRefusals) {
         emit({ type: "escalate", step, from: "B", to: "H", reason: `${refusals} consecutive refusals` });
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
-        return finish("stuck", `${refusals} consecutive steps refused by gates`);
+        const reason = `${refusals} consecutive steps refused by gates`;
+        if (await replan(i, subgoal, reason, history)) {
+          i--;
+          continue subgoals;
+        }
+        return finish("stuck", reason);
       }
     }
   }
@@ -840,4 +932,18 @@ export function execute(computer: Computer, action: Action): Promise<ActionResul
         durationMs: 0,
       });
   }
+}
+
+/** Plain-text first-screen summary for the planner (redacted). */
+export function pageSummary(snapshot: Snapshot, secrets: SecretsRegistry): string {
+  const lines = [
+    `Title: ${snapshot.title}`,
+    ...(snapshot.url ? [`URL: ${snapshot.url}`] : []),
+    `Text: ${snapshot.text.slice(0, 1500)}`,
+    "Elements:",
+    ...snapshot.elements
+      .slice(0, 60)
+      .map((e) => `- ${e.role} "${e.name}"${e.context ? ` (${e.context.slice(0, 60)})` : ""}`),
+  ];
+  return secrets.redact(lines.join("\n"));
 }
