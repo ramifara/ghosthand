@@ -42,9 +42,46 @@ create table facts (
   key text primary key,
   value text not null
 );
+create table customers (
+  id integer primary key,
+  name text not null unique,
+  email text not null unique
+);
+create table orders (
+  id text primary key,
+  customer_id integer not null references customers(id),
+  placed_on text not null,
+  amount_cents integer not null,
+  status text not null check (status in ('pending', 'paid', 'shipped', 'cancelled')),
+  note text not null default '',
+  tags text not null default '[]',
+  deleted_at text
+);
+create table user_settings (
+  user_id integer primary key references users(id),
+  compact_tables integer not null,
+  email_limit integer not null,
+  digest text not null check (digest in ('off', 'daily', 'weekly')),
+  webhook_secret_version integer not null,
+  api_key_revoked integer not null
+);
+create table bios (
+  user_id integer primary key references users(id),
+  html text not null
+);
 `;
 
-export const TABLES = ["users", "sessions", "audit_log", "mail", "facts"] as const;
+export const TABLES = [
+  "users",
+  "sessions",
+  "audit_log",
+  "mail",
+  "facts",
+  "customers",
+  "orders",
+  "user_settings",
+  "bios",
+] as const;
 
 export function openDatabase(): Database {
   const db = new Database(":memory:", { strict: true });

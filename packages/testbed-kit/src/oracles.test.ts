@@ -29,6 +29,13 @@ function state(overrides: Partial<TestbedState> = {}): TestbedState {
     sessions: [],
     audit: [],
     mail: [],
+    customers: [],
+    orders: [],
+    initialOrders: [],
+    settings: [],
+    initialSettings: [],
+    bios: [],
+    initialBios: [],
     ...overrides,
   };
 }
