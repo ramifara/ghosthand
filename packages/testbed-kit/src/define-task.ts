@@ -43,6 +43,10 @@ export interface TaskDefinitionInput {
   doneWhen?: DoneWhen;
   /** The task asks the agent to report something; the answer is graded by the oracle. */
   expectsAnswer?: boolean;
+  /** More origins the agent may reach besides the app (cross-origin frames, the fake IdP). */
+  allowOrigins?: readonly string[];
+  /** The task needs a vision provider (canvas-only values, closed shadow roots); reported as such. */
+  needsVision?: boolean;
 }
 
 export interface TestbedTask {
@@ -61,6 +65,8 @@ export interface TestbedTask {
   readonly secrets: readonly FixtureSecretName[];
   readonly doneWhen: DoneWhen;
   readonly expectsAnswer: boolean;
+  readonly allowOrigins: readonly string[];
+  readonly needsVision: boolean;
 }
 
 const ID_PATTERN = /^l\d-[a-z0-9-]+$/;
@@ -102,5 +108,7 @@ export function defineTask(input: TaskDefinitionInput): TestbedTask {
     secrets: Object.freeze([...input.secrets]),
     doneWhen,
     expectsAnswer: input.expectsAnswer ?? false,
+    allowOrigins: Object.freeze([...(input.allowOrigins ?? [])]),
+    needsVision: input.needsVision ?? false,
   });
 }

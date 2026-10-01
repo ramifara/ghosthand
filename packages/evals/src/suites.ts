@@ -10,6 +10,10 @@ export const SUITES: Record<string, (t: TestbedTask) => boolean> = {
   "l1-l3": (t) => t.level <= 3,
   l2: (t) => t.level === 2,
   l3: (t) => t.level === 3,
+  l4: (t) => t.level === 4,
+  l5: (t) => t.level === 5,
+  l6: (t) => t.level === 6,
+  "l4-l6": (t) => t.level >= 4 && t.level <= 6,
   all: () => true,
 };
 
