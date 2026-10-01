@@ -150,7 +150,7 @@ Per task (median steps with Jev-decided steps in parentheses, median wall):
 
 | Measurement | Shares (steps) |
 |---|---|
-| Recipe replays (17 runs) | A 98%, B 2% (the drawer-note model check) |
+| Recipe replays (17 runs) | A 94%, B 6% (Jev steps after the drawer-note replay, see §1) |
 | From home, source-aware (22 runs) | A 17%, B 83% |
 | L4 / L5 / L6 (120 runs) | B 93% · C 7% / B 100% / B 91% · C 9% |
 | D1 / D2 | 0% live: no vision provider on this machine. Covered by mocked-provider tests (`core/mode-d.test.ts`, `models/vision/vision-driver.test.ts`). |
