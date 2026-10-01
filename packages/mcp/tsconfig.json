@@ -11,6 +11,12 @@
       "path": "../protocol"
     },
     {
+      "path": "../core"
+    },
+    {
+      "path": "../driver-playwright"
+    },
+    {
       "path": "../engine"
     }
   ]

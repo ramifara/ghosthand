@@ -18,7 +18,8 @@
     "@ghosthand/recorder": "workspace:*",
     "@ghosthand/core": "workspace:*",
     "@ghosthand/testbed-kit": "workspace:*",
-    "@ghosthand/evals": "workspace:*"
+    "@ghosthand/evals": "workspace:*",
+    "@ghosthand/mcp": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"

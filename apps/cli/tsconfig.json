@@ -27,6 +27,9 @@
     },
     {
       "path": "../../packages/evals"
+    },
+    {
+      "path": "../../packages/mcp"
     }
   ]
 }
