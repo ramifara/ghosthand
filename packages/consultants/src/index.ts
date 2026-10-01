@@ -50,3 +50,4 @@ export {
   createConsultantPlanner,
   plannerErrorFromConsultant,
 } from "./consultant-planner.ts";
+export * from "./consultant-writer.ts";

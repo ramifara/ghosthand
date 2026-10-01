@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Testbed glue: resets and seeds via the control API, signs in per task setup, and grades with the oracle.
 // The oracle is the final verdict only; the agent's own done_when never consults it.
-import type { TaskSpec } from "@ghosthand/protocol";
+import type { Predicate, TaskSpec } from "@ghosthand/protocol";
 import {
   APP_ORIGIN,
   CONTROL_ORIGIN,
@@ -42,6 +42,15 @@ export type TestbedError = { kind: "unknown_task" | "control"; message: string }
 export const testbedTaskIds = (): string[] => listTaskIds();
 
 /** Removes oracle predicates so the loop judges completion from the page alone. */
+/**
+ * The oracle predicate is replaced by a Jev goal check only when what remains cannot tell "done" from
+ * "not started": no text or value check (URL and visibility are often true before any action).
+ */
+export function needsGoalCheck(d: { all: Predicate[] }): boolean {
+  if (!d.all.some((p) => p.kind === "oracle")) return false;
+  return !d.all.some((p) => p.kind === "text" || p.kind === "value" || p.kind === "http");
+}
+
 export function withoutOracle(spec: TaskSpec): TaskSpec {
   if (!spec.plan) return spec;
   return {
@@ -50,7 +59,17 @@ export function withoutOracle(spec: TaskSpec): TaskSpec {
       ...spec.plan,
       subgoals: spec.plan.subgoals.map((g) => ({
         ...g,
-        doneWhen: { all: g.doneWhen.all.filter((p) => p.kind !== "oracle"), none: g.doneWhen.none },
+        // The oracle grades the run afterwards; inside the loop its place is taken by a Jev check of the
+        // goal itself, so page checks that already hold at the start cannot end the task early.
+        doneWhen: {
+          all: needsGoalCheck(g.doneWhen)
+            ? [
+                ...g.doneWhen.all.filter((p) => p.kind !== "oracle"),
+                { kind: "model" as const, criteria: `The page shows that this was done: ${g.goal}` },
+              ]
+            : g.doneWhen.all,
+          none: g.doneWhen.none,
+        },
         // Testbed tasks state their consequential effects explicitly in the instruction.
         allowedEffects: g.allowedEffects.includes("commit")
           ? g.allowedEffects

@@ -18,7 +18,7 @@ import type {
   RunOutcome,
   TaskSpec,
 } from "@ghosthand/protocol";
-import { createRunRecorder, type RunRecorder, type RunSummary } from "@ghosthand/recorder";
+import { createRunRecorder, type RunRecorder, type RunSummary, screenshotName } from "@ghosthand/recorder";
 import { createFileLogger } from "./create-logger.ts";
 import { type ReplayResult, type ReplayStep, replayRun } from "./replay.ts";
 import { type EngineRuntime, gitSha } from "./runtime.ts";
@@ -88,6 +88,7 @@ export function openSession(
       tracing.onEvent(r.value);
       hooks.onEvent?.(r.value);
     },
+    screenshotName: (step) => screenshotName(step),
     writeScreenshot(step, bytes) {
       const r = recorder.writeScreenshot(step, bytes);
       return r.ok ? r.value : "";

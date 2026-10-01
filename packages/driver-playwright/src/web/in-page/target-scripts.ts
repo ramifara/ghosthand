@@ -66,7 +66,17 @@ export function probeTarget(el: Element): TargetProbe {
     out.value = out.selectedLabels.join(", ");
   } else if (el instanceof HTMLElement && el.isContentEditable) {
     out.value = el.innerText;
-  } else if (el.getAttribute("role") === "combobox" || el.getAttribute("role") === "listbox") {
+  } else if (el.getAttribute("role") === "slider" || el.getAttribute("role") === "spinbutton") {
+    out.value = el.getAttribute("aria-valuenow") ?? "";
+  } else if (el.getAttribute("role") === "listbox") {
+    // Selected options by ARIA state; the listbox's text lists every option, chosen or not.
+    out.selectedLabels = Array.from(el.querySelectorAll('[role="option"][aria-selected="true"]')).map((o) =>
+      (
+        o.getAttribute("aria-label") ?? (o instanceof HTMLElement ? o.innerText : (o.textContent ?? ""))
+      ).trim(),
+    );
+    out.value = out.selectedLabels.join(", ");
+  } else if (el.getAttribute("role") === "combobox") {
     out.value = (el instanceof HTMLElement ? el.innerText : (el.textContent ?? "")).trim();
   }
   const checked = tristate(el.getAttribute("aria-checked"));

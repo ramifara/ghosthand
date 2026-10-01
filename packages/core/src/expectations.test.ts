@@ -86,6 +86,11 @@ const decisionWith = (p: number): DecisionProvider => ({
 });
 
 describe("verify path (three-state, records who decided)", () => {
+  it("never reports done from absence checks alone", async () => {
+    const r = await evaluateDoneWhen({ all: [], none: [{ kind: "text", text: "Delete order?" }] }, snap());
+    expect(r.state).toBe("unknown");
+  });
+
   it("uses the http checker for API predicates", async () => {
     const r = await evaluateDoneWhen(compileDoneWhen(["GET /api/me returns 200"]), snap(), {
       http: async () => true,

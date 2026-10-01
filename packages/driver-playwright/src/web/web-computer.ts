@@ -151,6 +151,11 @@ interface ActionSpec {
   /** Hit-test the token target before running (pointer-like routes). */
   pointer?: boolean;
   mutating: boolean;
+  /**
+   * Value-only actions (fill, select, toggle, focus, scroll) read back their effect after a short settle; the
+   * loop's full settle before the next observation still guarantees a stable page.
+   */
+  quick?: boolean;
   run(ctx: ActionContext): Promise<void>;
   /** Builds effect and evidence from the read-backs. */
   judge(j: Judgement): { effect: ActionResult["effect"]; evidence: Evidence[] };
@@ -165,6 +170,8 @@ interface Judgement {
 }
 
 const TOKEN = /^((?:f\d+)?e\d+)(s\d+)$/;
+/** Post-action settle for value-only actions (measured: the 250 ms DOM-quiet window dominated act time). */
+export const QUICK_SETTLE = { domQuietMs: 80, networkQuietMs: 150 } as const;
 const MAX_CAPTURES = 50;
 
 const FocusState = z.object({ desc: z.string(), value: z.string().nullable(), secret: z.boolean() });
@@ -822,7 +829,10 @@ export class WebComputer implements Computer {
     }
     if (spec.mutating) this.#invalidate();
 
-    await this.waitIdle({ capMs: this.#effectCap });
+    await waitForSettle(
+      { network: () => this.#tracker.state(), dom: () => this.#domState(), now: Date.now, sleep },
+      { ...this.#settle, capMs: this.#effectCap, ...(spec.quick ? QUICK_SETTLE : {}) },
+    );
 
     // Popups opened by the action: refuse disallowed ones, otherwise follow the newest.
     const opened = this.#popups.slice(popupsBefore);
@@ -986,11 +996,18 @@ export class WebComputer implements Computer {
     route: ActionRoute,
   ): Promise<ActionResult> {
     return this.#perform({
+      quick: true,
       route,
       token,
       mutating: true,
       run: async ({ locator }) => {
-        await locator?.fill(text, { timeout: this.#timeout });
+        if (!locator) return;
+        const role = await locator.getAttribute("role", { timeout: this.#timeout });
+        if (role === "slider" && (await locator.evaluate((el) => !(el instanceof HTMLInputElement)))) {
+          await setSliderByKeyboard(locator, text, this.#timeout);
+          return;
+        }
+        await locator.fill(text, { timeout: this.#timeout });
       },
       judge: (j) => {
         const redact = this.#redactValue(j.secretField || secretName !== undefined);
@@ -1020,6 +1037,7 @@ export class WebComputer implements Computer {
   toggle(token: string, checked?: boolean): Promise<ActionResult> {
     let desired = checked ?? true;
     return this.#perform({
+      quick: true,
       route: "semantic",
       token,
       pointer: true,
@@ -1055,6 +1073,7 @@ export class WebComputer implements Computer {
   selectOption(token: string, option: string): Promise<ActionResult> {
     const wanted = norm(option);
     return this.#perform({
+      quick: true,
       route: "semantic",
       token,
       mutating: true,
@@ -1062,18 +1081,38 @@ export class WebComputer implements Computer {
         if (!locator) return;
         const tag = before !== "gone" && before !== undefined ? before.tag : "";
         if (tag === "select") {
-          const labels = await locator.evaluate((el) =>
-            el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.label || o.text) : [],
+          const info = await locator.evaluate((el) =>
+            el instanceof HTMLSelectElement
+              ? {
+                  labels: Array.from(el.options).map((o) => o.label || o.text),
+                  selected: Array.from(el.options).flatMap((o, i) => (o.selected ? [i] : [])),
+                  multiple: el.multiple,
+                }
+              : { labels: [], selected: [], multiple: false },
           );
-          const index = labels.findIndex((l) => norm(l) === wanted);
+          const index = info.labels.findIndex((l) => norm(l) === wanted);
           if (index < 0) throw new Error(`not a select option: no option labelled "${option}"`);
-          await locator.selectOption({ index }, { timeout: this.#timeout });
+          // A multi-select adds the option to what is already chosen (selectOption alone would replace it).
+          const indexes = info.multiple ? [...new Set([...info.selected, index])] : [index];
+          await locator.selectOption(
+            indexes.map((i) => ({ index: i })),
+            { timeout: this.#timeout },
+          );
           return;
         }
-        // ARIA combobox/listbox: open it, then pick the option by role and name.
+        // ARIA listbox: pick the option inside it (clicking an already selected option of a
+        // multi-select listbox would deselect it, so leave it).
+        const inside = locator.getByRole("option", { name: option, exact: true });
+        if ((await inside.count()) > 0) {
+          if ((await inside.first().getAttribute("aria-selected")) !== "true")
+            await inside.first().click({ timeout: this.#timeout });
+          return;
+        }
+        // ARIA combobox: open it, then pick the visible option by role and name.
         await locator.click({ timeout: this.#timeout });
         await this.#page
           .getByRole("option", { name: option, exact: true })
+          .filter({ visible: true })
           .first()
           .click({ timeout: this.#timeout });
       },
@@ -1083,8 +1122,11 @@ export class WebComputer implements Computer {
         const b = j.before !== "gone" && j.before !== undefined ? j.before.value : undefined;
         const a = j.after !== "gone" && j.after !== undefined ? j.after : undefined;
         const evidence: Evidence = { kind: "value", before: redact(b), after: redact(a?.value) };
+        // Prefer the selected labels; fall back to the value text only when the target reports none.
         const chosen =
-          (a?.selectedLabels ?? []).some((l) => norm(l) === wanted) || norm(a?.value ?? "").includes(wanted);
+          a?.selectedLabels !== undefined
+            ? a.selectedLabels.some((l) => norm(l) === wanted)
+            : norm(a?.value ?? "").includes(wanted);
         if (chosen) return { effect: "confirmed", evidence: [evidence, ...page] };
         if (a?.value !== b) return { effect: "partial", evidence: [evidence, ...page] };
         return { effect: "suspected_noop", evidence: [evidence, ...page] };
@@ -1094,6 +1136,7 @@ export class WebComputer implements Computer {
 
   focus(token: string): Promise<ActionResult> {
     return this.#perform({
+      quick: true,
       route: "semantic",
       token,
       mutating: false,
@@ -1109,8 +1152,32 @@ export class WebComputer implements Computer {
     });
   }
 
+  /** Selects `text` inside a field or rich-text editor (first occurrence), leaving focus there. */
+  selectText(token: string, text: string): Promise<ActionResult> {
+    let selected = "";
+    return this.#perform({
+      quick: true,
+      route: "semantic",
+      token,
+      mutating: false,
+      run: async ({ locator }) => {
+        if (!locator) return;
+        selected = await locator.evaluate(selectTextIn, text, { timeout: this.#timeout });
+        if (selected !== text) throw new Error(`text not found in the target: ${JSON.stringify(text)}`);
+      },
+      judge: () =>
+        selected === text
+          ? {
+              effect: "confirmed",
+              evidence: [{ kind: "state", detail: `selected ${text.length} characters` }],
+            }
+          : { effect: "suspected_noop", evidence: [{ kind: "state", detail: "nothing selected" }] },
+    });
+  }
+
   scrollIntoView(token: string): Promise<ActionResult> {
     return this.#perform({
+      quick: true,
       route: "semantic",
       token,
       mutating: false,
@@ -1493,4 +1560,62 @@ function stripQuery(url: string): string {
   } catch {
     return url.split("?")[0] ?? url;
   }
+}
+
+/**
+ * ARIA sliders (e.g. Radix) are spans: step them with the keyboard until aria-valuenow equals the target.
+ * Throws when the text holds no number or the slider never reaches it, so the action reports a failure.
+ */
+async function setSliderByKeyboard(locator: Locator, text: string, timeout: number): Promise<void> {
+  const target = Number(/-?\d+(?:\.\d+)?/.exec(text.replace(/,/g, ""))?.[0]);
+  if (!Number.isFinite(target)) throw new Error(`not a number for a slider: ${JSON.stringify(text)}`);
+  await locator.focus({ timeout });
+  const now = async () => Number(await locator.getAttribute("aria-valuenow"));
+  for (let i = 0; i < 400; i++) {
+    const v = await now();
+    if (!Number.isFinite(v) || v === target) return;
+    await locator.press(v < target ? "ArrowRight" : "ArrowLeft", { timeout });
+    if ((await now()) === v) throw new Error("slider value did not change");
+  }
+  throw new Error("slider did not reach the requested value");
+}
+
+/** In-page: select the first occurrence of `text` inside `el` (inputs via setSelectionRange, else a DOM Range). */
+function selectTextIn(el: Element, text: string): string {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const at = el.value.indexOf(text);
+    if (at < 0) return "";
+    el.focus();
+    el.setSelectionRange(at, at + text.length);
+    return el.value.slice(at, at + text.length);
+  }
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  let full = "";
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    nodes.push(n as Text);
+    full += (n as Text).data;
+  }
+  const at = full.indexOf(text);
+  if (at < 0) return "";
+  const locate = (offset: number, end: boolean): [Text, number] | undefined => {
+    let seen = 0;
+    for (const node of nodes) {
+      const len = node.data.length;
+      if (offset < seen + len || (end && offset === seen + len)) return [node, offset - seen];
+      seen += len;
+    }
+    return undefined;
+  };
+  const start = locate(at, false);
+  const stop = locate(at + text.length, true);
+  if (!start || !stop) return "";
+  if (el instanceof HTMLElement) el.focus();
+  const range = el.ownerDocument.createRange();
+  range.setStart(start[0], start[1]);
+  range.setEnd(stop[0], stop[1]);
+  const sel = el.ownerDocument.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+  return sel?.toString() ?? "";
 }

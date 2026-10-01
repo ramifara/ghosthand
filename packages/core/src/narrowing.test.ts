@@ -140,6 +140,9 @@ class FakeRegionsComputer implements Computer {
   async scrollIntoView(): Promise<ActionResult> {
     return done();
   }
+  async selectText(): Promise<ActionResult> {
+    return done();
+  }
   async click(): Promise<ActionResult> {
     return done();
   }

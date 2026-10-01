@@ -86,6 +86,9 @@ export class QaProbeComputer implements Computer {
   focus(token: string): Promise<ActionResult> {
     return this.inner.focus(token);
   }
+  selectText(token: string, text: string): Promise<ActionResult> {
+    return this.inner.selectText(token, text);
+  }
   scrollIntoView(token: string): Promise<ActionResult> {
     return this.inner.scrollIntoView(token);
   }

@@ -9,6 +9,9 @@ export type TextOption =
   | { key: string; kind: "secret"; name: string };
 
 const QUOTED = /"([^"\n]{1,200})"|“([^”\n]{1,200})”|'([^'\n]{2,200})'|`([^`\n]{1,200})`/g;
+/** ISO dates and times, money and percentages are single literals (never split into numbers). */
+const DATE = /\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g;
+const MONEY = /[$€£]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?(?:%|\s?(?:USD|EUR|GBP)\b)/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const NUMBER = /(?<![\w.])[+-]?\d[\d,.]*\d(?![\w])|(?<![\w.])\d(?![\w.])/g;
 const AFTER_TO = /\bto\s+([A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,3})/g;
@@ -22,8 +25,16 @@ export function extractLiterals(goal: string): string[] {
     const text = m[1] ?? m[2] ?? m[3] ?? m[4];
     if (text) found.push({ at: m.index ?? 0, text });
   }
-  const unquoted = goal.replace(QUOTED, (s) => " ".repeat(s.length));
-  for (const re of [EMAIL, NUMBER, AFTER_TO]) {
+  let unquoted = goal.replace(QUOTED, (s) => " ".repeat(s.length));
+  // Whole-token literals first, then blank them so NUMBER does not split them.
+  for (const re of [DATE, MONEY, EMAIL]) {
+    for (const m of unquoted.matchAll(re)) {
+      const text = m[0].trim();
+      if (text) found.push({ at: m.index ?? 0, text });
+    }
+    unquoted = unquoted.replace(re, (s) => " ".repeat(s.length));
+  }
+  for (const re of [NUMBER, AFTER_TO]) {
     for (const m of unquoted.matchAll(re)) {
       const text = (m[1] ?? m[0]).trim();
       if (text) found.push({ at: m.index ?? 0, text });

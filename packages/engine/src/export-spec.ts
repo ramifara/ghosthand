@@ -38,6 +38,10 @@ function actionLine(step: ReplayStep): string {
       return loc
         ? `await ${loc}.selectOption({ label: ${q(a.option)} });`
         : "// select_option: no target recorded";
+    case "select_text":
+      return loc
+        ? `await ${loc}.evaluate((el, t) => { const r = document.createRange(); const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const i = (n as Text).data.indexOf(t); if (i >= 0) { r.setStart(n, i); r.setEnd(n, i + t.length); getSelection()?.removeAllRanges(); getSelection()?.addRange(r); return; } } }, ${q(a.text)});`
+        : "// select_text: no target recorded";
     case "focus":
       return loc ? `await ${loc}.focus();` : "// focus";
     case "scroll_into_view":

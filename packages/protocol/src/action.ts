@@ -22,6 +22,8 @@ export const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_value"), token: z.string().min(1), value: FieldValue }),
   z.object({ type: z.literal("toggle"), token: z.string().min(1), checked: z.boolean().optional() }),
   z.object({ type: z.literal("select_option"), token: z.string().min(1), option: z.string() }),
+  /** Select a piece of text inside a field or rich-text editor (then format, copy or replace it). */
+  z.object({ type: z.literal("select_text"), token: z.string().min(1), text: z.string().min(1) }),
   z.object({ type: z.literal("focus"), token: z.string().min(1) }),
   z.object({ type: z.literal("scroll_into_view"), token: z.string().min(1) }),
   z.object({ type: z.literal("navigate"), url: z.string().min(1) }),
