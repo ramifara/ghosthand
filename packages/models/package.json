@@ -9,7 +9,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
+    "@ai-sdk/openai-compatible": "catalog:",
     "@ghosthand/core": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
     "ai": "catalog:",

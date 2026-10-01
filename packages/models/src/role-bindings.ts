@@ -40,6 +40,51 @@ export const DEFAULT_ROLE_BINDINGS: RoleBindings = {
   judge: { models: ["openai/gpt-6.1-sol", "openai/gpt-6-sol"] },
 };
 
+/**
+ * Per-provider starting models for each role, appended after the OpenAI chain when that
+ * provider has a key. OpenRouter has no grounder: native computer tools through it are unverified
+ * and its catalog entries carry no grounding convention.
+ */
+export const PROVIDER_ROLE_MODELS: Readonly<Record<string, Partial<Record<ChatRole, readonly string[]>>>> = {
+  anthropic: {
+    planner: ["anthropic/claude-sonnet-5-5"],
+    writer: ["anthropic/claude-haiku-4-5"],
+    vision_reviewer: ["anthropic/claude-sonnet-5-5"],
+    vision_grounder: ["anthropic/claude-sonnet-5-5"],
+    judge: ["anthropic/claude-sonnet-5-5"],
+  },
+  google: {
+    planner: ["google/gemini-3.8-flash"],
+    writer: ["google/gemini-3.5-flash-lite"],
+    vision_reviewer: ["google/gemini-3.8-flash"],
+    vision_grounder: ["google/gemini-3.8-flash"],
+    judge: ["google/gemini-3.8-flash"],
+  },
+  openrouter: {
+    planner: ["openrouter/openai/gpt-6.1-sol", "openrouter/anthropic/claude-sonnet-5.5"],
+    writer: ["openrouter/openai/gpt-6-luna"],
+    vision_reviewer: ["openrouter/openai/gpt-6-luna"],
+    judge: ["openrouter/openai/gpt-6.1-sol"],
+  },
+};
+
+/**
+ * Default bindings for the providers that have keys: the OpenAI chain first (when OpenAI is
+ * configured), then each other configured provider's models in `providers` order.
+ */
+export function defaultRoleBindingsFor(providers: readonly string[]): RoleBindings {
+  const out: RoleBindings = {};
+  for (const role of CHAT_ROLES) {
+    const base = DEFAULT_ROLE_BINDINGS[role];
+    const models: string[] = providers.includes("openai") ? [...(base?.models ?? [])] : [];
+    for (const p of providers) models.push(...(PROVIDER_ROLE_MODELS[p]?.[role] ?? []));
+    if (models.length === 0) continue;
+    const binding: RoleBinding = { ...base, models };
+    out[role] = binding;
+  }
+  return out;
+}
+
 export type RequirementGap = "text_output" | "structured_output" | "image_input" | "computer_use" | "context";
 
 export type BindingError =

@@ -18,6 +18,7 @@ function client(answer: unknown, fail?: "timeout" | "auth"): ModelClient & { pro
   return {
     prompts,
     generateText: async () => err({ kind: "unknown", message: "unused" }) as never,
+    generateWith: async () => err({ kind: "unknown", message: "unused" }) as never,
     generateStructured: async (req) => {
       prompts.push(req.prompt);
       if (fail) return err({ kind: fail, message: fail }) as never;
