@@ -238,7 +238,10 @@ function rollUp(results: ExpectResult[]): {
       state: "unsatisfied",
       by: failed.decidedBy,
       ...(failed.confidence !== undefined ? { confidence: failed.confidence } : {}),
-      detail: `expect failed (line ${failed.line}): ${failed.source}: ${failed.detail}`,
+      detail: results
+        .filter((r) => r.state === "unsatisfied")
+        .map((r) => `expect failed (line ${r.line}): ${r.source}: ${r.detail}`)
+        .join("; "),
     };
   const unknown = results.find((r) => r.state === "unknown");
   if (unknown)

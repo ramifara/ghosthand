@@ -100,7 +100,8 @@ export async function runQaSpecFile(
   const executor = createWebCaseExecutor(rt, {
     spec,
     ...(opts.headless !== undefined ? { headless: opts.headless } : {}),
-    ...(opts.profile ? { profile: opts.profile } : {}),
+    // A profile of its own, so QA runs never collide with an interactive browser on "default".
+    profile: opts.profile ?? "qa",
     ...(opts.variant ? { variant: opts.variant } : {}),
     ...(opts.a11y !== undefined ? { a11y: opts.a11y } : {}),
   });

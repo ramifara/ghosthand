@@ -117,7 +117,8 @@ export function compileCase(
   const task = TaskSpec.parse({
     id: caseId,
     mode: "test",
-    instruction: `QA case "${qaCase.title}": ${qaCase.steps.map((s) => `${s.index}. ${s.perform}`).join(" ")}`,
+    // The title is not quoted: quoted text in the instruction becomes a typing option.
+    instruction: `QA case: ${qaCase.title}. Steps: ${qaCase.steps.map((s) => `${s.index}. ${s.perform}`).join(" ")}`,
     startUrl: fm.url,
     allowOrigins: [...new Set([origin, ...fm.allow_origins])],
     plan: { source: "task", subgoals },

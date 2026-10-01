@@ -89,6 +89,7 @@ export class HeuristicDecisionProvider implements DecisionProvider {
         const fields = elements.filter((e) => e.ops?.includes("set_value"));
         if (literal !== undefined) {
           const at = lower.indexOf(literal.toLowerCase());
+          if (at < 0) continue; // a literal from the instruction, not this goal
           const before = lower.slice(Math.max(0, at - 60), at);
           // The field named closest before the literal ("job title to \"Staff Engineer\"").
           const named = fields
