@@ -22,6 +22,7 @@ import type {
   Subgoal,
   TaskSpec,
 } from "@ghosthand/protocol";
+import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
 import { buildCandidates, findByToken, type Operation } from "./candidates.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
@@ -117,6 +118,9 @@ export interface RunResult {
   modelCalls: number;
   modeShares: Record<string, number>;
   timings: StepTiming[];
+  /** Reported answer for tasks that ask for one. */
+  answer?: string;
+  answeredBy?: "decision" | "writer";
 }
 
 /** One subgoal per task when no plan is given; the goal itself is checked by the model. */
@@ -161,7 +165,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let step = 0;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
-  const finish = (outcome: RunOutcome, reason: string): RunResult => {
+  const finish = (outcome: RunOutcome, reason: string, answered?: AnswerResult): RunResult => {
     const total = Object.values(modeCounts).reduce((a, b) => a + (b ?? 0), 0);
     const modeShares: Record<string, number> = {};
     for (const [m, n] of Object.entries(modeCounts)) modeShares[m] = total > 0 ? (n ?? 0) / total : 0;
@@ -175,6 +179,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       modelCalls,
       modeShares,
       timings,
+      ...(answered ? { answer: answered.answer, answeredBy: answered.by } : {}),
     };
     emit({
       type: "run.end",
@@ -186,6 +191,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       decisionCalls,
       modelCalls,
       modeShares,
+      ...(answered ? { answer: answered.answer, answeredBy: answered.by } : {}),
     });
     log.info({ outcome, reason, steps: step, costUsd: result.costUsd }, "run finished");
     return result;
@@ -456,6 +462,24 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     }
   }
 
+  if (task.expectsAnswer) {
+    const final = await deps.computer.observe();
+    const answered = final.ok
+      ? await extractAnswer(task.instruction, final.value, {
+          decision: deps.decision,
+          secrets: deps.secrets,
+          ...(deps.writer ? { writer: deps.writer } : {}),
+          ...(deps.signal ? { signal: deps.signal } : {}),
+        })
+      : undefined;
+    if (answered) {
+      decisionCalls += answered.decisionCalls;
+      modelCalls += answered.modelCalls;
+      budget.spend(answered.costUsd);
+      return finish("success", "every subgoal's done_when is satisfied; answer reported", answered);
+    }
+    return finish("failure", "done_when satisfied but no answer could be read from the page");
+  }
   return finish("success", "every subgoal's done_when is satisfied");
 }
 

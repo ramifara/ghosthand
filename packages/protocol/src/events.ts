@@ -166,6 +166,9 @@ export const RunEvent = z.discriminatedUnion("type", [
     modelCalls: z.number().int(),
     /** "Who did the work": share of steps per router mode. */
     modeShares: z.record(z.string(), z.number()),
+    /** The agent's reported answer, for tasks that ask for one (redacted like everything else). */
+    answer: z.string().optional(),
+    answeredBy: z.enum(["decision", "writer"]).optional(),
   }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;

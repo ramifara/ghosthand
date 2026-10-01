@@ -11,6 +11,7 @@ export const l1LoginWrongPassword = defineTask({
   level: 1,
   setup: { seed: DEFAULT_SEED },
   start: "/login",
+  expectsAnswer: true,
   instruction:
     `Try to sign in as ${ALICE_EMAIL} with the password [input:TESTBED_WRONG_PASSWORD]. ` +
     "Do not try any other password. Report the exact error message the page shows.",

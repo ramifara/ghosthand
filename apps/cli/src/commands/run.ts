@@ -113,6 +113,8 @@ export async function runCommand(flags: RunFlags): Promise<number> {
       `run ${r.runId}: ${r.outcome}${r.oraclePass === undefined ? "" : ` · oracle ${r.oraclePass ? "pass" : "FAIL"}`}`,
     );
     out(`folder ${r.folder}`);
+    if ("answer" in r.result && r.result.answer !== undefined)
+      out(`answer (${r.result.answeredBy}): ${r.result.answer}`);
   }
   const pass = r.oraclePass ?? r.outcome === "success";
   return pass ? 0 : 1;

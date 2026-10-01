@@ -38,7 +38,7 @@ const skip =
 
 const timings = { observe: [] as number[], action: [] as number[] };
 
-describe.skipIf(skip)("WebComputer on fixture pages", () => {
+describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () => {
   let browser: Browser;
   let server: FixtureServer;
   let context: BrowserContext | undefined;

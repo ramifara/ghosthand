@@ -33,7 +33,7 @@ export interface PreparedTestbedRun {
   spec: TaskSpec;
   cookies: BrowserCookie[];
   secrets: Record<string, string>;
-  oracle: (taskId: string) => Promise<boolean | undefined>;
+  oracle: (taskId: string, answer?: string) => Promise<boolean | undefined>;
   control: ControlClient;
 }
 
@@ -119,8 +119,8 @@ export async function prepareTestbedRun(
       cookies,
       secrets,
       control,
-      oracle: async (id) => {
-        const r = await control.oracle(id);
+      oracle: async (id, answer) => {
+        const r = await control.oracle(id, answer === undefined ? {} : { answer });
         return r.ok ? r.value.pass : undefined;
       },
     },
