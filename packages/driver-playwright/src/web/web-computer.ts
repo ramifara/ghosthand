@@ -26,7 +26,17 @@ import type {
   Snapshot,
 } from "@ghosthand/protocol";
 import { err, ok, Region } from "@ghosthand/protocol";
-import type { BrowserContext, Dialog, Frame, Locator, Page, Route, WebSocketRoute } from "playwright-core";
+import type {
+  BrowserContext,
+  ConsoleMessage,
+  Dialog,
+  Frame,
+  Locator,
+  Page,
+  Response,
+  Route,
+  WebSocketRoute,
+} from "playwright-core";
 import { z } from "zod";
 import type { PageObservation, TargetObservation } from "./action-effects.ts";
 import { assess, pageEvidence, targetEvidence, weakEvidence } from "./action-effects.ts";
@@ -104,6 +114,16 @@ interface CaptureGeometry {
   scrollX: number;
   scrollY: number;
 }
+
+/** A failed HTTP response seen by the page (status ≥ 400), for QA bug reports. */
+export interface HttpErrorRecord {
+  status: number;
+  method: string;
+  url: string;
+}
+
+/** Most console errors / HTTP errors kept per computer. */
+export const MAX_PAGE_ERRORS = 100;
 
 interface BlockedAttempt {
   url: string;
@@ -213,6 +233,8 @@ export class WebComputer implements Computer {
   #navigations = 0;
   #lastAllowedUrl: string | undefined;
   readonly #blocked: BlockedAttempt[] = [];
+  readonly #consoleErrors: string[] = [];
+  readonly #httpErrors: HttpErrorRecord[] = [];
   #lastStats: ObserveStats | undefined;
   #closed = false;
 
@@ -238,6 +260,16 @@ export class WebComputer implements Computer {
   /** The page currently driven (it changes when an action opens a popup). */
   get page(): Page {
     return this.#page;
+  }
+
+  /** Console errors and uncaught page exceptions since launch (redacted, capped at MAX_PAGE_ERRORS). */
+  get consoleErrors(): readonly string[] {
+    return this.#consoleErrors;
+  }
+
+  /** Responses with status ≥ 400 since launch (URLs without query strings, capped at MAX_PAGE_ERRORS). */
+  get httpErrors(): readonly HttpErrorRecord[] {
+    return this.#httpErrors;
   }
 
   /** Timings and sizes of the last observation. */
@@ -305,16 +337,42 @@ export class WebComputer implements Computer {
     if (page !== this.#page) this.#popups.push(page);
   };
 
+  readonly #onConsole = (msg: ConsoleMessage): void => {
+    if (msg.type() !== "error") return;
+    this.#pushError(msg.text());
+  };
+
+  readonly #onPageError = (error: Error): void => {
+    this.#pushError(`uncaught ${error.name}: ${error.message}`);
+  };
+
+  readonly #onResponse = (res: Response): void => {
+    const status = res.status();
+    if (status < 400 || this.#httpErrors.length >= MAX_PAGE_ERRORS) return;
+    this.#httpErrors.push({ status, method: res.request().method(), url: stripQuery(res.url()) });
+  };
+
+  #pushError(text: string): void {
+    if (this.#consoleErrors.length >= MAX_PAGE_ERRORS) return;
+    this.#consoleErrors.push(this.#scope.redact(text).slice(0, 500));
+  }
+
   #attach(page: Page): void {
     this.#tracker.attach(page);
     page.on("dialog", this.#onDialog);
     page.on("framenavigated", this.#onFrameNavigated);
+    page.on("console", this.#onConsole);
+    page.on("pageerror", this.#onPageError);
+    page.on("response", this.#onResponse);
   }
 
   #detach(page: Page): void {
     this.#tracker.detach();
     page.off("dialog", this.#onDialog);
     page.off("framenavigated", this.#onFrameNavigated);
+    page.off("console", this.#onConsole);
+    page.off("pageerror", this.#onPageError);
+    page.off("response", this.#onResponse);
   }
 
   #switchTo(page: Page): void {
@@ -1394,5 +1452,14 @@ function safeOrigin(url: string): string {
     return u.origin === "null" ? u.protocol : u.origin;
   } catch {
     return "an invalid URL";
+  }
+}
+
+function stripQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return url.split("?")[0] ?? url;
   }
 }
