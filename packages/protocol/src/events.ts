@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Action, ActionResult } from "./action.ts";
 import { Answer, DecisionError, Questions } from "./decision.ts";
 import { Rect } from "./geometry.ts";
-import { Plan, Predicate, TaskSpec } from "./task.ts";
+import { EffectClass, Plan, Predicate, TaskSpec } from "./task.ts";
 
 const Base = { t: z.number().int().nonnegative(), seq: z.number().int().nonnegative(), runId: z.string() };
 
@@ -122,6 +122,8 @@ export const RunEvent = z.discriminatedUnion("type", [
         confidence: z.number().min(0).max(1).optional(),
       })
       .optional(),
+    /** Effect class the gates allowed (advance/commit), for recipes. */
+    effectClass: EffectClass.optional(),
     /** Fingerprint of a drag's drop zone, for replay. */
     destination: z
       .object({

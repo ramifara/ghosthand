@@ -104,6 +104,7 @@
       "dependencies": {
         "@ghosthand/testbed-kit": "workspace:*",
         "hono": "catalog:",
+        "otpauth": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -248,8 +249,11 @@
       "name": "@ghosthand/knowledge",
       "version": "0.0.0",
       "dependencies": {
+        "@babel/parser": "7.29.9",
+        "@babel/types": "7.29.8",
         "@ghosthand/core": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "vitest": "catalog:",

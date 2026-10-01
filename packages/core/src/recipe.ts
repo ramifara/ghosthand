@@ -6,7 +6,6 @@
 import type { Action, EffectClass, Element, Plan, Questions, Snapshot, TaskSpec } from "@ghosthand/protocol";
 import { isActionable } from "./candidates.ts";
 import { ANTI_INJECTION, describeElement, NONE } from "./questions.ts";
-import type { ScreenFingerprint } from "./screen-fingerprint.ts";
 
 export interface RecordedTarget {
   stableId: string;
@@ -20,9 +19,9 @@ export interface RecipeStep {
   action: Action;
   target: RecordedTarget | null;
   /** A drag's drop zone. */
-  destination?: RecordedTarget;
+  destination?: RecordedTarget | undefined;
   /** The screen the step ran on when it was learned (guard and app-map key). */
-  screen?: Pick<ScreenFingerprint, "key" | "urlPattern" | "controls">;
+  screen?: { key: string; urlPattern?: string | undefined };
   /** Effect class at learning time; commit steps replay only when the subgoal allows commit. */
   effect: EffectClass;
 }

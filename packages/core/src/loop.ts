@@ -960,6 +960,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       ...(targetAnswer?.type === "choice" ? { confidence: choiceConfidence(targetAnswer) } : {}),
     },
     ...(destination ? { destination: fingerprintOf(destination) } : {}),
+    effectClass: effect,
     mode: "B",
   });
   t = clock.now();

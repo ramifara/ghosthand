@@ -172,6 +172,7 @@ export async function runModeA(match: RecipeMatch, env: ModeAEnv, execute: Execu
       type: "action",
       step,
       action,
+      effectClass: s.effect,
       ...(s.target
         ? {
             target: element
