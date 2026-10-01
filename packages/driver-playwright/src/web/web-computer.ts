@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // The web `Computer`: observe (AI aria snapshot + DOM facts), settle, semantic and pointer actions on
 // `aria-ref` locators with freshness and hit-test checks, effects from read-back, and the origin guard.
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import type { Logger } from "@ghosthand/core";
 import { evaluateDeterministic, noopLogger, SecretsRegistry, secretPlaceholder } from "@ghosthand/core";
 import type {
@@ -30,6 +31,7 @@ import type {
   BrowserContext,
   ConsoleMessage,
   Dialog,
+  Download,
   Frame,
   Locator,
   Page,
@@ -89,7 +91,33 @@ export interface WebComputerOptions {
   effectSettleCapMs?: number;
   /** Close the browser context in `close()` (default false for a context you pass in). */
   closeContext?: boolean;
+  /**
+   * Directory the agent may upload files from: `setValue(fileInputToken, "contacts.csv")` uploads
+   * `<uploadDir>/contacts.csv`. Plain file names only; without it, uploads are refused.
+   */
+  uploadDir?: string;
+  /** Where downloads are saved (e.g. the run folder); a temporary directory when unset. */
+  downloadDir?: string;
   logger?: Logger;
+}
+
+/** A file the page downloaded during an action, saved by the driver. */
+export interface DownloadRecord {
+  /** Saved file name (the page's suggested name, made safe and unique). */
+  name: string;
+  path: string;
+  bytes: number;
+  /** Download URL without its query string. */
+  url: string;
+}
+
+/** An action refused before it touched the page (thrown inside `run`, turned into a refusal). */
+class ActionRefusal extends Error {
+  readonly kind: ActionErrorKind;
+  constructor(kind: ActionErrorKind, message: string) {
+    super(message);
+    this.kind = kind;
+  }
 }
 
 /** Timings and size facts of the last `observe()`, for reports. */
@@ -245,6 +273,12 @@ export class WebComputer implements Computer {
   readonly #consoleErrors: string[] = [];
   readonly #httpErrors: HttpErrorRecord[] = [];
   #lastStats: ObserveStats | undefined;
+  readonly #uploadDir: string | undefined;
+  readonly #downloadDir: string | undefined;
+  #tempDownloadDir: string | undefined;
+  #downloadsStarted = 0;
+  readonly #pendingDownloads: Promise<void>[] = [];
+  readonly #downloads: DownloadRecord[] = [];
   #closed = false;
   #screencast: { handle: ScreencastHandle; onFrame: FrameListener; options: ScreencastOptions } | undefined;
 
@@ -264,7 +298,14 @@ export class WebComputer implements Computer {
     this.#timeout = opts.actionTimeoutMs ?? 5000;
     this.#effectCap = opts.effectSettleCapMs ?? 2000;
     this.#closeContext = opts.closeContext ?? false;
+    this.#uploadDir = opts.uploadDir;
+    this.#downloadDir = opts.downloadDir;
     this.#log = (opts.logger ?? noopLogger).child({ component: "web-computer" });
+  }
+
+  /** Files downloaded so far, oldest first. */
+  get downloads(): readonly DownloadRecord[] {
+    return this.#downloads;
   }
 
   /** The page currently driven (it changes when an action opens a popup). */
@@ -362,6 +403,36 @@ export class WebComputer implements Computer {
     this.#httpErrors.push({ status, method: res.request().method(), url: stripQuery(res.url()) });
   };
 
+  readonly #onDownload = (download: Download): void => {
+    this.#downloadsStarted++;
+    this.#pendingDownloads.push(this.#saveDownload(download));
+  };
+
+  async #saveDownload(download: Download): Promise<void> {
+    try {
+      let dir = this.#downloadDir;
+      if (dir === undefined) {
+        this.#tempDownloadDir ??= mkdtempSync(join(tmpdir(), "ghosthand-downloads-"));
+        dir = this.#tempDownloadDir;
+      }
+      mkdirSync(dir, { recursive: true });
+      const safe =
+        basename(download.suggestedFilename())
+          .replace(/[^\w.\- ]+/g, "_")
+          .replace(/^\.+/, "")
+          .slice(0, 120) || "download";
+      const dot = safe.lastIndexOf(".");
+      const [stem, ext] = dot > 0 ? [safe.slice(0, dot), safe.slice(dot)] : [safe, ""];
+      let name = safe;
+      for (let n = 1; existsSync(join(dir, name)); n++) name = `${stem}-${n}${ext}`;
+      const path = join(dir, name);
+      await download.saveAs(path);
+      this.#downloads.push({ name, path, bytes: statSync(path).size, url: stripQuery(download.url()) });
+    } catch (e) {
+      this.#log.warn({ error: firstLine(e) }, "download could not be saved");
+    }
+  }
+
   #pushError(text: string): void {
     if (this.#consoleErrors.length >= MAX_PAGE_ERRORS) return;
     this.#consoleErrors.push(this.#scope.redact(text).slice(0, 500));
@@ -374,6 +445,7 @@ export class WebComputer implements Computer {
     page.on("console", this.#onConsole);
     page.on("pageerror", this.#onPageError);
     page.on("response", this.#onResponse);
+    page.on("download", this.#onDownload);
   }
 
   #detach(page: Page): void {
@@ -383,6 +455,7 @@ export class WebComputer implements Computer {
     page.off("console", this.#onConsole);
     page.off("pageerror", this.#onPageError);
     page.off("response", this.#onResponse);
+    page.off("download", this.#onDownload);
   }
 
   #switchTo(page: Page): void {
@@ -544,6 +617,7 @@ export class WebComputer implements Computer {
       narrowed: capped.narrowed || scopedTo !== undefined,
       regions: c.regions,
       pageTokenEstimate: estimateSnapshotTokens(c.elements, c.text),
+      canScroll: c.canScroll,
       ...(scopedTo !== undefined ? { scope: scopedTo } : {}),
     };
     const refs = new Map<string, string>();
@@ -680,7 +754,10 @@ export class WebComputer implements Computer {
     this.#detach(this.#page);
     this.#context.off("page", this.#onPopup);
     await this.#context.unroute("**/*", this.#onRoute).catch(() => {});
+    await Promise.allSettled(this.#pendingDownloads.splice(0));
     if (this.#closeContext) await this.#context.close().catch(() => {});
+    // Downloads kept only in a temporary directory go with the computer; pass `downloadDir` to keep them.
+    if (this.#tempDownloadDir !== undefined) rmSync(this.#tempDownloadDir, { recursive: true, force: true });
   }
 
   // ---- token resolution, refusals --------------------------------------------------------------
@@ -815,9 +892,12 @@ export class WebComputer implements Computer {
     const before: TargetObservation = target ? await this.#probe(target.locator) : undefined;
     const blockedBefore = this.#blocked.length;
     const popupsBefore = this.#popups.length;
+    const downloadsBefore = this.#downloadsStarted;
+    const savedBefore = this.#downloads.length;
     try {
       await spec.run({ locator: target?.locator, before });
     } catch (e) {
+      if (e instanceof ActionRefusal) return this.#refuse(e.kind, e.message, spec.route, start);
       const kind = this.#errorKind(e);
       if (kind === "timeout" || kind === "not_interactable")
         return this.#refuse(kind, firstLine(e), spec.route, start);
@@ -890,7 +970,30 @@ export class WebComputer implements Computer {
       after,
       secretField: target?.secretField ?? false,
     });
+    const downloaded = await this.#downloadEvidence(downloadsBefore, savedBefore);
+    if (downloaded.length > 0)
+      return this.#result(
+        "confirmed",
+        spec.route,
+        start,
+        [...downloaded, ...judged.evidence.filter((e) => e.kind !== "none")],
+        spec.mutating,
+      );
     return this.#result(judged.effect, spec.route, start, judged.evidence, spec.mutating);
+  }
+
+  /** Waits (bounded) for downloads the action started and describes the saved files. */
+  async #downloadEvidence(startedBefore: number, savedBefore: number): Promise<Evidence[]> {
+    if (this.#downloadsStarted === startedBefore) return [];
+    const pending = this.#pendingDownloads.splice(0);
+    await Promise.race([Promise.allSettled(pending), sleep(Math.max(this.#effectCap, 10_000))]);
+    const saved = this.#downloads.slice(savedBefore);
+    if (saved.length === 0) return [{ kind: "network", detail: "a download started but could not be saved" }];
+    return saved.map((d) => ({
+      kind: "network",
+      after: d.name,
+      detail: `downloaded ${this.#scope.redact(d.name)} (${d.bytes} bytes) from ${this.#scope.redact(d.url)} to ${d.path}`,
+    }));
   }
 
   async #hitTest(locator: Locator): Promise<HitTestResult> {
@@ -997,6 +1100,7 @@ export class WebComputer implements Computer {
     secretName: string | undefined,
     route: ActionRoute,
   ): Promise<ActionResult> {
+    let uploaded = false;
     return this.#perform({
       quick: true,
       route,
@@ -1004,6 +1108,13 @@ export class WebComputer implements Computer {
       mutating: true,
       run: async ({ locator }) => {
         if (!locator) return;
+        if (await locator.evaluate((el) => el instanceof HTMLInputElement && el.type === "file")) {
+          // A file input takes a file name from the upload directory; the browser gets the file itself.
+          const path = this.#uploadPath(text);
+          await locator.setInputFiles(path, { timeout: this.#timeout });
+          uploaded = true;
+          return;
+        }
         const role = await locator.getAttribute("role", { timeout: this.#timeout });
         if (role === "slider" && (await locator.evaluate((el) => !(el instanceof HTMLInputElement)))) {
           await setSliderByKeyboard(locator, text, this.#timeout);
@@ -1012,6 +1123,7 @@ export class WebComputer implements Computer {
         await locator.fill(text, { timeout: this.#timeout });
       },
       judge: (j) => {
+        if (uploaded) return this.#judgeUpload(j, text);
         const redact = this.#redactValue(j.secretField || secretName !== undefined);
         const page = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
         const after = j.after;
@@ -1036,6 +1148,58 @@ export class WebComputer implements Computer {
     });
   }
 
+  /**
+   * Resolves a file name inside the upload directory. Only plain names of existing regular files directly
+   * in that directory are accepted (no paths, no traversal, no symlinks pointing out of it).
+   */
+  #uploadPath(name: string): string {
+    const dir = this.#uploadDir;
+    if (dir === undefined)
+      throw new ActionRefusal("unsupported", "uploads are disabled: no upload directory is configured");
+    const file = name.trim();
+    if (
+      file === "" ||
+      file === "." ||
+      file === ".." ||
+      isAbsolute(file) ||
+      /[\\/]/.test(file) ||
+      file.includes("\0") ||
+      basename(file) !== file
+    )
+      throw new ActionRefusal("unsupported", `"${name}" is not a plain file name in the upload directory`);
+    let root: string;
+    let real: string;
+    try {
+      root = realpathSync(dir);
+      real = realpathSync(join(root, file));
+    } catch {
+      throw new ActionRefusal("not_found", `no file named "${file}" in the upload directory`);
+    }
+    if (dirname(real) !== root)
+      throw new ActionRefusal("unsupported", `"${file}" points outside the upload directory`);
+    if (!statSync(real).isFile()) throw new ActionRefusal("not_found", `"${file}" is not a file`);
+    return real;
+  }
+
+  #judgeUpload(j: Judgement, name: string): { effect: ActionResult["effect"]; evidence: Evidence[] } {
+    const fileName = (o: TargetObservation): string | undefined =>
+      o !== "gone" && o !== undefined && o.value !== undefined
+        ? (o.value.split(/[\\/]/).pop() ?? "")
+        : undefined;
+    const before = fileName(j.before);
+    const after = fileName(j.after);
+    const page = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
+    const evidence: Evidence = {
+      kind: "value",
+      before: before ? this.#scope.redact(before) : "<empty>",
+      after: after ? this.#scope.redact(after) : "<empty>",
+      detail: "file chosen from the upload directory",
+    };
+    if (after === name.trim()) return { effect: "confirmed", evidence: [evidence, ...page] };
+    if (after === undefined) return { effect: "unverifiable", evidence: [evidence, ...page] };
+    return { effect: "suspected_noop", evidence: [evidence, ...page] };
+  }
+
   toggle(token: string, checked?: boolean): Promise<ActionResult> {
     let desired = checked ?? true;
     return this.#perform({
@@ -1045,12 +1209,24 @@ export class WebComputer implements Computer {
       pointer: true,
       mutating: true,
       run: async ({ locator, before }) => {
+        if (!locator) return;
         const current = before !== "gone" && before !== undefined ? before.checked : undefined;
         desired = checked ?? current !== true;
-        await locator?.setChecked(desired, { timeout: this.#timeout });
+        const role = await locator.getAttribute("role", { timeout: this.#timeout });
+        if (role === "menuitemradio" || role === "menuitemcheckbox") {
+          // Menu items usually close their menu when chosen, so their checked state cannot be read back.
+          if (current !== desired) await locator.click({ timeout: this.#timeout });
+          return;
+        }
+        await locator.setChecked(desired, { timeout: this.#timeout });
       },
       judge: (j) => {
         const page = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
+        if (j.after === "gone" && j.before !== "gone" && j.before !== undefined)
+          return {
+            effect: "confirmed",
+            evidence: [{ kind: "dom", detail: "menu item chosen; its menu closed" }, ...page],
+          };
         const b = j.before !== "gone" && j.before !== undefined ? j.before.checked : undefined;
         const a = j.after !== "gone" && j.after !== undefined ? j.after.checked : undefined;
         const evidence: Evidence = {
@@ -1332,12 +1508,13 @@ export class WebComputer implements Computer {
         pointer: true,
         mutating: true,
         run: async ({ locator }) => {
-          await locator?.dragTo(dest.target.locator, { timeout: this.#timeout });
+          if (locator) await this.#dragBetween(locator, dest.target.locator);
         },
         judge: (j) =>
           assess(
             [
               ...pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s)),
+              ...movedEvidence(j.before, j.after),
               ...targetEvidence(j.before, j.after, this.#redactValue(false)),
             ],
             weakEvidence(j.pageBefore, j.pageAfter),
@@ -1365,12 +1542,7 @@ export class WebComputer implements Computer {
     return this.#perform({
       route: "pointer",
       mutating: true,
-      run: async () => {
-        await this.#page.mouse.move(a.x, a.y);
-        await this.#page.mouse.down();
-        await this.#page.mouse.move(b.x, b.y, { steps: 10 });
-        await this.#page.mouse.up();
-      },
+      run: () => this.#dragPath(a, () => Promise.resolve(b)),
       judge: (j) => {
         const strong = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
         const weak = weakEvidence(j.pageBefore, j.pageAfter);
@@ -1382,6 +1554,44 @@ export class WebComputer implements Computer {
     });
   }
 
+  /**
+   * Drags from the center of `source` to the center of `target` with real mouse input: press, a small
+   * move past drag thresholds, then a stepped move and release. Works for HTML5 drag and drop (Playwright
+   * intercepts the native drag in Chromium) and for pointer-event libraries alike. Boxes are in top
+   * viewport coordinates, so frames work too.
+   */
+  async #dragBetween(source: Locator, target: Locator): Promise<void> {
+    await target.scrollIntoViewIfNeeded({ timeout: this.#timeout }).catch(() => {});
+    await source.scrollIntoViewIfNeeded({ timeout: this.#timeout });
+    const from = await source.boundingBox({ timeout: this.#timeout });
+    if (!from) throw new Error("not visible: the drag source has no box");
+    const centerOf = async () => {
+      const box = await target.boundingBox({ timeout: this.#timeout });
+      if (!box) throw new Error("not visible: the drop target has no box");
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    await this.#dragPath({ x: from.x + from.width / 2, y: from.y + from.height / 2 }, centerOf);
+  }
+
+  async #dragPath(
+    from: { x: number; y: number },
+    to: () => Promise<{ x: number; y: number }>,
+  ): Promise<void> {
+    const mouse = this.#page.mouse;
+    await mouse.move(from.x, from.y);
+    await mouse.down();
+    try {
+      await mouse.move(from.x + 6, from.y + 6, { steps: 3 });
+      // Measured after the drag started: the source may have left a gap that moved the target.
+      const end = await to();
+      await mouse.move(end.x, end.y, { steps: 12 });
+      await sleep(60);
+      await mouse.move(end.x + 1, end.y + 1);
+    } finally {
+      await mouse.up();
+    }
+  }
+
   async #tokenCenter(
     token: string,
   ): Promise<{ ok: true; x: number; y: number } | { ok: false; kind: ActionErrorKind; why: string }> {
@@ -1389,9 +1599,12 @@ export class WebComputer implements Computer {
     if (!resolved.ok) return { ok: false, kind: "stale_token", why: resolved.why };
     const hit = await this.#hitTest(resolved.target.locator);
     if (!hit.ok) return { ok: false, kind: "hit_test_failed", why: `the target is covered by ${hit.hit}` };
-    // Hit-test coordinates are frame-relative; only top-document targets map directly to the viewport.
-    if (resolved.target.ref.startsWith("f"))
-      return { ok: false, kind: "unsupported", why: "coordinate drag inside frames" };
+    // Hit-test coordinates are frame-relative; the bounding box maps framed targets to the top viewport.
+    if (resolved.target.ref.startsWith("f")) {
+      const box = await resolved.target.locator.boundingBox({ timeout: this.#timeout }).catch(() => null);
+      if (!box) return { ok: false, kind: "not_interactable", why: "the framed target has no box" };
+      return { ok: true, x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
     return { ok: true, x: hit.x, y: hit.y };
   }
 
@@ -1558,6 +1771,25 @@ function safeOrigin(url: string): string {
   } catch {
     return "an invalid URL";
   }
+}
+
+/** Evidence that a drag source changed place (it stayed in the DOM but moved). */
+function movedEvidence(before: TargetObservation, after: TargetObservation): Evidence[] {
+  if (before === undefined || before === "gone" || after === undefined || after === "gone") return [];
+  const dx = after.rect.x - before.rect.x;
+  const dy = after.rect.y - before.rect.y;
+  // Scrolling moves everything; only a move relative to the scroll container counts.
+  const scrolled = after.scrollTop - before.scrollTop;
+  if (Math.hypot(dx, dy + scrolled) < 4) return [];
+  const at = (r: { x: number; y: number }) => `(${Math.round(r.x)}, ${Math.round(r.y)})`;
+  return [
+    {
+      kind: "state",
+      before: `at ${at(before.rect)}`,
+      after: `at ${at(after.rect)}`,
+      detail: "drag source moved",
+    },
+  ];
 }
 
 function stripQuery(url: string): string {

@@ -128,6 +128,8 @@ export async function launchPersistent(
       executablePath: browser.executablePath,
       ...(browser.channel !== undefined ? { channel: browser.channel } : {}),
       headless: options.headless ?? false,
+      // The WebComputer saves downloads (into the run folder or a temp dir) and reports them as evidence.
+      acceptDownloads: true,
       viewport: options.viewport ? { width: options.viewport.width, height: options.viewport.height } : null,
       args: [...(options.args ?? [])],
       // Playwright forces a fake keyring by default; imported profiles need the real one to read cookies.

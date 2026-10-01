@@ -11,6 +11,8 @@ import type {
   DomInfo,
   EngineCommand,
   EnrichResult,
+  MarkInfo,
+  MarksResult,
   PageRect,
   PageRegion,
   PageState,
@@ -263,6 +265,46 @@ export function createGhosthandEngine(): SelectorEngine {
     return { labels: all.slice(0, MAX_OPTIONS).map((o) => textOf(o)), count: all.length };
   };
 
+  /** Drag sources, drop targets and context-menu owners, from their markup. */
+  const markOf = (el: Element): Omit<MarkInfo, "ref"> => {
+    const desc = (el.getAttribute("aria-roledescription") ?? "").toLowerCase();
+    const effect = (el.getAttribute("aria-dropeffect") ?? "").trim().toLowerCase();
+    const popup = (el.getAttribute("aria-haspopup") ?? "").trim().toLowerCase();
+    return {
+      drag:
+        el.getAttribute("draggable") === "true" ||
+        el.hasAttribute("aria-grabbed") ||
+        /\b(drag|draggable|sortable|movable)\b/.test(desc),
+      drop: (effect !== "" && effect !== "none") || /\bdrop\b/.test(desc),
+      menu: popup === "menu" || popup === "true",
+    };
+  };
+
+  const MARK_ATTRS = [
+    "draggable",
+    "aria-grabbed",
+    "aria-roledescription",
+    "aria-dropeffect",
+    "aria-haspopup",
+  ];
+
+  /** Every ref'd element (open shadow roots included) that drags, takes drops or opens a menu. */
+  const marks = (doc: Document): MarksResult => {
+    const out: MarkInfo[] = [];
+    const stack: Element[] = doc.documentElement ? [doc.documentElement] : [];
+    while (stack.length > 0) {
+      const el = stack.pop() as RefElement;
+      if (MARK_ATTRS.some((a) => el.hasAttribute(a))) {
+        const ref = el._ariaRef?.ref;
+        const m = markOf(el);
+        if (ref !== undefined && (m.drag || m.drop || m.menu)) out.push({ ref, ...m });
+      }
+      if (el.shadowRoot) for (const c of Array.from(el.shadowRoot.children)) stack.push(c);
+      for (const c of Array.from(el.children)) stack.push(c);
+    }
+    return { marks: out };
+  };
+
   const describe = (el: Element, modal: Element | null, doc: Document, index: SectionIndex): DomInfo => {
     const tag = el.localName;
     const info: DomInfo = {
@@ -304,6 +346,12 @@ export function createGhosthandEngine(): SelectorEngine {
       info.readonly = info.readonly || el.readOnly;
       if (el.type === "checkbox" || el.type === "radio") {
         info.checked = el.indeterminate ? "mixed" : el.checked;
+      } else if (el.type === "file") {
+        // The chosen file names (never a path: browsers do not expose one).
+        info.value = Array.from(el.files ?? [])
+          .map((f) => f.name)
+          .join(", ");
+        info.valueKind = "text";
       } else if (!TEXT_INPUT_EXCLUDED.has(el.type)) {
         info.value = el.value;
         info.valueKind = el.type === "password" ? "password" : "text";
@@ -363,6 +411,11 @@ export function createGhosthandEngine(): SelectorEngine {
       if (title) info.description = clip(collapse(title), MAX_CONTEXT);
     }
 
+    const mark = markOf(el);
+    if (mark.drag) info.drag = true;
+    if (mark.drop) info.drop = true;
+    if (mark.menu) info.menu = true;
+
     const context = contextOf(el);
     if (context) info.context = context;
     const section = sectionOf(el, index);
@@ -420,6 +473,42 @@ export function createGhosthandEngine(): SelectorEngine {
     return r.width > 0 && r.height > 0;
   };
 
+  const CONTAINERS =
+    "[role=list], [role=listbox], [role=tree], [role=grid], [role=treegrid], [role=feed], [role=menu], ul, ol";
+
+  /**
+   * True when scrolling would load or render items that are not in the DOM yet: a visible feed whose size
+   * is unknown or larger than what is loaded, or a set (aria-setsize) or grid (aria-rowcount) larger than
+   * its rendered items. A long document alone does not count: offscreen DOM is already in the snapshot.
+   */
+  const moreContent = (doc: Document): boolean => {
+    for (const feed of Array.from(doc.querySelectorAll("[role=feed]"))) {
+      if (!visible(feed)) continue;
+      const items = Array.from(feed.querySelectorAll("article, [role=article]"));
+      if (items.length === 0) return true;
+      const size = Number.parseInt(items[items.length - 1]?.getAttribute("aria-setsize") ?? "-1", 10);
+      if (!(size > 0) || size > items.length) return true;
+    }
+    const sets = new Map<Element, { size: number; rendered: number }>();
+    for (const el of Array.from(doc.querySelectorAll("[aria-setsize]"))) {
+      const size = Number.parseInt(el.getAttribute("aria-setsize") ?? "", 10);
+      if (Number.isNaN(size)) continue;
+      const owner = el.parentElement?.closest(CONTAINERS) ?? el.parentElement;
+      if (!owner || !visible(owner)) continue;
+      const entry = sets.get(owner) ?? { size, rendered: 0 };
+      entry.rendered++;
+      entry.size = Math.max(entry.size, size);
+      sets.set(owner, entry);
+    }
+    for (const { size, rendered } of sets.values()) if (size === -1 || size > rendered) return true;
+    for (const grid of Array.from(doc.querySelectorAll("[aria-rowcount]"))) {
+      if (!visible(grid)) continue;
+      const total = Number.parseInt(grid.getAttribute("aria-rowcount") ?? "", 10);
+      if (total === -1 || total > grid.querySelectorAll("[role=row], tr").length) return true;
+    }
+    return false;
+  };
+
   const pageState = (doc: Document): PageState => {
     install(doc);
     let busy: string | null = null;
@@ -472,6 +561,7 @@ export function createGhosthandEngine(): SelectorEngine {
         scrollX: win?.scrollX ?? 0,
         scrollY: win?.scrollY ?? 0,
         devicePixelRatio: win?.devicePixelRatio ?? 1,
+        moreContent: moreContent(doc),
       },
       items,
     };
@@ -489,7 +579,11 @@ export function createGhosthandEngine(): SelectorEngine {
       const doc = root.ownerDocument ?? (root as Document);
       const command = decode(body);
       const result =
-        command.op === "enrich" ? enrich(doc, command.refs, command.sectionText) : pageState(doc);
+        command.op === "enrich"
+          ? enrich(doc, command.refs, command.sectionText)
+          : command.op === "marks"
+            ? marks(doc)
+            : pageState(doc);
       const carrier = doc.createElement("ghosthand-result");
       carrier.textContent = JSON.stringify(result);
       return [carrier];

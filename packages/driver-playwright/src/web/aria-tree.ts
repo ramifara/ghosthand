@@ -150,8 +150,18 @@ function contentText(node: AriaNodeJson, depth = 0): string {
   return collapse(parts.join(" "));
 }
 
+/**
+ * Extra refs to keep although their role is not interactive (found by the in-page engine from markup):
+ * "item" for things acted on directly (drag sources, rows with a context menu; their text becomes their
+ * name), "zone" for containers that only take drops (their children stay separate elements).
+ */
+export type ExtraRefs = ReadonlyMap<string, "item" | "zone">;
+
 /** Flattens a parsed AI snapshot. Text of value roles (textbox values, passwords) is never collected. */
-export function flattenAriaSnapshot(snapshot: z.infer<typeof AriaSnapshotSchema>): FlatTree {
+export function flattenAriaSnapshot(
+  snapshot: z.infer<typeof AriaSnapshotSchema>,
+  extra: ExtraRefs = new Map(),
+): FlatTree {
   const nodes: FlatNode[] = [];
   const iframes: FlatTree["iframes"] = [];
   const text: string[] = [];
@@ -181,14 +191,19 @@ export function flattenAriaSnapshot(snapshot: z.infer<typeof AriaSnapshotSchema>
 
     const interactive = INTERACTIVE_ROLES.has(node.role);
     const pointer = node.cursor === "pointer";
+    const marked = ref !== undefined ? extra.get(ref) : undefined;
     const include =
       ref !== undefined &&
-      (interactive || CONTEXT_ROLES.has(node.role) || (pointer && !insideElement && node.role !== "img"));
-    const isElement = include && (interactive || pointer);
+      (interactive ||
+        marked !== undefined ||
+        CONTEXT_ROLES.has(node.role) ||
+        (pointer && !insideElement && node.role !== "img"));
+    const isElement = include && (interactive || pointer || marked === "item");
 
     if (ref !== undefined && include) {
       let name = collapse(node.name ?? "");
-      if (!name && NAME_FROM_CONTENT.has(node.role)) name = contentText(node).slice(0, 200);
+      if (!name && (NAME_FROM_CONTENT.has(node.role) || marked === "item"))
+        name = contentText(node).slice(0, 200);
       const flat: FlatNode = {
         ref,
         role: node.role,
@@ -219,7 +234,7 @@ export function flattenAriaSnapshot(snapshot: z.infer<typeof AriaSnapshotSchema>
     if (!insideElement && !interactive && !VALUE_ROLES.has(node.role)) {
       const hasChildren = (node.children ?? []).length > 0;
       if (node.name && (!hasChildren || CONTEXT_ROLES.has(node.role))) text.push(collapse(node.name));
-      if (node.text && !(pointer && include)) text.push(collapse(node.text));
+      if (node.text && !((pointer || marked === "item") && include)) text.push(collapse(node.text));
     }
     if (VALUE_ROLES.has(node.role)) return;
     const next = ref ? [...ancestors, ref] : ancestors;

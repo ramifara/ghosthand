@@ -10,7 +10,7 @@ import type { FrameGeometry } from "./build-elements.ts";
 import { buildElements } from "./build-elements.ts";
 import { runEngine } from "./engine-client.ts";
 import type { DomInfo, PageInfo, SectionInfo } from "./in-page/page-types.ts";
-import { EnrichResult } from "./in-page/page-types.ts";
+import { EnrichResult, MarksResult } from "./in-page/page-types.ts";
 import type { SecretScope } from "./secret-scope.ts";
 import { isSecretField } from "./secret-scope.ts";
 
@@ -46,6 +46,8 @@ export interface Captured {
   timings: CaptureTimings;
   /** True when the in-page engine was unavailable and elements carry aria facts only. */
   degraded: boolean;
+  /** Scrolling would reveal content not in the DOM yet (feed, virtualized list); see `PageInfo.moreContent`. */
+  canScroll: boolean;
 }
 
 export interface CaptureInput {
@@ -102,8 +104,28 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
   }
   const parsed = AriaSnapshotSchema.safeParse(raw);
   if (!parsed.success) return err({ kind: "driver", message: "unexpected aria snapshot shape" });
-  const tree = flattenAriaSnapshot(parsed.data);
+  let tree = flattenAriaSnapshot(parsed.data);
   const t1 = now();
+
+  const frames = new Map<string, Frame>([["", page.mainFrame()]]);
+  await Promise.all(
+    tree.iframes.map(async (f) => {
+      const frame = await frameForIframe(page, f.ref, input.timeoutMs);
+      if (frame) frames.set(f.ref, frame);
+    }),
+  );
+
+  // Drag sources, drop zones and rows with a context menu have no interactive role; the engine finds
+  // them from their markup and they join the table.
+  const extra = new Map<string, "item" | "zone">();
+  await Promise.all(
+    [...frames.values()].map(async (frame) => {
+      const r = await runEngine(frame, { op: "marks" }, MarksResult, input.timeoutMs);
+      if (!r.ok) return;
+      for (const m of r.value.marks) extra.set(m.ref, m.drag || m.menu ? "item" : "zone");
+    }),
+  );
+  if (extra.size > 0) tree = flattenAriaSnapshot(parsed.data, extra);
 
   // Refs to enrich, per frame key (iframe elements are enriched in the frame that contains them).
   const byFrame = new Map<string, string[]>();
@@ -114,14 +136,6 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
   };
   for (const n of tree.nodes) add(n.frameKey, n.ref);
   for (const f of tree.iframes) add(f.frameKey, f.ref);
-
-  const frames = new Map<string, Frame>([["", page.mainFrame()]]);
-  await Promise.all(
-    tree.iframes.map(async (f) => {
-      const frame = await frameForIframe(page, f.ref, input.timeoutMs);
-      if (frame) frames.set(f.ref, frame);
-    }),
-  );
 
   const dom = new Map<string, DomInfo | null>();
   const pageInfo = new Map<string, PageInfo>();
@@ -270,6 +284,7 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
     ...(sectionText !== undefined ? { sectionText: scope.redact(sectionText) } : {}),
     timings: { ariaMs: t1 - t0, enrichMs: t2 - t1, buildMs: t3 - t2 },
     degraded,
+    canScroll: [...pageInfo.values()].some((p) => p.moreContent === true),
   });
 }
 

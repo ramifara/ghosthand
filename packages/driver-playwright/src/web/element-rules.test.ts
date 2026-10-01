@@ -22,6 +22,34 @@ describe("actionsFor", () => {
     expect(actionsFor({ ...facts, role: "generic", pointer: true })).toContain("press");
     expect(actionsFor({ ...facts, role: "heading" })).toEqual(["scroll_into_view"]);
   });
+
+  it("adds drag, drop and context_menu from markup facts", () => {
+    expect(actionsFor({ ...facts, role: "listitem", drag: true })).toEqual([
+      "drag",
+      "press",
+      "focus",
+      "scroll_into_view",
+    ]);
+    expect(actionsFor({ ...facts, role: "listitem", drag: true, drop: true }).slice(0, 2)).toEqual([
+      "drag",
+      "drop",
+    ]);
+    // A column or list that only takes drops is only a destination.
+    expect(actionsFor({ ...facts, role: "list", drop: true })).toEqual(["drop", "scroll_into_view"]);
+    expect(actionsFor({ ...facts, role: "row", menu: true })).toContain("context_menu");
+    expect(actionsFor({ ...facts, role: "treeitem", menu: true })).toContain("context_menu");
+    // A menu button opens its menu by pressing; that is not a context menu.
+    expect(actionsFor({ ...facts, role: "button", menu: true })).not.toContain("context_menu");
+    expect(actionsFor({ ...facts, role: "menuitem", menu: true })).not.toContain("context_menu");
+  });
+
+  it("offers set_value on file inputs", () => {
+    expect(actionsFor({ ...facts, role: "button", tag: "input", inputType: "file" })).toEqual([
+      "set_value",
+      "focus",
+      "scroll_into_view",
+    ]);
+  });
 });
 
 describe("riskFor", () => {

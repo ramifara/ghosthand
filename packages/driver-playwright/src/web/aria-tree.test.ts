@@ -77,3 +77,47 @@ describe("flattenAriaSnapshot", () => {
     expect(AriaSnapshotSchema.safeParse([{ name: "no role" }]).success).toBe(false);
   });
 });
+
+describe("flattenAriaSnapshot with markup extras", () => {
+  const BOARD: unknown = [
+    {
+      role: "list",
+      name: "Done",
+      ref: "e2",
+      children: [
+        { role: "listitem", ref: "e3", children: ["Fix login timeout"] },
+        { role: "listitem", ref: "e4", children: ["Plain item"] },
+      ],
+    },
+    {
+      role: "row",
+      ref: "e5",
+      children: [
+        { role: "cell", name: "Nimbus", ref: "e6" },
+        { role: "cell", name: "4 members", ref: "e7" },
+      ],
+    },
+  ];
+  const snapshot = AriaSnapshotSchema.parse(BOARD);
+
+  it("leaves non-interactive roles out without extras", () => {
+    expect(flattenAriaSnapshot(snapshot).nodes).toEqual([]);
+  });
+
+  it("keeps drop zones as containers and named items from their content", () => {
+    const extra = new Map<string, "item" | "zone">([
+      ["e2", "zone"],
+      ["e3", "item"],
+      ["e5", "item"],
+    ]);
+    const tree = flattenAriaSnapshot(snapshot, extra);
+    expect(tree.nodes.map((n) => [n.ref, n.role, n.name])).toEqual([
+      ["e2", "list", "Done"],
+      ["e3", "listitem", "Fix login timeout"],
+      ["e5", "row", "Nimbus 4 members"],
+    ]);
+    // An item's text is its name, not loose page text; unmarked siblings stay page text.
+    expect(tree.text).toContain("Plain item");
+    expect(tree.text).not.toContain("Fix login timeout");
+  });
+});
