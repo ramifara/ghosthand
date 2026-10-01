@@ -14,6 +14,7 @@ import { type RunFlags, runCommand } from "./commands/run.ts";
 import { runsCommand } from "./commands/runs.ts";
 import { tasksCommand } from "./commands/tasks.ts";
 import { testCommand } from "./commands/test.ts";
+import { voiceCommand } from "./commands/voice.ts";
 import { fail, out } from "./io.ts";
 
 export const HELP = `ghosthand, a Jev CUA
@@ -34,6 +35,9 @@ Usage:
   ghosthand browsers
   ghosthand tasks
   ghosthand observe --url <url> [--headless]
+  ghosthand voice transcribe <file.wav> [--backend auto|moonshine|whisper|openai|deepgram] [--model <id>]
+  ghosthand voice models list | download <id> | verify <id> | remove <id>
+  ghosthand voice parse "<utterance>"
 
 Options:
   --json        machine-readable output
@@ -124,6 +128,14 @@ export async function main(argv: string[]): Promise<number> {
         json,
         ...(values.profile ? { profile: values.profile } : {}),
       });
+    case "voice":
+      return voiceCommand(rest, {
+        json,
+        ...(values.backend ? { backend: values.backend } : {}),
+        ...(values.model ? { model: values.model } : {}),
+        ...(values.language ? { language: values.language } : {}),
+        ...(values["models-dir"] ? { modelsDir: values["models-dir"] } : {}),
+      });
     default:
       return fail(`unknown command "${command}"\n\n${HELP}`, 2);
   }
@@ -182,6 +194,10 @@ export function parse(argv: string[]) {
       variant: { type: "string" },
       vision: { type: "string" },
       interactive: { type: "boolean" },
+      backend: { type: "string" },
+      model: { type: "string" },
+      language: { type: "string" },
+      "models-dir": { type: "string" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
     },
