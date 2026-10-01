@@ -5,7 +5,7 @@
 
 **GhostHand, a Jev CUA.** An open-source, general-purpose computer-use agent in TypeScript and Electron. Give it a task (or a QA spec) and a URL, and it does the work in a real browser. A fast decision model, TypeSafe Jev, makes each step's choice in roughly 0.2–0.5 s. Larger models are consulted only to plan, write text, give hints, judge visually or handle unknown UIs. Every session is recorded and can be replayed.
 
-Status: Phases 0, 1, 2, 4, 5 and 6 are built; Phase 1 acceptance is met with real Jev (L1–L3 90/90, median step 742 ms, $0.00034 per step). Phases 3 and 7 are in progress. Reports: [`docs/reports/`](docs/reports/). Plan: [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
+Status: all plan phases (0–7) are built. Phase 1 acceptance is met with real Jev (L1–L3 90/90, median step 742 ms, $0.00034 per step); L4–L6 tasks that need no vision pass 105/105; desktop drivers run on Linux X11 and headless GNOME Wayland. Vision modes and the Windows driver still need live verification. Reports: [`docs/reports/`](docs/reports/). Plan: [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
 
 ## Setup
 
