@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@ghosthand/core": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "playwright-core": "catalog:"
   },
   "scripts": {
     "test": "vitest run"
