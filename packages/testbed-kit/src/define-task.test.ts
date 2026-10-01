@@ -47,13 +47,32 @@ describe("defineTask", () => {
 });
 
 describe("registry", () => {
-  it("lists the four L1 tasks", () => {
+  it("lists the L1, L2 and L3 tasks", () => {
     expect(listTaskIds()).toEqual([
       "l1-login",
       "l1-login-wrong-password",
       "l1-update-profile",
       "l1-form-validation",
+      "l2-orders-delete-row",
+      "l2-orders-edit-status",
+      "l2-orders-sort-find",
+      "l2-orders-filter-bulk",
+      "l2-orders-drawer-note",
+      "l2-toast-undo",
+      "l3-assign-customer-combobox",
+      "l3-tags-multiselect",
+      "l3-date-range-report",
+      "l3-settings-tabs-slider",
+      "l3-rich-text-bio",
+      "l3-accordion-tooltip",
     ]);
+    expect(tasks.filter((t) => t.level === 2)).toHaveLength(6);
+    expect(tasks.filter((t) => t.level === 3)).toHaveLength(6);
+    for (const t of tasks.filter((t) => t.level > 1)) {
+      expect(t.version).toBe(1);
+      expect(t.setup.login).toBe("alice@testbed.local");
+      expect(t.doneWhen.all.length).toBeGreaterThan(0);
+    }
     expect(getTask("l1-login")?.secrets).toEqual(["TESTBED_PASSWORD"]);
     expect(getTask("nope")).toBeUndefined();
   });

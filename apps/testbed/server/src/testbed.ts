@@ -6,12 +6,19 @@ import { randomBytes } from "node:crypto";
 import {
   type AuditOutcome,
   type AuditRow,
+  type BioRow,
+  type CustomerRow,
   DEFAULT_NOW,
   DEFAULT_SEED,
   DEFAULT_VARIANT,
   type MailRow,
+  ORDER_TAGS,
+  type OrderRow,
+  type OrderStatus,
+  type OrderTag,
   type ResetRequest,
   type SessionRow,
+  type SettingsRow,
   type TestbedState,
   type UserRow,
   Variant,
@@ -19,6 +26,7 @@ import {
 import { type Clock, createFrozenClock } from "./clock.ts";
 import { openDatabase, TABLES } from "./db.ts";
 import { namedSeeds, seedBase } from "./seed-data.ts";
+import { ensureSettings } from "./shop-seed.ts";
 
 export interface AuditEntry {
   actor: string;
@@ -37,6 +45,39 @@ export interface UserWithSecret extends UserRow {
 const USER_COLUMNS =
   "id, email, name, handle, title, website, bio, password_salt as passwordSalt, password_hash as passwordHash";
 
+const ORDER_COLUMNS = `o.id, o.customer_id as customerId, c.name as customerName, o.placed_on as placedOn,
+  o.amount_cents as amountCents, o.status, o.note, o.tags, o.deleted_at as deletedAt`;
+
+type OrderDbRow = Omit<OrderRow, "tags" | "status"> & { status: string; tags: string };
+
+/** Tags are stored as JSON and always returned in ORDER_TAGS order, so equal sets compare equal. */
+export function sortTags(tags: readonly OrderTag[]): OrderTag[] {
+  return ORDER_TAGS.filter((t) => tags.includes(t));
+}
+
+function toOrder(row: OrderDbRow): OrderRow {
+  const tags = JSON.parse(row.tags) as OrderTag[];
+  return { ...row, status: row.status as OrderStatus, tags: sortTags(tags) };
+}
+
+const SETTINGS_COLUMNS = `user_id as userId, compact_tables as compactTables, email_limit as emailLimit, digest,
+  webhook_secret_version as webhookSecretVersion, api_key_revoked as apiKeyRevoked`;
+
+type SettingsDbRow = Omit<SettingsRow, "compactTables" | "apiKeyRevoked" | "digest"> & {
+  compactTables: number;
+  apiKeyRevoked: number;
+  digest: string;
+};
+
+function toSettings(row: SettingsDbRow): SettingsRow {
+  return {
+    ...row,
+    compactTables: row.compactTables === 1,
+    apiKeyRevoked: row.apiKeyRevoked === 1,
+    digest: row.digest as SettingsRow["digest"],
+  };
+}
+
 export class Testbed {
   db: Database;
   readonly clock: Clock;
@@ -44,6 +85,9 @@ export class Testbed {
   variant: Variant = DEFAULT_VARIANT;
   resetId = 0;
   private initialUsers: UserRow[] = [];
+  private initialOrders: OrderRow[] = [];
+  private initialSettings: SettingsRow[] = [];
+  private initialBios: BioRow[] = [];
 
   constructor(clock: Clock = createFrozenClock(DEFAULT_NOW)) {
     this.clock = clock;
@@ -60,15 +104,23 @@ export class Testbed {
     this.clock.set(DEFAULT_NOW);
     this.resetId += 1;
     seedBase(this.db, this.seed);
+    this.captureInitial();
+  }
+
+  private captureInitial(): void {
     this.initialUsers = this.users();
+    this.initialOrders = this.orders();
+    this.initialSettings = this.settings();
+    this.initialBios = this.bios();
   }
 
   applySeed(name: string): boolean {
     const seedFn = namedSeeds[name];
     if (!seedFn) return false;
     seedFn(this.db, { seed: this.seed, now: this.clock.now() });
+    ensureSettings(this.db);
     // Named seeds are part of setup, so they count as the starting state for oracles.
-    this.initialUsers = this.users();
+    this.captureInitial();
     return true;
   }
 
@@ -160,7 +212,57 @@ export class Testbed {
       sessions,
       audit,
       mail: this.mail(),
+      customers: this.customers(),
+      orders: this.orders(),
+      initialOrders: this.initialOrders,
+      settings: this.settings(),
+      initialSettings: this.initialSettings,
+      bios: this.bios(),
+      initialBios: this.initialBios,
     };
+  }
+
+  customers(): CustomerRow[] {
+    return this.db.query<CustomerRow, []>("select id, name, email from customers order by id").all();
+  }
+
+  /** Every order, including soft-deleted ones, in id order. */
+  orders(): OrderRow[] {
+    return this.db
+      .query<OrderDbRow, []>(
+        `select ${ORDER_COLUMNS} from orders o join customers c on c.id = o.customer_id order by o.id`,
+      )
+      .all()
+      .map(toOrder);
+  }
+
+  order(id: string): OrderRow | undefined {
+    const row = this.db
+      .query<OrderDbRow, { id: string }>(
+        `select ${ORDER_COLUMNS} from orders o join customers c on c.id = o.customer_id where o.id = $id`,
+      )
+      .get({ id });
+    return row ? toOrder(row) : undefined;
+  }
+
+  settings(): SettingsRow[] {
+    return this.db
+      .query<SettingsDbRow, []>(`select ${SETTINGS_COLUMNS} from user_settings order by user_id`)
+      .all()
+      .map(toSettings);
+  }
+
+  settingsFor(userId: number): SettingsRow | undefined {
+    const row = this.db
+      .query<SettingsDbRow, { userId: number }>(
+        `select ${SETTINGS_COLUMNS} from user_settings where user_id = $userId`,
+      )
+      .get({ userId });
+    return row ? toSettings(row) : undefined;
+  }
+
+  bios(): BioRow[] {
+    return this.db.query<BioRow, []>("select user_id as userId, html from bios order by user_id").all();
   }
 
   /** Every row of every table, for determinism checks and debugging. */

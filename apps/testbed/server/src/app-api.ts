@@ -11,19 +11,11 @@ import {
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { auditMiddleware, type Env } from "./audit-middleware.ts";
+import { registerOrderRoutes } from "./orders-api.ts";
 import { verifyPassword } from "./password.ts";
+import { readJson } from "./read-json.ts";
+import { registerSettingsRoutes } from "./settings-api.ts";
 import type { Testbed } from "./testbed.ts";
-
-async function readJson(req: Request): Promise<Record<string, unknown>> {
-  try {
-    const body: unknown = await req.json();
-    return typeof body === "object" && body !== null && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 export function createAppApi(testbed: Testbed): Hono<Env> {
   const app = new Hono<Env>().basePath("/api");
@@ -132,6 +124,9 @@ export function createAppApi(testbed: Testbed): Hono<Env> {
     if (!user) return c.json({ error: "Sign in to read your mail." }, 401);
     return c.json({ messages: testbed.mail(user.email) });
   });
+
+  registerOrderRoutes(app, testbed);
+  registerSettingsRoutes(app, testbed);
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;

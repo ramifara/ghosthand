@@ -8,8 +8,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./fixtures": "./src/fixtures.ts",
+    "./order-fixtures": "./src/order-fixtures.ts",
+    "./orders": "./src/orders.ts",
     "./profile-schema": "./src/profile-schema.ts",
+    "./rich-text": "./src/rich-text.ts",
     "./schemas": "./src/control-schemas.ts",
+    "./settings": "./src/settings.ts",
     "./variant": "./src/variant.ts"
   },
   "dependencies": {

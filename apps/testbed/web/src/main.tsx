@@ -6,6 +6,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app.tsx";
 import { api } from "./lib/api.ts";
+import { setServerNow } from "./lib/server-clock.ts";
 import { resolveVariant, setActiveVariant } from "./lib/variant.ts";
 
 async function boot(): Promise<void> {
@@ -15,6 +16,7 @@ async function boot(): Promise<void> {
   const config = await api.config();
   const server = config.ok ? config.value : { variant: DEFAULT_VARIANT, resetId: 0, now: "" };
   setActiveVariant(resolveVariant(server, window.location.search, window.localStorage));
+  setServerNow(server.now);
   createRoot(root).render(
     <StrictMode>
       <App now={server.now} />

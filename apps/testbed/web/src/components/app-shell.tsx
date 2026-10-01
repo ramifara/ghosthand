@@ -12,6 +12,10 @@ const links = [
   { to: "/", label: "Home", id: "nav.home" },
   { to: "/profile", label: "Profile", id: "nav.profile" },
   { to: "/inbox", label: "Inbox", id: "nav.inbox" },
+  { to: "/orders", label: "Orders", id: "nav.orders" },
+  { to: "/reports", label: "Reports", id: "nav.reports" },
+  { to: "/settings", label: "Settings", id: "nav.settings" },
+  { to: "/bio", label: "Bio", id: "nav.bio" },
 ];
 
 export function AppShell({ now }: { now: string }) {
@@ -27,8 +31,8 @@ export function AppShell({ now }: { now: string }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border bg-panel">
-        <div className="mx-auto flex h-11 max-w-4xl items-center gap-4 px-4">
-          <span className="flex items-center gap-1.5 text-sm font-semibold">
+        <div className="mx-auto flex h-11 max-w-5xl items-center gap-4 px-4">
+          <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold whitespace-nowrap">
             <Hand aria-hidden="true" className="size-4 text-accent" />
             GhostHand testbed
           </span>
@@ -51,7 +55,7 @@ export function AppShell({ now }: { now: string }) {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-2 text-xs">
+          <div className="ml-auto flex shrink-0 items-center gap-2 text-xs whitespace-nowrap">
             {user ? (
               <>
                 <span className="font-mono text-muted" {...tid("session.user")}>
@@ -77,7 +81,7 @@ export function AppShell({ now }: { now: string }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
         <Outlet />
       </main>
       <footer className="border-t border-border px-4 py-2 text-center font-mono text-xs text-muted">

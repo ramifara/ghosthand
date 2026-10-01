@@ -4,6 +4,7 @@
 import type { Database } from "bun:sqlite";
 import { ALICE_EMAIL, BOB_EMAIL, createRng, fixtureSecrets, type Rng } from "@ghosthand/testbed-kit";
 import { hashPassword } from "./password.ts";
+import { nameHash, seedShop } from "./shop-seed.ts";
 
 const FIRST = [
   "Chidi",
@@ -117,15 +118,15 @@ export function seedBase(db: Database, seed: number): void {
   for (const [key, value] of Object.entries(facts)) {
     db.query("insert into facts (key, value) values ($key, $value)").run({ key, value });
   }
+
+  const aliceId = db
+    .query<{ id: number }, { email: string }>("select id from users where email = $email")
+    .get({ email: ALICE_EMAIL })?.id;
+  if (aliceId === undefined) throw new Error("seedBase: alice missing");
+  seedShop(db, seed, aliceId);
 }
 
 export type NamedSeed = (db: Database, ctx: { seed: number; now: string }) => void;
-
-function nameHash(name: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
 
 /** Extra fixture sets for `POST /seed/:name`, applied on top of the base seed. */
 export const namedSeeds: Record<string, NamedSeed> = {

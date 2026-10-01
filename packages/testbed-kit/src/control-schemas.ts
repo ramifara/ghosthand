@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Wire shapes of the testbed control API (:4401) and the state snapshot oracles read.
 import { z } from "zod";
+import { CustomerRow, OrderRow } from "./orders.ts";
+import { BioRow, SettingsRow } from "./settings.ts";
 import { Variant, VariantOverrides } from "./variant.ts";
 
 export const UserRow = z.object({
@@ -56,6 +58,15 @@ export const TestbedState = z.object({
   sessions: z.array(SessionRow),
   audit: z.array(AuditRow),
   mail: z.array(MailRow),
+  customers: z.array(CustomerRow),
+  /** Every order, including soft-deleted ones (`deletedAt` set). */
+  orders: z.array(OrderRow),
+  /** Orders as the last reset (plus named seeds) left them. */
+  initialOrders: z.array(OrderRow),
+  settings: z.array(SettingsRow),
+  initialSettings: z.array(SettingsRow),
+  bios: z.array(BioRow),
+  initialBios: z.array(BioRow),
 });
 export type TestbedState = z.infer<typeof TestbedState>;
 
