@@ -10,8 +10,10 @@
         "@ghosthand/consultants": "workspace:*",
         "@ghosthand/core": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
+        "@ghosthand/engine": "workspace:*",
         "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
+        "@ghosthand/recorder": "workspace:*",
         "@types/node": "catalog:",
         "typescript": "7.0.2",
         "vitest": "catalog:",
@@ -29,6 +31,7 @@
         "@ghosthand/engine": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
+        "@ghosthand/testbed-kit": "workspace:*",
       },
       "devDependencies": {
         "vitest": "catalog:",

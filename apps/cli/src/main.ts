@@ -3,8 +3,12 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
+import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
+import { replayCommand } from "./commands/replay.ts";
+import { runCommand } from "./commands/run.ts";
 import { runsCommand } from "./commands/runs.ts";
+import { tasksCommand } from "./commands/tasks.ts";
 import { fail, out } from "./io.ts";
 
 export const HELP = `ghosthand, a Jev CUA
@@ -17,6 +21,7 @@ Usage:
   ghosthand profile create <name> | list | import <chrome-profile-dir> <name> | remove <name>
   ghosthand browsers
   ghosthand tasks
+  ghosthand observe --url <url> [--headless]
 
 Options:
   --json        machine-readable output
@@ -51,6 +56,34 @@ export async function main(argv: string[]): Promise<number> {
       return browsersCommand(json);
     case "doctor":
       return doctorCommand(json);
+    case "run":
+      return runCommand({
+        ...(values.url ? { url: values.url } : {}),
+        ...(values.task ? { task: values.task } : {}),
+        ...(rest.length > 0 ? { goal: rest.join(" ") } : {}),
+        ...(values.profile ? { profile: values.profile } : {}),
+        ...(values.config ? { config: values.config } : {}),
+        allowOrigins: values["allow-origin"] ?? [],
+        headless: values.headless ?? false,
+        yes: values.yes ?? false,
+        trace: !(values["no-trace"] ?? false),
+        json,
+      });
+    case "replay":
+      return replayCommand(rest[0], {
+        headless: values.headless ?? false,
+        json,
+        heal: !(values["no-heal"] ?? false),
+        ...(values.profile ? { profile: values.profile } : {}),
+      });
+    case "tasks":
+      return tasksCommand(json);
+    case "observe":
+      return observeCommand(values.url, {
+        headless: values.headless ?? false,
+        json,
+        ...(values.profile ? { profile: values.profile } : {}),
+      });
     default:
       return fail(`unknown command "${command}"\n\n${HELP}`, 2);
   }
@@ -70,6 +103,7 @@ function parse(argv: string[]) {
       limit: { type: "string" },
       config: { type: "string" },
       "no-trace": { type: "boolean" },
+      "no-heal": { type: "boolean" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
     },

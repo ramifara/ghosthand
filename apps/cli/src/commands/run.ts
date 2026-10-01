@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+import {
+  agentSecretNames,
+  createDecisionProvider,
+  type EngineRuntime,
+  openRuntime,
+  prepareTestbedRun,
+  runAgent,
+  webLauncher,
+} from "@ghosthand/engine";
+import { TaskSpec } from "@ghosthand/protocol";
+import { createApprover } from "../approve.ts";
+import { fail, out } from "../io.ts";
+import { progressPrinter } from "../progress.ts";
+
+export interface RunFlags {
+  url?: string;
+  task?: string;
+  goal?: string;
+  profile?: string;
+  allowOrigins: string[];
+  headless: boolean;
+  yes: boolean;
+  trace: boolean;
+  json: boolean;
+  config?: string;
+}
+
+export async function runCommand(flags: RunFlags): Promise<number> {
+  if (!flags.task && !flags.goal) return fail('give a testbed task (--task <id>) or a goal ("...")', 2);
+  if (!flags.task && !flags.url) return fail("--url is required with a free-text goal", 2);
+  const opened = await openRuntime({ ...(flags.config ? { configPath: flags.config } : {}) });
+  if (!opened.ok) return fail(opened.error.message);
+  const rt: EngineRuntime = opened.value;
+  for (const w of rt.warnings) process.stderr.write(`warn: ${w}\n`);
+
+  let task: TaskSpec;
+  let oracle: ((id: string) => Promise<boolean | undefined>) | undefined;
+  let cookies: Parameters<typeof webLauncher>[1]["cookies"] = [];
+  if (flags.task) {
+    const prepared = await prepareTestbedRun(flags.task);
+    if (!prepared.ok) return fail(prepared.error.message);
+    for (const [name, value] of Object.entries(prepared.value.secrets)) rt.secrets.register(name, value);
+    task = prepared.value.spec;
+    if (flags.url) task = { ...task, startUrl: new URL(new URL(task.startUrl).pathname, flags.url).href };
+    oracle = prepared.value.oracle;
+    cookies = prepared.value.cookies;
+  } else {
+    task = TaskSpec.parse({
+      id: "adhoc",
+      instruction: flags.goal,
+      startUrl: flags.url,
+      allowOrigins: flags.allowOrigins,
+      secrets: agentSecretNames(rt),
+      budget: rt.config.budget,
+    });
+  }
+  const decision = createDecisionProvider(rt, task.budget.usd);
+  if (!decision.ok) return fail(decision.error.message);
+
+  const report = await runAgent(rt, {
+    task,
+    decision: decision.value,
+    trace: flags.trace,
+    launch: webLauncher(rt, {
+      startUrl: task.startUrl,
+      allowOrigins: [...task.allowOrigins, ...flags.allowOrigins],
+      ...(flags.profile ? { profile: flags.profile } : {}),
+      headless: flags.headless,
+      cookies,
+    }),
+    hooks: {
+      ...(oracle ? { oracle } : {}),
+      approve: createApprover({ yes: flags.yes }),
+      ...(flags.json ? {} : { onEvent: progressPrinter() }),
+    },
+  });
+  if (!report.ok) return fail(report.error);
+  const r = report.value;
+  if (flags.json)
+    out(
+      JSON.stringify(
+        {
+          runId: r.runId,
+          folder: r.folder,
+          outcome: r.outcome,
+          reason: r.reason,
+          oraclePass: r.oraclePass,
+          summary: r.summary,
+        },
+        null,
+        2,
+      ),
+    );
+  else {
+    out(
+      `run ${r.runId}: ${r.outcome}${r.oraclePass === undefined ? "" : ` · oracle ${r.oraclePass ? "pass" : "FAIL"}`}`,
+    );
+    out(`folder ${r.folder}`);
+  }
+  const pass = r.oraclePass ?? r.outcome === "success";
+  return pass ? 0 : 1;
+}

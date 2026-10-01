@@ -61,7 +61,8 @@
     "models:snapshot": "node scripts/models-snapshot.ts",
     "dist:desktop": "bun run --filter @ghosthand/desktop dist",
     "mail": "mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025",
-    "changeset": "changeset"
+    "changeset": "changeset",
+    "smoke:loop": "node scripts/smoke-loop.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
@@ -73,6 +74,8 @@
     "@ghosthand/models": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "7.0.2",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@ghosthand/engine": "workspace:*",
+    "@ghosthand/recorder": "workspace:*"
   }
 }
