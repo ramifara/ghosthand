@@ -1,0 +1,85 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Controls</title>
+    <style>
+      body { font-family: sans-serif; }
+      #tip { display: none; }
+      #hover-target:hover + #tip { display: inline; }
+      .zone { display: inline-block; width: 140px; height: 60px; border: 1px solid #888; margin: 4px; }
+      #wrap { position: relative; width: 160px; height: 40px; }
+      #covered, #cover { position: absolute; left: 0; top: 0; width: 150px; height: 36px; }
+      #cover { background: rgba(0, 0, 0, 0.3); }
+      #scroller { height: 80px; overflow: auto; border: 1px solid #ccc; width: 220px; }
+      #spacer { height: 1600px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Settings</h1>
+      <section aria-label="Preferences">
+        <label><input type="checkbox" name="newsletter" /> Subscribe to newsletter</label>
+        <label
+          >Theme
+          <select name="theme">
+            <option>System</option>
+            <option>Light</option>
+            <option>Dark</option>
+          </select>
+        </label>
+        <div role="checkbox" aria-checked="false" tabindex="0" id="aria-check">Compact mode</div>
+        <label>Notes <textarea name="notes"></textarea></label>
+      </section>
+      <section aria-label="Pointer">
+        <button id="counter" data-testid="counter">Clicked 0 times</button>
+        <span id="hover-target" role="button" tabindex="0">Hover me</span><span id="tip" role="tooltip">Tooltip shown</span>
+        <div id="wrap"><button id="covered">Covered button</button><div id="cover"></div></div>
+        <div class="zone" id="source" draggable="true" role="button" aria-label="Drag card">Card A</div>
+        <div class="zone" id="target" role="region" aria-label="Drop zone"><button id="drop-label">Drop here</button></div>
+        <div id="scroller" tabindex="0" aria-label="Log"><div id="spacer">Log start</div></div>
+        <div style="cursor: pointer" id="clickable">Clickable card without role</div>
+      </section>
+      <section aria-label="Links">
+        <a href="/table.html">Users table</a>
+        <a id="away" href="__OTHER_ORIGIN__/elsewhere">Other site</a>
+        <a id="redirect" href="/redirect-away">Redirecting link</a>
+        <a id="control" href="http://127.0.0.1:4401/reset">Control API</a>
+        <a id="popup" href="/table.html" target="_blank">Open users in a new tab</a>
+      </section>
+      <div style="height: 1400px"></div>
+      <button id="far">Far away button</button>
+      <p id="key-log">No key yet</p>
+    </main>
+    <script>
+      let clicks = 0;
+      document.getElementById("counter").addEventListener("click", () => {
+        clicks++;
+        document.getElementById("counter").textContent = `Clicked ${clicks} times`;
+      });
+      const aria = document.getElementById("aria-check");
+      const flip = () => aria.setAttribute("aria-checked", aria.getAttribute("aria-checked") === "true" ? "false" : "true");
+      aria.addEventListener("click", flip);
+      aria.addEventListener("keydown", (e) => { if (e.key === " ") { e.preventDefault(); flip(); } });
+      document.getElementById("covered").addEventListener("click", () => {
+        document.body.dataset.covered = "clicked";
+      });
+      const source = document.getElementById("source");
+      const target = document.getElementById("target");
+      source.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", "Card A"));
+      target.addEventListener("dragover", (e) => e.preventDefault());
+      target.addEventListener("drop", (e) => {
+        e.preventDefault();
+        document.getElementById("drop-label").textContent = `Dropped ${e.dataTransfer.getData("text/plain")}`;
+      });
+      document.getElementById("clickable").addEventListener("click", (e) => {
+        e.currentTarget.textContent = "Card opened";
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "F2") document.getElementById("key-log").textContent = "F2 pressed";
+      });
+    </script>
+  </body>
+</html>

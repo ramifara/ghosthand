@@ -1,0 +1,27 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout</title>
+    <style>
+      iframe { width: 420px; height: 200px; border: 2px solid #444; margin-left: 30px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Checkout</h1>
+      <button>Back to cart</button>
+      <iframe src="/frame-inner.html" title="Payment form"></iframe>
+      <div id="shadow-host"></div>
+    </main>
+    <script>
+      const root = document.getElementById("shadow-host").attachShadow({ mode: "open" });
+      root.innerHTML = '<button id="shadow-btn">Apply coupon</button><span id="coupon"></span>';
+      root.getElementById("shadow-btn").addEventListener("click", () => {
+        root.getElementById("coupon").textContent = "Coupon applied";
+      });
+    </script>
+  </body>
+</html>
