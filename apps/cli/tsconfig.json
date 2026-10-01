@@ -12,6 +12,12 @@
     },
     {
       "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/driver-playwright"
+    },
+    {
+      "path": "../../packages/recorder"
     }
   ]
 }

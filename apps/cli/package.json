@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@ghosthand/engine": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "@ghosthand/driver-playwright": "workspace:*",
+    "@ghosthand/recorder": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
