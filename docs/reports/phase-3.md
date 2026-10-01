@@ -29,7 +29,7 @@ Date: 2026-10-01. Branch `feat/phase-3-speed-knowledge`. Decisions are in [ADR 0
 | Testbed L4–L6 | 24 new tasks with DB/audit oracles and e2e smoke (46/46 e2e green on a fresh instance). Ports follow `GHOSTHAND_TESTBED_PORT_OFFSET`. | `apps/testbed/**`, `packages/testbed-kit/**` |
 | Driver | Drag/drop/context-menu detection in frames and open shadow roots, stepped pointer drags (HTML5 and pointer-event libraries), uploads from `uploadDir`, downloads, `canScroll`, frame-aware scroll, menu-item toggles. TOTP: a secret named `*_TOTP` types the current code. | `packages/driver-playwright` |
 
-Tests: `bun run check` is green. It ran 1,159 unit tests in 134 files plus 77 server tests; 2 tests skipped because they need a running testbed. The driver browser tests (`GHOSTHAND_BROWSER_TESTS=1`) passed 151/151, the testbed e2e smoke tests passed 46/46 on a fresh instance, and the license and secrets checks are clean, including over the run folders and `knowledge.sqlite` of this report.
+Tests: `bun run check` is green. After rebasing on main (Phase 7) it ran 1,205 unit tests in 143 files plus 77 server tests; 2 tests skipped because they need a running testbed. The driver browser tests (`GHOSTHAND_BROWSER_TESTS=1`) passed 151/151, the testbed e2e smoke tests passed 46/46 on a fresh instance, and the license and secrets checks are clean, including over the run folders and `knowledge.sqlite` of this report.
 
 ## Measurements
 
