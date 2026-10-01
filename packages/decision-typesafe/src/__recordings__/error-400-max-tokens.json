@@ -1,0 +1,9 @@
+{
+  "description": "Real over-context rejection, measured 2026-10-01 by scripts/probe-jev.ts (~40k- and ~70k-token states).",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 400,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_400b400b400b400b400b400b400b40cd" },
+    "body": { "detail": { "error_type": "max_tokens_exceeded" } }
+  }
+}

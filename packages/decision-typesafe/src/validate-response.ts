@@ -7,8 +7,14 @@ import { WireChoiceAnswer, WireNoulAnswer, WireScoreAnswer } from "./wire.ts";
 
 /** Probabilities must sum to 1 within this tolerance. */
 export const PROBABILITY_SUM_TOLERANCE = 0.025;
-/** A score must lie within this distance of the distribution mean Σ i·p_i. */
+/**
+ * A score must lie within this distance of the distribution mean Σ i·p_i. Measured 2026-10-01: the API rounds
+ * probabilities, so a 10-level score of 6.86 came with a recomputed mean of 6.76. The tolerance grows with the
+ * number of levels (0.015 per level step, never below the plan's 0.02).
+ */
 export const SCORE_MEAN_TOLERANCE = 0.02;
+export const scoreMeanTolerance = (levels: number): number =>
+  Math.max(SCORE_MEAN_TOLERANCE, (levels - 1) * 0.015);
 /** Slack for float comparisons in the argmax check. */
 const ARGMAX_EPSILON = 1e-9;
 
@@ -85,10 +91,9 @@ export function validateScoreAnswer(question: ScoreQuestion, raw: unknown): Answ
   if (bad) return abstain(bad);
   if (!isProbability(confidence)) return abstain(`confidence outside [0, 1]: ${confidence}`);
   const mean = levels.reduce((acc, k, i) => acc + i * (probabilities[k] ?? 0), 0);
-  if (Math.abs(score - mean) > SCORE_MEAN_TOLERANCE) {
-    return abstain(
-      `score ${score} is not within ${SCORE_MEAN_TOLERANCE} of the distribution mean ${mean.toFixed(4)}`,
-    );
+  const tolerance = scoreMeanTolerance(levels.length);
+  if (Math.abs(score - mean) > tolerance) {
+    return abstain(`score ${score} is not within ${tolerance} of the distribution mean ${mean.toFixed(4)}`);
   }
   return { type: "score", score, confidence, probabilities: { ...probabilities } };
 }

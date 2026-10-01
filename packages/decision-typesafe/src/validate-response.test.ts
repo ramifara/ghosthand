@@ -3,6 +3,7 @@
 import type { ChoiceQuestion, Questions, ScoreQuestion } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  scoreMeanTolerance,
   validateAnswers,
   validateChoiceAnswer,
   validateNoulAnswer,
@@ -117,6 +118,12 @@ describe("validateScoreAnswer", () => {
     expect(validateScoreAnswer(scoreQ, { ...goodScore, score: 1.215 }).type).toBe("score");
     const a = validateScoreAnswer(scoreQ, { ...goodScore, score: 1.25 });
     expect(reasonOf(a)).toMatch(/distribution mean 1\.2000/);
+  });
+
+  it("scales the tolerance with the number of levels (API rounds probabilities)", () => {
+    expect(scoreMeanTolerance(3)).toBeCloseTo(0.03);
+    expect(scoreMeanTolerance(10)).toBeCloseTo(0.135);
+    expect(scoreMeanTolerance(2)).toBe(0.02);
   });
 
   it("abstains when level keys differ from the level indices", () => {
