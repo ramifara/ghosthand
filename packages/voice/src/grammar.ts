@@ -28,11 +28,30 @@ export function normalizeUtterance(text: string): string {
     .replace(/[“”"]/g, " ")
     .replace(/[,;!?]+/g, " ")
     .replace(/\.(?=\s|$)/g, " ")
+    .replace(/\bdrop-down\b/g, "dropdown")
     .replace(/\s+/g, " ")
     .trim();
   t = t.replace(LEADING_FILLERS, "").replace(TRAILING_FILLERS, "").trim();
+  // STT models sometimes repeat a short phrase ("click 12 click 12"): keep one copy.
+  t = t.replace(/^(.{3,}?)(?:\s+\1)+$/, "$1");
+  // Past-tense mishearings of the opening verb ("opened the last result").
+  t = t.replace(PAST_TENSE, (_m, verb: string) => PAST_TO_VERB[verb] ?? verb);
   return FILLER_ONLY.test(t) ? "" : t;
 }
+
+const PAST_TO_VERB: Readonly<Record<string, string>> = {
+  opened: "open",
+  clicked: "click",
+  scrolled: "scroll",
+  selected: "select",
+  checked: "check",
+  unchecked: "uncheck",
+  typed: "type",
+  pressed: "press",
+  submitted: "submit",
+  reloaded: "reload",
+};
+const PAST_TENSE = new RegExp(`^(${Object.keys(PAST_TO_VERB).join("|")})\\b`);
 
 // ---------------------------------------------------------------------------------------------------------
 // Targets

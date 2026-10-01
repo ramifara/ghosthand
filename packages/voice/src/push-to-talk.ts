@@ -4,7 +4,7 @@
 // for the live caption and local stop-word spotting, and on release trims silence (VAD) and transcribes
 // the utterance with the final backend. Audio capture itself lives in the app (renderer/utility process).
 import { err, ok, type Result } from "@ghosthand/protocol";
-import { concatChunks, durationMs, type PcmChunk, STT_SAMPLE_RATE } from "./audio.ts";
+import { concatChunks, durationMs, type PcmChunk, rms, STT_SAMPLE_RATE, toDbfs } from "./audio.ts";
 import { type PttAction, type PttEvent, PttKeyMachine, type PttTiming } from "./ptt-keys.ts";
 import { detectStopWord, type StopWordHit } from "./stop-words.ts";
 import type { SpeechToText, SttError, SttResult } from "./stt.ts";
@@ -39,6 +39,11 @@ export interface PushToTalkOptions {
   partialStepMs?: number;
   /** Audio window sent for each partial, from the start of the utterance, ms (default 6000). */
   partialWindowMs?: number;
+  /**
+   * Level (dBFS) above which a microphone frame counts as voiced. When voice stops (a word boundary),
+   * a partial runs at once instead of waiting for `partialStepMs`, which is what makes "stop" fast.
+   */
+  voicedDb?: number;
   /** Utterances shorter than this are discarded (default 250 ms). */
   minUtteranceMs?: number;
   vad?: () => VoiceActivityDetector;
@@ -65,6 +70,9 @@ export class PushToTalkSession {
   #stopHit: StopWordHit | undefined;
   #startedAt = 0;
   #generation = 0;
+  #voicedMs = 0;
+  #heardVoice = false;
+  #forcePartial = false;
 
   constructor(opts: PushToTalkOptions) {
     this.#o = opts;
@@ -91,6 +99,9 @@ export class PushToTalkSession {
     this.#samples = 0;
     this.#lastPartialAt = 0;
     this.#stopHit = undefined;
+    this.#voicedMs = 0;
+    this.#heardVoice = false;
+    this.#forcePartial = false;
     this.#startedAt = this.#clock();
     this.#set("listening");
   }
@@ -111,6 +122,15 @@ export class PushToTalkSession {
         : { samples: concatChunks([chunk]), sampleRate: STT_SAMPLE_RATE };
     this.#chunks.push(c);
     this.#samples += c.samples.length;
+    const voiced = toDbfs(rms(c.samples)) >= (this.#o.voicedDb ?? -40);
+    if (voiced) {
+      this.#voicedMs += durationMs(c.samples.length);
+      this.#heardVoice = true;
+    } else {
+      // End of a word: transcribe now rather than at the next step.
+      if (this.#voicedMs >= 60) this.#forcePartial = true;
+      this.#voicedMs = 0;
+    }
     this.#maybePartial();
   }
 
@@ -121,9 +141,10 @@ export class PushToTalkSession {
 
   #maybePartial(): void {
     const backend = this.#partialBackend();
-    if (!backend || this.#partialInFlight || this.#stopHit) return;
+    if (!backend || this.#partialInFlight || this.#stopHit || !this.#heardVoice) return;
     const stepSamples = ((this.#o.partialStepMs ?? 160) * STT_SAMPLE_RATE) / 1000;
-    if (this.#samples - this.#lastPartialAt < stepSamples) return;
+    if (!this.#forcePartial && this.#samples - this.#lastPartialAt < stepSamples) return;
+    this.#forcePartial = false;
     this.#lastPartialAt = this.#samples;
     this.#partialInFlight = true;
     const generation = this.#generation;

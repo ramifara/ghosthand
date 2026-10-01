@@ -120,6 +120,15 @@ const COMMANDS: Array<[string, Expected]> = [
   ["uncheck newsletter", { verb: "uncheck", target: "newsletter" }],
   ["focus on the search field", { verb: "focus", target: "search", role: "textbox" }],
   ["hover over the profile menu", { verb: "hover", target: "profile", role: "menu" }],
+  // STT artefacts seen in the Moonshine/Whisper probe (docs/research/voice-probe.md)
+  ["Click 12. Click 12.", { verb: "click", badge: 12 }],
+  ["Next page next page next page", { verb: "next_page" }],
+  ["Opened the last result,", { verb: "open", ordinal: -1, role: "listitem" }],
+  [
+    "Select Germany from the country drop-down.",
+    { verb: "select", target: "country", role: "combobox", value: "germany" },
+  ],
+  ["Unchecked newsletter", { verb: "uncheck", target: "newsletter" }],
   // fillers
   ["please click settings", { verb: "click", target: "settings" }],
   ["okay can you scroll down please", { verb: "scroll_down" }],
