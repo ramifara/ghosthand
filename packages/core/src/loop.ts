@@ -14,6 +14,7 @@ import type {
   GateName,
   Plan,
   Questions,
+  Result,
   RouterMode,
   RunEventDraft,
   RunOutcome,
@@ -40,7 +41,7 @@ import {
   nameUnnamed,
   unnamedTargets,
 } from "./mode-d.ts";
-import type { Planner } from "./planner.ts";
+import type { Planner, PlannerError, PlanOutput } from "./planner.ts";
 import {
   AMBIGUOUS,
   BLOCKED,
@@ -91,6 +92,10 @@ export interface LoopConfig {
   speculate: boolean;
   /** Mode C replans per run (plan: ≤ 2). */
   maxReplans: number;
+  /** Speculation v1: refine later subgoals with the planner while Jev executes the current one. */
+  refinePlan: boolean;
+  /** Refinements per run (each is one planner call). */
+  maxRefinements: number;
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
@@ -102,6 +107,8 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
   settleCapMs: 5000,
   speculate: true,
   maxReplans: 2,
+  refinePlan: true,
+  maxRefinements: 2,
 };
 
 export interface LoopDeps {
@@ -134,6 +141,8 @@ export interface LoopDeps {
   seedTargets?: (subgoal: Subgoal, snapshot: Snapshot) => string[];
   /** Source-aware mode: routes and test ids from the app's code, for the planner prompt. */
   plannerContext?: string;
+  /** Source-aware mode: a same-app URL to go to before acting (the route the goal names), or undefined. */
+  navigateFirst?: (task: TaskSpec, start: Snapshot) => string | undefined;
 }
 
 /**
@@ -186,6 +195,15 @@ type StepOutcome =
   | { kind: "subgoal_done" }
   | { kind: "end"; outcome: RunOutcome; reason: string };
 
+/** A speculative plan refinement in flight (speculation v1). */
+interface PendingRefine {
+  forIndex: number;
+  version: number;
+  controller: AbortController;
+  settled: boolean;
+  result?: Result<PlanOutput, PlannerError>;
+}
+
 export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult> {
   const cfg: LoopConfig = {
     ...DEFAULT_LOOP_CONFIG,
@@ -211,6 +229,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let visionNeeded: string | undefined;
   /** Mode of the previous step, for de-escalation events. */
   let lastMode: RouterMode = "B";
+  /** Bumped whenever the plan changes; a refinement made for another version is stale. */
+  let planVersion = 0;
+  let refinements = 0;
+  let pendingRefine: PendingRefine | undefined;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
   /** A human held the run (takeover): credit the time budget and record it. */
@@ -235,7 +257,92 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       reason: `vision needed (${why}) but ${missing}`,
     });
   };
+  /** Ends a pending refinement: applied (returns true) or discarded with a reason. */
+  const closeRefine = (applyTo: number | undefined, why: string): boolean => {
+    const p = pendingRefine;
+    if (!p) return false;
+    pendingRefine = undefined;
+    if (!p.settled) p.controller.abort(new Error(why));
+    const r = p.result;
+    if (p.settled) {
+      modelCalls++;
+      if (r?.ok) budget.spend(r.value.costUsd ?? 0);
+    }
+    const usable =
+      applyTo !== undefined &&
+      p.settled &&
+      r?.ok === true &&
+      p.forIndex === applyTo &&
+      p.version === planVersion;
+    if (usable && r?.ok) {
+      plan = {
+        source: "planner",
+        subgoals: [...plan.subgoals.slice(0, applyTo + 1), ...r.value.plan.subgoals],
+      };
+      planVersion++;
+      emit({ type: "plan", plan });
+    }
+    emit({
+      type: "model.call",
+      step,
+      role: "planner",
+      model: r?.ok ? (r.value.model ?? r.value.planner) : (deps.planner?.id ?? "planner"),
+      latencyMs: r?.ok ? r.value.latencyMs : 0,
+      ...(r?.ok && r.value.costUsd !== undefined ? { costUsd: r.value.costUsd } : {}),
+      ok: r?.ok ?? false,
+      summary: usable
+        ? `speculative refinement applied (${r?.ok ? r.value.plan.subgoals.length : 0} subgoals)`
+        : `speculative refinement discarded: ${r && !r.ok ? `${r.error.kind}: ${r.error.message}` : why}`,
+    });
+    return usable;
+  };
+  /** Starts refining the subgoals after `index` from this screen, without waiting for it. */
+  const startRefine = (index: number, snapshot: Snapshot, history: HistoryEntry[]): void => {
+    const planner = deps.planner;
+    if (!planner?.refine || !cfg.refinePlan || pendingRefine || refinements >= cfg.maxRefinements) return;
+    if (plan.source !== "planner" || index >= plan.subgoals.length - 1) return;
+    const current = plan.subgoals[index];
+    if (!current) return;
+    refinements++;
+    const controller = new AbortController();
+    const signal = deps.signal ? AbortSignal.any([deps.signal, controller.signal]) : controller.signal;
+    const entry: PendingRefine = {
+      forIndex: index,
+      version: planVersion,
+      controller,
+      settled: false,
+    };
+    pendingRefine = entry;
+    void planner
+      .refine(
+        {
+          goal: task.instruction,
+          startUrl: task.startUrl,
+          pageSummary: pageSummary(snapshot, deps.secrets),
+          ...(deps.plannerContext ? { sourceContext: deps.plannerContext } : {}),
+          maxSubgoals: 12,
+          plan,
+          currentSubgoalId: current.id,
+          history: history.slice(-8).map((h) => `${h.step}. ${h.text}`),
+        },
+        { signal },
+      )
+      .then(
+        (r) => {
+          entry.result = r;
+          entry.settled = true;
+        },
+        (e: unknown) => {
+          entry.result = {
+            ok: false,
+            error: { kind: "provider", message: e instanceof Error ? e.message : String(e) },
+          };
+          entry.settled = true;
+        },
+      );
+  };
   const finish = (outcome: RunOutcome, rawReason: string, answered?: AnswerResult): RunResult => {
+    closeRefine(undefined, "the run ended");
     const reason =
       visionNeeded !== undefined && outcome !== "success"
         ? `${rawReason}; vision needed: ${visionNeeded}`
@@ -300,6 +407,48 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     if (recipe?.plan && !task.plan) plan = { ...recipe.plan, source: "recipe" };
   }
 
+  // Source-aware: go straight to the route the goal names (zero model calls, counted as mode A).
+  if (!recipe && deps.navigateFirst) {
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    const start = await deps.computer.observe();
+    const url = start.ok ? deps.navigateFirst(task, start.value) : undefined;
+    if (url && start.ok) {
+      step++;
+      budget.step();
+      const timing: StepTiming = { settleMs: 0, observeMs: 0, decideMs: 0, actMs: 0, verifyMs: 0 };
+      emit({
+        type: "observe",
+        step,
+        snapshotId: start.value.id,
+        ...(start.value.url ? { url: start.value.url } : {}),
+        elementCount: start.value.elements.length,
+        tokenEstimate: start.value.tokenEstimate,
+        screen: screenFingerprint(start.value).key,
+        quality: start.value.quality.score,
+      });
+      emit({ type: "action", step, action: { type: "navigate", url }, effectClass: "advance", mode: "A" });
+      const t0 = clock.now();
+      const opened = await deps.computer.open(url);
+      timing.actMs = clock.now() - t0;
+      emit({
+        type: "effect",
+        step,
+        result: {
+          effect: opened.ok ? "confirmed" : "refused",
+          route: "navigation",
+          evidence: opened.ok ? [{ kind: "url", after: url }] : [],
+          ...(opened.ok ? {} : { error: { kind: "driver" as const, message: opened.error.message } }),
+          invalidatedSnapshots: [start.value.id],
+          durationMs: timing.actMs,
+        },
+      });
+      emit({ type: "step.end", step, timing, mode: "A" });
+      timings.push(timing);
+      modeCounts.A = (modeCounts.A ?? 0) + 1;
+      if (opened.ok) replayedActions++;
+    }
+  }
+
   // Mode C: without a task plan, the planner plans once from the first screen.
   if (!task.plan && !recipe?.plan && deps.planner) {
     const first = await deps.computer.observe();
@@ -316,6 +465,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     plannerCall(r, "planner");
     if (r.ok) {
       plan = r.value.plan;
+      planVersion++;
       modeCounts.C = 0;
     }
   }
@@ -382,6 +532,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     plannerCall(r, "planner");
     if (!r.ok) return false;
     plan = { source: "planner", subgoals: [...plan.subgoals.slice(0, index), ...r.value.plan.subgoals] };
+    planVersion++;
+    // The premise of a pending refinement (this subgoal succeeds on the old plan) no longer holds.
+    closeRefine(undefined, "the plan changed (replan)");
     emit({ type: "plan", plan });
     modeCounts.C = (modeCounts.C ?? 0) + 1;
     return true;
@@ -568,9 +721,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           log.debug({ step: current }, "speculative decision discarded: subgoal done");
         }
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "satisfied", steps: subgoalSteps });
+        if (pendingRefine)
+          closeRefine(i, pendingRefine.settled ? "stale" : "not ready when the subgoal ended");
         break;
       }
 
+      if (subgoalSteps === 0) startRefine(i, snapshot, history);
       step = current;
       subgoalSteps++;
       budget.step();

@@ -8,17 +8,20 @@ import type {
   PlannerCallOptions,
   PlannerError,
   PlanOutput,
+  RefineInput,
   ReplanInput,
   ToPlanOptions,
 } from "@ghosthand/core";
 import {
   buildPlannerPrompt,
+  buildRefinePrompt,
   buildReplanPrompt,
   compileDraft,
   PLAN_DRAFT_JSON_SCHEMA,
   PLANNER_SYSTEM_PROMPT,
   planCompileOptions,
   REPLAN_DRAFT_JSON_SCHEMA,
+  refineCompileOptions,
   replanCompileOptions,
 } from "@ghosthand/core";
 import type { AgentConsultant, ConsultantError, ConsultantSession, Result } from "@ghosthand/protocol";
@@ -142,6 +145,14 @@ export function createConsultantPlanner(
         buildReplanPrompt(input),
         REPLAN_DRAFT_JSON_SCHEMA,
         replanCompileOptions(input),
+        input.screenshot,
+        call,
+      ),
+    refine: (input: RefineInput, call: PlannerCallOptions = {}) =>
+      run(
+        buildRefinePrompt(input),
+        REPLAN_DRAFT_JSON_SCHEMA,
+        refineCompileOptions(input),
         input.screenshot,
         call,
       ),
