@@ -27,6 +27,7 @@ export * from "./web/network-tracker.ts";
 export * from "./web/origin-guard.ts";
 export * from "./web/rank-elements.ts";
 export * from "./web/redact-zip.ts";
+export * from "./web/screencast.ts";
 export * from "./web/secret-scope.ts";
 export * from "./web/settle.ts";
 export * from "./web/totp.ts";

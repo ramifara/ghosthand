@@ -24,6 +24,9 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 | `bun run typecheck` / `lint` / `format` / `test` | Individual steps |
 | `bun run test:e2e` | Playwright smoke tests against the testbed |
 | `bun run dev:testbed` | Testbed on 127.0.0.1:4400 (app) and :4401 (control API) |
+| `bun run dev:desktop` | Desktop app with Vite HMR (renderer on 127.0.0.1) |
+| `bun run test:desktop` | Build the desktop app and run its Electron smoke tests (needs a display; the run test also needs the testbed) |
+| `bun run dist:desktop` / `dist:desktop:appimage` | Unsigned installers into `apps/desktop/release/` (all targets for this OS / Linux AppImage only) |
 | `bun run ghosthand <args>` | Run the CLI from source |
 | `bun run eval` | Run an eval suite |
 | `bun run license:check` / `secrets:check` | CI guards |
@@ -38,6 +41,7 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 - `packages/driver-playwright`: the web `Computer` (browser detection, profiles, observe, act, settle, origin guard).
 - `packages/recorder`: run folders, `events.jsonl`, screenshots, traces, SQLite index, replay reader.
 - `packages/engine`: composition root (config, providers, run lifecycle). `apps/cli`: the `ghosthand` command.
+- `apps/desktop`: the Electron app (ADR 0008). `src/main` (thin broker: window, IPC validation, settings, `safeStorage` secrets, ChatGPT sign-in), `src/preload` (one `window.ghosthand` bridge), `src/engine-host` (utilityProcess running the engine), `src/renderer` (React UI). The IPC contract is `packages/protocol/src/ipc.ts`. Electron tests are in `apps/desktop/e2e` (Playwright `_electron`, hidden window, skipped without a display).
 - `apps/testbed/{server,web,e2e}` and `packages/testbed-kit`: the deterministic test app, task definitions and oracles. In dev, Vite serves the web app on 127.0.0.1:4400 and proxies `/api` to the Bun app API on 127.0.0.1:4410; the control API (`/reset`, `/seed/:name`, `/clock`, `/oracle/:task`, `/mail`, `/session`, `/state`, `/dump`) is on 127.0.0.1:4401. Server tests use `bun test` (`bun:sqlite` doesn't load under Vitest/Node); `bun run test` runs both. Tasks live in `packages/testbed-kit/src/tasks/`; oracles are pure functions over the DB snapshot that the server runs behind `GET /oracle/:task`. Fixture credentials are in `packages/testbed-kit/src/fixture-secrets.ts`.
 - `packages/qa` (QA mode: spec parser, preflight, judge, rubric, HTML report) and `packages/mcp` (MCP server on stdio, ADR 0006). QA specs for the testbed live in `apps/testbed/specs/` (format in its README); `ghosthand test <spec.md>` runs one, `ghosthand mcp` serves MCP. The testbed variant `bug=profile-title` plants a bug for specs to catch.
 - `scripts/`: probes that call paid APIs. Never run in CI.

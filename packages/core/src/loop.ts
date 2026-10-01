@@ -106,6 +106,17 @@ export interface LoopDeps {
   planner?: Planner;
   /** Skip opening task.startUrl (the caller already navigated). */
   skipOpen?: boolean;
+  /** Pause/resume for human takeover. Checked before every step and right before every act. */
+  control?: RunControl;
+}
+
+/**
+ * Human takeover hook (Phase 2). `checkpoint()` resolves at once while the run is not paused; while it is
+ * paused it resolves on resume (or abort). It returns the milliseconds spent paused (0 when it did not wait).
+ * After a pause the loop drops the pending decision and re-observes, because the human changed the page.
+ */
+export interface RunControl {
+  checkpoint(): Promise<number>;
 }
 
 export interface RunResult {
@@ -165,6 +176,17 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let step = 0;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
+  /** A human held the run (takeover): credit the time budget and record it. */
+  const resumed = (at: number, pausedMs: number) => {
+    budget.paused(pausedMs);
+    emit({
+      type: "human",
+      step: at,
+      kind: "takeover",
+      detail: `resumed after ${Math.round(pausedMs / 100) / 10}s of takeover; re-observing`,
+      granted: true,
+    });
+  };
   const finish = (outcome: RunOutcome, reason: string, answered?: AnswerResult): RunResult => {
     const total = Object.values(modeCounts).reduce((a, b) => a + (b ?? 0), 0);
     const modeShares: Record<string, number> = {};
@@ -282,6 +304,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const extraTexts: string[] = [];
 
     while (true) {
+      if (deps.control) {
+        const pausedMs = await deps.control.checkpoint();
+        if (pausedMs > 0) resumed(step, pausedMs);
+      }
       if (deps.signal?.aborted) return finish(...abortOutcome(deps.signal));
       const over = budget.exceeded();
       if (over) {
@@ -372,6 +398,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           modelCalls++;
           budget.spend(costUsd);
         },
+        onResumed: (pausedMs) => resumed(current, pausedMs),
         handoffs,
         extraTexts,
       };
@@ -501,6 +528,8 @@ interface DecideContext {
   onDecision: (costUsd: number) => void;
   onGoalDone: (p: number) => void;
   onModelCall: (costUsd: number) => void;
+  /** The run was paused for takeover right before acting. */
+  onResumed: (pausedMs: number) => void;
   /** Writer hand-offs on this subgoal since the last confirmed action. */
   handoffs: { count: number };
   /** Free text the writer supplied; offered to Jev as extra literals. */
@@ -771,6 +800,16 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     history.push({ step, text: `refused repeat of ${describe}` });
     return refuse();
   }
+  // Takeover: a human may have changed the page while we decided. Drop this decision and re-observe.
+  if (deps.control) {
+    const pausedMs = await deps.control.checkpoint();
+    if (pausedMs > 0) {
+      ctx.onResumed(pausedMs);
+      history.push({ step, text: `paused before ${describe}; the user took over` });
+      return { kind: "continue" };
+    }
+  }
+  const bounds = element.visibleBounds ?? element.bounds;
   deps.events.emit({
     type: "action",
     step,
@@ -780,6 +819,8 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       role: element.role,
       name: element.name,
       ...(element.automationId ? { automationId: element.automationId } : {}),
+      ...(bounds ? { bounds } : {}),
+      ...(targetAnswer?.type === "choice" ? { confidence: choiceConfidence(targetAnswer) } : {}),
     },
     mode: "B",
   });

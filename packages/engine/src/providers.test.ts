@@ -82,6 +82,20 @@ describe("setupModels", () => {
     expect(setup.catalog.get("ollama/qwen3:8b")?.inputModalities).toEqual(["text", "image"]);
   });
 
+  it("serves openai/* from a ChatGPT plan token and takes desktop role bindings", async () => {
+    const rt = await runtime("", { models: { discoverLocal: false } });
+    const setup = await setupModels(rt, {
+      env: NO_ENV,
+      chatgptAccessToken: "plan-token-xyz",
+      bindings: { writer: { models: ["openai/gpt-6-luna"] } },
+    });
+    expect(setup.keyed).toEqual(["openai"]);
+    expect(setup.registry.get("openai")?.kind).toBe("openai-chatgpt");
+    expect(setup.registry.isConfigured("openai")).toBe(true);
+    expect(setup.bindings).toEqual({ writer: { models: ["openai/gpt-6-luna"] } });
+    expect(rt.secrets.redact("Bearer plan-token-xyz")).not.toContain("plan-token-xyz");
+  });
+
   it("contacts nothing when discovery is off and no servers are configured", async () => {
     const rt = await runtime("", { models: { discoverLocal: false } });
     const seen: string[] = [];

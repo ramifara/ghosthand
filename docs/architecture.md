@@ -9,7 +9,7 @@ This is the as-built view of plan §3. The plan's own diagrams are in [`plan/pla
 ```mermaid
 flowchart LR
   user([User]) --> cli[apps/cli]
-  user --> desktop["apps/desktop (Phase 2)"]
+  user --> desktop["apps/desktop (Electron)"]
   cli --> engine
   desktop --> engine
   engine --> core
@@ -115,6 +115,23 @@ flowchart LR
 - **Decisions.** `decision.provider` picks the Jev carrier (`typesafe`, `openrouter`, `vercel`); `decision.fallback` adds failover on rate limits, overload, server, network and timeout errors only. The logprob emulation (`noul`/`choice` over a model with logprobs) is experimental and not wired into config.
 - **Consultants.** Codex (default when installed and signed in) and Claude (opt-in, `consultant.claude.enabled` or `--planner claude`) plan through the user's own CLI logins. GhostHand never reads either CLI's credentials. The Claude path carries a policy risk: Anthropic's terms for subscription use by third-party tools can change, so an `ANTHROPIC_API_KEY` is the recommended way to use Claude models.
 - `ghosthand models list` shows catalog models with role badges, computer-use support and key state (`set`, `missing`, `local`); `ghosthand doctor` reports each provider key, local servers and the Claude CLI.
+
+## Desktop app (Phase 2)
+
+Details and trade-offs are in [ADR 0008](adr/0008-desktop-app.md).
+
+```mermaid
+flowchart LR
+  R["renderer (sandboxed React, app://ghosthand)"] -- "invoke(command, input): zod + sender check" --> M[main: broker]
+  M -- "HostRequest + settings/credentials" --> H["engine host (utilityProcess): @ghosthand/engine + Playwright"]
+  H -- "MessagePort: run events, screencast frames, approvals, status" --> R
+  M --- S[("settings.json, safeStorage secrets, ChatGPT tokens")]
+  H --> B["user's Chrome/Edge/Brave (CDP screencast)"]
+```
+
+- The renderer has no Node and sees secret names only. Main validates every call with the schemas in `packages/protocol/src/ipc.ts`.
+- Takeover pauses the core loop through `RunControl.checkpoint()` (before each step and each act); resume re-observes.
+- The ChatGPT plan provider (`openai-chatgpt`) is behind a feature flag and only calls `https://api.openai.com/v1`.
 
 ## Secrets
 

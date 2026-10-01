@@ -9,6 +9,7 @@ export * from "./errors.ts";
 export * from "./events.ts";
 export * from "./geometry.ts";
 export type * from "./interfaces.ts";
+export * from "./ipc.ts";
 export * from "./json.ts";
 export * from "./result.ts";
 export * from "./snapshot.ts";

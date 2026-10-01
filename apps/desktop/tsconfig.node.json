@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../node_modules/.cache/tsc/desktop-node",
+    "rootDir": ".",
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/desktop-node.tsbuildinfo",
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/main",
+    "src/preload",
+    "src/engine-host",
+    "e2e",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ],
+  "references": [
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/driver-playwright" },
+    { "path": "../../packages/engine" },
+    { "path": "../../packages/models" },
+    { "path": "../../packages/recorder" },
+    { "path": "../../packages/testbed-kit" }
+  ]
+}

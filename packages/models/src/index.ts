@@ -106,6 +106,17 @@ export {
   localModelOverrides,
 } from "./providers/local-discovery.ts";
 export {
+  adaptSiwcRequestBody,
+  collectSiwcStream,
+  createOpenAIChatGptProvider,
+  createSiwcFetch,
+  type OpenAIChatGptProviderOptions,
+  parseSseEvents,
+  SIWC_API_BASE,
+  SIWC_REJECTED_PARAMS,
+  SIWC_USAGE_LIMIT_CODE,
+} from "./providers/openai-chatgpt-provider.ts";
+export {
   costFromMetadata,
   createOpenAICompatibleProvider,
   createOpenRouterProvider,

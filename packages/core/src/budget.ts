@@ -11,6 +11,7 @@ export class BudgetTracker {
   readonly #startedAt: number;
   #steps = 0;
   #usd = 0;
+  #pausedMs = 0;
 
   constructor(budget: Budget, clock: Clock) {
     this.budget = budget;
@@ -26,8 +27,14 @@ export class BudgetTracker {
     return this.#usd;
   }
 
+  /** Wall time since start, minus time a human held the run (takeover). */
   get elapsedMs(): number {
-    return this.#clock.now() - this.#startedAt;
+    return this.#clock.now() - this.#startedAt - this.#pausedMs;
+  }
+
+  /** Excludes a takeover pause from the time budget. */
+  paused(ms: number): void {
+    if (ms > 0) this.#pausedMs += ms;
   }
 
   get remainingMs(): number {

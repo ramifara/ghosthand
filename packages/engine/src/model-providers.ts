@@ -7,6 +7,7 @@ import {
   createAnthropicProvider,
   createGoogleProvider,
   createModelCatalog,
+  createOpenAIChatGptProvider,
   createOpenAICompatibleProvider,
   createOpenAIProvider,
   createOpenRouterProvider,
@@ -49,6 +50,10 @@ export interface ModelsSetupOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Process environment (tests pass their own). Default `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
+  /** Sign in with ChatGPT access token (desktop): the plan then serves `openai/*` instead of a key. */
+  readonly chatgptAccessToken?: string;
+  /** Role bindings from desktop settings; win over config and the per-provider defaults. */
+  readonly bindings?: RoleBindings;
 }
 
 export interface ModelsSetup {
@@ -126,7 +131,11 @@ export async function setupModels(rt: EngineRuntime, opts: ModelsSetupOptions = 
   const finalCatalog = catalog.ok ? catalog.value : fallbackCatalog.ok ? fallbackCatalog.value : undefined;
   if (finalCatalog === undefined) throw new Error("bundled model catalog is invalid");
 
+  const token = opts.chatgptAccessToken;
+  if (token) rt.secrets.register("OPENAI_CHATGPT_ACCESS_TOKEN", token);
   const providers: ModelProvider[] = keys.flatMap((k) => {
+    if (token && k.provider === "openai")
+      return [createOpenAIChatGptProvider({ getAccessToken: () => token })];
     const p = hostedProvider(k);
     return p === undefined ? [] : [p];
   });
@@ -140,7 +149,9 @@ export async function setupModels(rt: EngineRuntime, opts: ModelsSetupOptions = 
       }),
     );
   }
-  const keyed = keys.filter((k) => k.key !== undefined).map((k) => k.provider);
+  const keyed = keys
+    .filter((k) => k.key !== undefined || (token !== undefined && k.provider === "openai"))
+    .map((k) => k.provider);
 
   let bindings = defaultRoleBindingsFor(keyed);
   if (rt.config.models.roles !== undefined) {
@@ -148,6 +159,7 @@ export async function setupModels(rt: EngineRuntime, opts: ModelsSetupOptions = 
     if (parsed.ok) bindings = parsed.value;
     else warnings.push(`models.roles ignored: ${parsed.error.message}`);
   }
+  if (opts.bindings !== undefined) bindings = opts.bindings;
   return {
     catalog: finalCatalog,
     registry: createProviderRegistry(providers),

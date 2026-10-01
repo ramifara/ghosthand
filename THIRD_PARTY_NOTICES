@@ -19,6 +19,8 @@ Borrowed ideas (no code copied unless stated)
 - axe-core (MPL-2.0, Deque Systems): used unmodified as a dependency; its script is evaluated in pages under
   test for the QA accessibility score. Source: https://github.com/dequelabs/axe-core
 - Model Context Protocol TypeScript SDK (@modelcontextprotocol/sdk, MIT): used as a dependency.
+- pi-mono `packages/ai/src/auth/oauth/openai-chatgpt.ts` (MIT, Mario Zechner): structure of the Sign in with ChatGPT loopback/PKCE flow (apps/desktop/src/main/chatgpt), reimplemented from the SIWC docs; no code copied.
+- T3 Code `apps/desktop` (MIT): Electron + electron-builder monorepo layout reference.
 
 Copied code
 -----------

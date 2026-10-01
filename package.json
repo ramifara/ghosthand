@@ -64,6 +64,8 @@
     "probe:planner": "node scripts/probe-planner.ts",
     "models:snapshot": "node scripts/models-snapshot.ts",
     "dist:desktop": "bun run --filter @ghosthand/desktop dist",
+    "dist:desktop:appimage": "bun run --filter @ghosthand/desktop dist:appimage",
+    "test:desktop": "bun run --filter @ghosthand/desktop test:smoke",
     "mail": "mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025",
     "changeset": "changeset",
     "smoke:loop": "node scripts/smoke-loop.ts",
