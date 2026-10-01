@@ -71,7 +71,7 @@ describe("literals", () => {
   it("never offers a registered secret as a literal", () => {
     const r = new SecretsRegistry([["PW", "s3cret-pw"]]);
     const opts = buildTextOptions(`type "s3cret-pw" and "hello"`, ["PW"], r);
-    expect(opts.map((o) => o.key)).toEqual(["lit_1", "secret_PW"]);
+    expect(opts.map((o) => o.key)).toEqual(["lit_1", "sec_1"]);
     expect(JSON.stringify(opts)).not.toContain("s3cret-pw");
   });
 });

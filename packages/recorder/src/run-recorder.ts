@@ -116,6 +116,13 @@ export function createRunRecorder(opts: RunRecorderOptions): Result<RunRecorder,
       const event = parsed.data;
       const line = redactedJson(redactKeys(event), redact);
       if (!line.ok) return line;
+      // Redaction must not change the shape: re-validate what will actually be written.
+      if (!RunEvent.safeParse(JSON.parse(line.value)).success) {
+        return err({
+          kind: "corrupt",
+          message: `redaction made the ${draft.type} event invalid; nothing was written`,
+        });
+      }
       try {
         writeSync(fd, `${line.value}\n`);
       } catch (e) {
