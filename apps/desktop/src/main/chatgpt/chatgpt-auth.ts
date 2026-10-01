@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Orchestrates Sign in with ChatGPT in main: loopback server, system browser, PKCE exchange, encrypted
-// token storage and refresh. Behind the `chatgptSignIn` feature flag (preview; see ADR 0006).
+// token storage and refresh. Behind the `chatgptSignIn` feature flag (preview; see ADR 0008).
 // Tokens never leave main except as a short-lived access token handed to the engine host per run.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

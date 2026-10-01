@@ -78,7 +78,7 @@ export const Settings = z
     showBrowser: z.boolean().default(true),
     /** Hidden developer setting: use the heuristic decision provider when no TypeSafe key is set. */
     devPlumbingMode: z.boolean().default(false),
-    /** Feature flag for Sign in with ChatGPT (preview; see docs/adr/0006). */
+    /** Feature flag for Sign in with ChatGPT (preview; see docs/adr/0008). */
     chatgptSignIn: z.boolean().default(false),
     /** Keep secrets on disk even when Linux has no keyring (safeStorage `basic_text`). */
     persistWithoutKeyring: z.boolean().default(false),
