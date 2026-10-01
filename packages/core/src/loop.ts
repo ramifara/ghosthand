@@ -40,6 +40,7 @@ import {
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import { buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
+import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer.ts";
 
 /** Receives typed events; the recorder implements it. */
 export interface EventSink {
@@ -92,6 +93,8 @@ export interface LoopDeps {
   /** Called for "commit" actions not pre-approved by the subgoal. Absent → refused. */
   approve?: (req: ApprovalRequest) => Promise<boolean>;
   signal?: AbortSignal;
+  /** Gives a focus hint or free text when Jev is unsure (P1-04). Never picks clicks. */
+  writer?: Writer;
   /** Skip opening task.startUrl (the caller already navigated). */
   skipOpen?: boolean;
 }
@@ -144,7 +147,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   const modeCounts: Partial<Record<RouterMode, number>> = {};
   const timings: StepTiming[] = [];
   let decisionCalls = 0;
-  const modelCalls = 0;
+  let modelCalls = 0;
   let step = 0;
 
   const emit = (d: RunEventDraft) => deps.events.emit(d);
@@ -193,6 +196,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     let subgoalSteps = 0;
     let refusals = 0;
     let lastGoalDone = 0;
+    const handoffs = { count: 0 };
+    const extraTexts: string[] = [];
 
     while (true) {
       if (deps.signal?.aborted) return finish("aborted", "aborted by caller");
@@ -273,6 +278,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         onGoalDone: (p) => {
           lastGoalDone = p;
         },
+        onModelCall: (costUsd) => {
+          modelCalls++;
+          budget.spend(costUsd);
+        },
+        handoffs,
+        extraTexts,
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -359,7 +370,18 @@ interface DecideContext {
   log: Logger;
   onDecision: (costUsd: number) => void;
   onGoalDone: (p: number) => void;
+  onModelCall: (costUsd: number) => void;
+  /** Writer hand-offs on this subgoal since the last confirmed action. */
+  handoffs: { count: number };
+  /** Free text the writer supplied; offered to Jev as extra literals. */
+  extraTexts: string[];
+  /** Writer hint for this re-ask only. */
+  hint?: string;
 }
+
+/** Literal source for the text head: goal, instruction and writer-supplied texts. */
+const textGoal = (ctx: DecideContext): string =>
+  [ctx.subgoal.goal, ctx.task.instruction, ...ctx.extraTexts.map((t) => JSON.stringify(t))].join("\n");
 
 type DecideOutcome = StepOutcome | { kind: "continue"; refused: true };
 
@@ -424,7 +446,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
     [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
   );
   const candidates = buildCandidates(snapshot, { seedTargets: subgoal.seedTargets, triedHere });
-  const textOptions = buildTextOptions(`${subgoal.goal}\n${task.instruction}`, task.secrets, deps.secrets);
+  const textOptions = buildTextOptions(textGoal(ctx), task.secrets, deps.secrets);
   const { questions, offered } = buildActQuestions({ candidates, textOptions });
 
   // Elements shown in state: everything offered in any head (deduplicated), plus non-actionable context.
@@ -442,6 +464,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
       elements,
       history,
       inputs: task.secrets,
+      ...(ctx.hint ? { hint: ctx.hint } : {}),
     },
     deps.secrets,
   );
@@ -458,6 +481,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         elements,
         history,
         inputs: task.secrets,
+        ...(ctx.hint ? { hint: ctx.hint } : {}),
       },
       deps.secrets,
     );
@@ -514,7 +538,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
-    return refuse();
+    return (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
   }
   const operation = op as Operation;
   const targetAnswer = answers[targetHead(operation)];
@@ -583,6 +607,10 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     });
   for (const g of gates) gate(ctx, g.gate, g.passed, g.detail);
   if (!allPassed(gates) || !action || !element) {
+    const failed = gates.filter((g) => !g.passed);
+    // Uncertainty (not policy) failures go to the writer; effect and freshness refusals never do.
+    const unsure = failed.length > 0 && failed.every((g) => UNSURE_GATES.has(g.gate));
+    const needsText = operation === "set_value" && element !== undefined && !action;
     history.push({
       step,
       text: `refused ${operation} (${gates
@@ -590,6 +618,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
         .map((g) => g.gate)
         .join(", ")})`,
     });
+    if (unsure) {
+      const reason = failed.map((g) => `${g.gate} ${g.detail ?? ""}`.trim()).join("; ");
+      const handed = await handOff(ctx, reason, needsText ? element?.name : undefined);
+      if (handed) return handed;
+    }
     return refuse();
   }
 
@@ -618,12 +651,104 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   ctx.timing.actMs = clock.now() - t;
   deps.events.emit({ type: "effect", step, result });
   if (result.effect === "suspected_noop" || result.effect === "refused") ctx.triedNoEffect.add(key);
+  if (result.effect === "confirmed") ctx.handoffs.count = 0;
   history.push({
     step,
     text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""})`,
   });
   return { kind: "continue" };
 }
+
+const UNSURE_GATES = new Set<GateName>(["operation_confidence", "target_confidence", "target_named"]);
+
+/**
+ * Asks the writer for one hint and re-asks Jev once with it. Returns undefined when no hand-off happens
+ * (no writer, already a re-ask, or the writer has nothing). After MAX_HANDOFFS_PER_SUBGOAL hand-offs without a
+ * confirmed action the subgoal needs a replan (mode C).
+ */
+async function handOff(
+  ctx: DecideContext,
+  reason: string,
+  field?: string,
+): Promise<DecideOutcome | undefined> {
+  const writer = ctx.deps.writer;
+  if (!writer || ctx.hint !== undefined) return undefined;
+  if (ctx.handoffs.count >= MAX_HANDOFFS_PER_SUBGOAL) {
+    ctx.deps.events.emit({
+      type: "escalate",
+      step: ctx.step,
+      from: "B",
+      to: "C",
+      reason: "two writer hand-offs without progress",
+    });
+    return {
+      kind: "end",
+      outcome: "stuck",
+      reason: `needs replan: ${MAX_HANDOFFS_PER_SUBGOAL} writer hand-offs without progress`,
+    };
+  }
+  ctx.handoffs.count++;
+  const state = buildState(
+    {
+      instruction: ctx.task.instruction,
+      goal: ctx.subgoal.goal,
+      step: ctx.step,
+      phase: "act",
+      snapshot: ctx.snapshot,
+      history: ctx.history,
+      inputs: ctx.task.secrets,
+    },
+    ctx.deps.secrets,
+  );
+  const page = JSON.stringify({ page: state.page, texts: state.texts, elements: state.elements }).slice(
+    0,
+    8000,
+  );
+  const t = ctx.clock.now();
+  const r = await writer.hint(
+    {
+      instruction: ctx.task.instruction,
+      goal: ctx.subgoal.goal,
+      page,
+      history: ctx.history.map((h) => `${h.step}. ${h.text}`),
+      reason,
+      ...(field ? { field } : {}),
+    },
+    ctx.deps.signal ? { signal: ctx.deps.signal } : {},
+  );
+  const latencyMs = r.ok ? r.value.latencyMs : ctx.clock.now() - t;
+  ctx.onModelCall(r.ok ? r.value.costUsd : 0);
+  ctx.deps.events.emit({
+    type: "model.call",
+    step: ctx.step,
+    role: "writer",
+    model: r.ok ? r.value.model : writer.id,
+    latencyMs,
+    ...(r.ok ? { costUsd: r.value.costUsd } : {}),
+    ok: r.ok,
+    summary: r.ok
+      ? ctx.deps.secrets.redact(summarizeHint(r.value.hint))
+      : `${r.error.kind}: ${r.error.message}`,
+  });
+  if (!r.ok || r.value.hint.kind === "none") return undefined;
+  const hint = r.value.hint;
+  // Free text never carries a secret value: the registry redacts it, and secrets are offered by name anyway.
+  const text = hint.kind === "text" ? ctx.deps.secrets.redact(hint.text) : undefined;
+  if (text !== undefined && !text.includes("[input:")) ctx.extraTexts.push(text);
+  const focus =
+    hint.kind === "focus"
+      ? hint.focus
+      : `Type ${JSON.stringify(text ?? "")} into ${field ? JSON.stringify(field) : "the field"}.`;
+  ctx.history.push({ step: ctx.step, text: `writer hint: ${focus.slice(0, 160)}` });
+  return decideAndAct({ ...ctx, hint: ctx.deps.secrets.redact(focus) });
+}
+
+const summarizeHint = (h: WriterHint): string =>
+  h.kind === "focus"
+    ? `focus: ${h.focus}`
+    : h.kind === "text"
+      ? `text (${h.text.length} chars)`
+      : `none: ${h.reason}`;
 
 function gate(ctx: DecideContext, name: GateName, passed: boolean, detail?: string): void {
   ctx.deps.events.emit({ type: "gate", step: ctx.step, gate: name, passed, ...(detail ? { detail } : {}) });
@@ -637,11 +762,7 @@ function pickText(
 ): { value: FieldValue; label: string } | undefined {
   if (answer?.type !== "choice" || answer.choice === NONE) return undefined;
   if (choiceConfidence(answer) < ctx.cfg.gates.target) return undefined;
-  const options: TextOption[] = buildTextOptions(
-    `${ctx.subgoal.goal}\n${ctx.task.instruction}`,
-    ctx.task.secrets,
-    ctx.deps.secrets,
-  );
+  const options: TextOption[] = buildTextOptions(textGoal(ctx), ctx.task.secrets, ctx.deps.secrets);
   const o = options.find((x) => x.key === answer.choice);
   if (!o) return undefined;
   return o.kind === "literal"
