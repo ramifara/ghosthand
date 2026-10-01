@@ -13,6 +13,7 @@ import type {
   FieldValue,
   GateName,
   Plan,
+  Questions,
   RouterMode,
   RunEventDraft,
   RunOutcome,
@@ -65,6 +66,8 @@ export interface LoopConfig {
   /** Consecutive gate refusals tolerated before the subgoal is declared stuck. */
   maxConsecutiveRefusals: number;
   settleCapMs: number;
+  /** Send the next decision in parallel with a model verify check on the same snapshot. */
+  speculate: boolean;
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
@@ -74,6 +77,7 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
   maxStateTokens: 20_000,
   maxConsecutiveRefusals: 3,
   settleCapMs: 5000,
+  speculate: true,
 };
 
 export interface LoopDeps {
@@ -249,6 +253,33 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         },
         deps.secrets,
       );
+      const ctx: DecideContext = {
+        deps,
+        cfg,
+        task,
+        subgoal,
+        snapshot,
+        step: current,
+        history,
+        triedNoEffect,
+        stall,
+        timing,
+        clock,
+        log,
+        onDecision: (costUsd) => {
+          decisionCalls++;
+          budget.spend(costUsd);
+        },
+        onGoalDone: (p) => {
+          lastGoalDone = p;
+        },
+      };
+      // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
+      // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
+      const speculative =
+        cfg.speculate && checkModel && subgoal.doneWhen.all.some((p) => p.kind === "model")
+          ? startAct(ctx)
+          : undefined;
       const done = await evaluateDoneWhen(
         checkModel ? subgoal.doneWhen : { all: [], none: subgoal.doneWhen.none },
         snapshot,
@@ -272,6 +303,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         });
       }
       if (done.state === "satisfied") {
+        if (speculative) {
+          await speculative.response;
+          log.debug({ step: current }, "speculative decision discarded: subgoal done");
+        }
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "satisfied", steps: subgoalSteps });
         break;
       }
@@ -282,32 +317,13 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
 
       const verdict = stall.verdict();
       if (verdict.stalled) {
+        if (speculative) await speculative.response;
         emit({ type: "escalate", step, from: "B", to: "H", reason: verdict.reason ?? "stalled" });
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
         return finish("stuck", verdict.reason ?? "stalled");
       }
 
-      const outcome = await decideAndAct({
-        deps,
-        cfg,
-        task,
-        subgoal,
-        snapshot,
-        step,
-        history,
-        triedNoEffect,
-        stall,
-        timing,
-        clock,
-        log,
-        onDecision: (costUsd) => {
-          decisionCalls++;
-          budget.spend(costUsd);
-        },
-        onGoalDone: (p) => {
-          lastGoalDone = p;
-        },
-      });
+      const outcome = await decideAndAct(ctx, speculative);
       modeCounts.B = (modeCounts.B ?? 0) + 1;
       timings.push(timing);
       emit({ type: "step.end", step, timing, mode: "B" });
@@ -396,8 +412,14 @@ async function ask(
 
 const refuse = (): DecideOutcome => ({ kind: "continue", refused: true });
 
-async function decideAndAct(ctx: DecideContext): Promise<DecideOutcome> {
-  const { deps, cfg, task, subgoal, snapshot, step, history, clock } = ctx;
+interface PreparedAct {
+  questions: Questions;
+  offered: Operation[];
+  state: Entry;
+}
+
+function prepareAct(ctx: DecideContext): PreparedAct {
+  const { deps, cfg, task, subgoal, snapshot, step, history } = ctx;
   const triedHere = new Set(
     [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
   );
@@ -440,9 +462,33 @@ async function decideAndAct(ctx: DecideContext): Promise<DecideOutcome> {
       deps.secrets,
     );
   }
+  return { questions, offered, state };
+}
 
+type AskResult = Awaited<ReturnType<typeof ask>>;
+
+/** A decision request sent early (speculatively) for this step's snapshot. */
+export interface SpeculativeAct {
+  prepared: PreparedAct;
+  response: Promise<AskResult>;
+  startedAt: number;
+}
+
+function startAct(ctx: DecideContext): SpeculativeAct {
+  const prepared = prepareAct(ctx);
+  return {
+    prepared,
+    response: ask(ctx, "act", prepared.state, prepared.questions),
+    startedAt: ctx.clock.now(),
+  };
+}
+
+async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): Promise<DecideOutcome> {
+  const { deps, cfg, subgoal, snapshot, step, history, clock } = ctx;
   let t = clock.now();
-  const r = await ask(ctx, "act", state, questions);
+  const pending = speculative ?? startAct(ctx);
+  const { offered } = pending.prepared;
+  const r = await pending.response;
   ctx.timing.decideMs = clock.now() - t;
   if (!r.ok) {
     if (r.error.kind === "auth" || r.error.kind === "budget")
