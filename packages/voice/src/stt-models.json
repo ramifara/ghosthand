@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "moonshine-tiny-en",
+      "engine": "moonshine",
+      "title": "Moonshine v2 Tiny (English, int8)",
+      "languages": ["en"],
+      "license": "MIT",
+      "homepage": "https://github.com/moonshine-ai/moonshine",
+      "default": true,
+      "sizeBytes": 29858559,
+      "archive": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2",
+        "sha256": "9ec31b342d8fa3240c3b81b8f82e1cf7e3ac467c93ca5a999b741d5887164f8d",
+        "size": 29858559,
+        "format": "tar.bz2",
+        "root": "sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27"
+      },
+      "layout": {
+        "encoder": "encoder_model.ort",
+        "mergedDecoder": "decoder_model_merged.ort",
+        "tokens": "tokens.txt"
+      }
+    },
+    {
+      "id": "moonshine-base-en",
+      "engine": "moonshine",
+      "title": "Moonshine v2 Base (English, int8)",
+      "languages": ["en"],
+      "license": "MIT",
+      "homepage": "https://github.com/moonshine-ai/moonshine",
+      "default": false,
+      "sizeBytes": 111266225,
+      "archive": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-quantized-2026-02-27.tar.bz2",
+        "sha256": "43232c1d13013d37317163baec3135bd771a186a4356f28c889bab453bb0e891",
+        "size": 111266225,
+        "format": "tar.bz2",
+        "root": "sherpa-onnx-moonshine-base-en-quantized-2026-02-27"
+      },
+      "layout": {
+        "encoder": "encoder_model.ort",
+        "mergedDecoder": "decoder_model_merged.ort",
+        "tokens": "tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-tiny-en",
+      "engine": "whisper",
+      "title": "Whisper Tiny (English, int8)",
+      "languages": ["en"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 103627191,
+      "files": [
+        {
+          "path": "tiny.en-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-decoder.int8.onnx",
+          "sha256": "06c0e6ff6348d427e51839219d1c886c18cfdf411e629e33f5e1679bff9c1527",
+          "size": 89853865
+        },
+        {
+          "path": "tiny.en-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-encoder.int8.onnx",
+          "sha256": "0ce578b827c94a961aacb8fa14b02f096504b337e5c94be37c36238cbe3e8bc6",
+          "size": 12937772
+        },
+        {
+          "path": "tiny.en-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-tokens.txt",
+          "sha256": "306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930",
+          "size": 835554
+        }
+      ],
+      "layout": {
+        "encoder": "tiny.en-encoder.int8.onnx",
+        "decoder": "tiny.en-decoder.int8.onnx",
+        "tokens": "tiny.en-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-base-en",
+      "engine": "whisper",
+      "title": "Whisper Base (English, int8)",
+      "languages": ["en"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 160626066,
+      "files": [
+        {
+          "path": "base.en-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/resolve/59eea950fc76df2453efb57e6c0fd334548e8ffe/base.en-decoder.int8.onnx",
+          "sha256": "f7162ad6db2dbef16cfaeaa7f945b9d7dd9c1b8d472f6aca82f2273d185e4d41",
+          "size": 130669978
+        },
+        {
+          "path": "base.en-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/resolve/59eea950fc76df2453efb57e6c0fd334548e8ffe/base.en-encoder.int8.onnx",
+          "sha256": "ef6b936f4c9b1d90a3b68634b60c4ed8576b26172b33c2535ec0e933c9edb823",
+          "size": 29120534
+        },
+        {
+          "path": "base.en-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/resolve/59eea950fc76df2453efb57e6c0fd334548e8ffe/base.en-tokens.txt",
+          "sha256": "306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930",
+          "size": 835554
+        }
+      ],
+      "layout": {
+        "encoder": "base.en-encoder.int8.onnx",
+        "decoder": "base.en-decoder.int8.onnx",
+        "tokens": "base.en-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-small-en",
+      "engine": "whisper",
+      "title": "Whisper Small (English, int8)",
+      "languages": ["en"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 375501079,
+      "files": [
+        {
+          "path": "small.en-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small.en/resolve/d9533f69affd85061aee349af7fea5cb2996dbbe/small.en-decoder.int8.onnx",
+          "sha256": "710ccf890e10f3faa15f51ec346081a2723c9f3adb6e4da81c6573a5a6f877fb",
+          "size": 262223042
+        },
+        {
+          "path": "small.en-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small.en/resolve/d9533f69affd85061aee349af7fea5cb2996dbbe/small.en-encoder.int8.onnx",
+          "sha256": "8bdac288f369aa94ee2194059238c465ed82ea9d47ee8fa4a8c0a891873e462f",
+          "size": 112442483
+        },
+        {
+          "path": "small.en-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small.en/resolve/d9533f69affd85061aee349af7fea5cb2996dbbe/small.en-tokens.txt",
+          "sha256": "306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930",
+          "size": 835554
+        }
+      ],
+      "layout": {
+        "encoder": "small.en-encoder.int8.onnx",
+        "decoder": "small.en-decoder.int8.onnx",
+        "tokens": "small.en-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-tiny",
+      "engine": "whisper",
+      "title": "Whisper Tiny (multilingual, int8)",
+      "languages": ["multi"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 103609903,
+      "files": [
+        {
+          "path": "tiny-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-decoder.int8.onnx",
+          "sha256": "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925",
+          "size": 89855401
+        },
+        {
+          "path": "tiny-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-encoder.int8.onnx",
+          "sha256": "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434",
+          "size": 12937772
+        },
+        {
+          "path": "tiny-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-tokens.txt",
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+          "size": 816730
+        }
+      ],
+      "layout": {
+        "encoder": "tiny-encoder.int8.onnx",
+        "decoder": "tiny-decoder.int8.onnx",
+        "tokens": "tiny-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-base",
+      "engine": "whisper",
+      "title": "Whisper Base (multilingual, int8)",
+      "languages": ["multi"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 160609290,
+      "files": [
+        {
+          "path": "base-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-decoder.int8.onnx",
+          "sha256": "9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d",
+          "size": 130672026
+        },
+        {
+          "path": "base-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-encoder.int8.onnx",
+          "sha256": "0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11",
+          "size": 29120534
+        },
+        {
+          "path": "base-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-tokens.txt",
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+          "size": 816730
+        }
+      ],
+      "layout": {
+        "encoder": "base-encoder.int8.onnx",
+        "decoder": "base-decoder.int8.onnx",
+        "tokens": "base-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-small",
+      "engine": "whisper",
+      "title": "Whisper Small (multilingual, int8)",
+      "languages": ["multi"],
+      "license": "MIT",
+      "homepage": "https://github.com/openai/whisper",
+      "default": false,
+      "sizeBytes": 375485327,
+      "files": [
+        {
+          "path": "small-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-decoder.int8.onnx",
+          "sha256": "acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee",
+          "size": 262226114
+        },
+        {
+          "path": "small-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx",
+          "sha256": "4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9",
+          "size": 112442483
+        },
+        {
+          "path": "small-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-tokens.txt",
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+          "size": 816730
+        }
+      ],
+      "layout": {
+        "encoder": "small-encoder.int8.onnx",
+        "decoder": "small-decoder.int8.onnx",
+        "tokens": "small-tokens.txt"
+      }
+    },
+    {
+      "id": "silero-vad",
+      "engine": "silero-vad",
+      "title": "Silero VAD (ONNX)",
+      "languages": ["multi"],
+      "license": "MIT",
+      "homepage": "https://github.com/snakers4/silero-vad",
+      "default": true,
+      "sizeBytes": 643854,
+      "files": [
+        {
+          "path": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+          "size": 643854
+        }
+      ],
+      "layout": {
+        "model": "silero_vad.onnx"
+      }
+    }
+  ]
+}

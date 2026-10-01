@@ -2,7 +2,7 @@
   "name": "@ghosthand/voice",
   "version": "0.0.0",
   "private": true,
-  "description": "Push-to-talk, VAD and speech-to-text",
+  "description": "Push-to-talk, VAD, speech-to-text backends, STT model manager and the voice command grammar",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@ghosthand/core": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "zod": "catalog:"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-node": "1.13.8"
   },
   "scripts": {
     "test": "vitest run"
