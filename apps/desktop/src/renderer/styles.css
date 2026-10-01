@@ -1,0 +1,147 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* Copyright (C) 2026 Rami Fara and GhostHand contributors */
+/* GhostHand console tokens. Light and dark follow the device; both are first-class. Neutrals are a cool
+   grey-green (instrument enclosure), the accent is the plan's teal, amber marks anything that needs a
+   human, and every number renders in the mono face. */
+@import "tailwindcss";
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+:root {
+  color-scheme: light dark;
+  --bg: #e9eeed;
+  --panel: #f8fbfa;
+  --panel-2: #f0f4f3;
+  --ink: #131a1b;
+  --muted: #566465;
+  --faint: #8a9898;
+  --line: #cdd7d6;
+  --line-strong: #a9b8b7;
+  --accent: #0f6b5c;
+  --accent-ink: #ffffff;
+  --accent-soft: #d6ebe5;
+  --amber: #a14d00;
+  --amber-soft: #f6e3cc;
+  --danger: #b42318;
+  --danger-soft: #f8dcd8;
+  --ok: #17734a;
+  --focus: #0f6b5c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1011;
+    --panel: #121a1b;
+    --panel-2: #172122;
+    --ink: #e2eae9;
+    --muted: #93a5a5;
+    --faint: #64777a;
+    --line: #233032;
+    --line-strong: #34484a;
+    --accent: #4fc6ad;
+    --accent-ink: #062520;
+    --accent-soft: #143029;
+    --amber: #f0a55b;
+    --amber-soft: #33240f;
+    --danger: #f27a6e;
+    --danger-soft: #3a1714;
+    --ok: #57c78f;
+    --focus: #4fc6ad;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+  --text-2xs: 0.6875rem;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Instrument label: small uppercase mono, the console's typographic voice. */
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Thin scrollbars that match the panels. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+@keyframes pulse-ring {
+  0% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0.9;
+  }
+}
+
+.reticle-live {
+  animation: pulse-ring 1.6s ease-in-out infinite;
+}
+
+/* biome-ignore-start lint/complexity/noImportantStyles: reduced motion must win over every component animation */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+/* biome-ignore-end lint/complexity/noImportantStyles: end */
