@@ -19,5 +19,6 @@ export function toTaskSpec(task: TestbedTask, appOrigin: string = APP_ORIGIN): T
     budget: task.budget,
     secrets: [...task.secrets],
     forbidden: [...task.forbidden],
+    expectsAnswer: task.expectsAnswer,
   });
 }

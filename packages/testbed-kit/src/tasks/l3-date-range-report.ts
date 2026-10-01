@@ -14,6 +14,7 @@ export const l3DateRangeReport = defineTask({
   level: 3,
   setup: { seed: DEFAULT_SEED, login: ALICE_EMAIL },
   start: "/reports",
+  expectsAnswer: true,
   instruction:
     `On the Reports page, set the date range from ${L3_REPORT_RANGE.from} to ${L3_REPORT_RANGE.to}, ` +
     "run the report and tell me the total revenue it shows.",

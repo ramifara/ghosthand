@@ -18,6 +18,7 @@ export const l2OrdersSortFind = defineTask({
   level: 2,
   setup: { seed: DEFAULT_SEED, login: ALICE_EMAIL },
   start: "/orders",
+  expectsAnswer: true,
   instruction:
     "On the Orders page, sort the orders by date placed with the newest first and go to page 2. " +
     "Report the order ID of the order with the highest amount on that page.",

@@ -83,6 +83,8 @@ export const TaskSpec = z.object({
   secrets: z.array(z.string()).default([]),
   /** Forbidden outcomes, phrased for the effect gate (e.g. "delete any order"). */
   forbidden: z.array(z.string()).default([]),
+  /** The task asks for a reported answer (extract mode, "tell me ..."). */
+  expectsAnswer: z.boolean().default(false),
 });
 export type TaskSpec = z.infer<typeof TaskSpec>;
 export type TaskSpecInput = z.input<typeof TaskSpec>;

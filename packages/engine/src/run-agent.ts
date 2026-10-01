@@ -35,7 +35,8 @@ export type ComputerLauncher = () => Promise<
 >;
 
 export interface RunHooks {
-  oracle?: (taskId: string) => Promise<boolean | undefined>;
+  /** Grades the run; receives the agent's reported answer for answer tasks. */
+  oracle?: (taskId: string, answer?: string) => Promise<boolean | undefined>;
   approve?: (req: ApprovalRequest) => Promise<boolean>;
   onEvent?: (event: RunEvent) => void;
   signal?: AbortSignal;
@@ -217,7 +218,7 @@ export async function runAgent(
       timings: [],
     };
   }
-  const oraclePass = hooks.oracle ? await hooks.oracle(opts.task.id) : undefined;
+  const oraclePass = hooks.oracle ? await hooks.oracle(opts.task.id, result.answer) : undefined;
   const summary = await closeSession(s, launched.value);
   return {
     ok: true,

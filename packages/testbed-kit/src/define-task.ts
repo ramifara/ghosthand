@@ -41,6 +41,8 @@ export interface TaskDefinitionInput {
   secrets: readonly FixtureSecretName[];
   /** Deterministic completion predicates for the step loop (protocol `DoneWhen`). */
   doneWhen?: DoneWhen;
+  /** The task asks the agent to report something; the answer is graded by the oracle. */
+  expectsAnswer?: boolean;
 }
 
 export interface TestbedTask {
@@ -58,6 +60,7 @@ export interface TestbedTask {
   readonly budget: Budget;
   readonly secrets: readonly FixtureSecretName[];
   readonly doneWhen: DoneWhen;
+  readonly expectsAnswer: boolean;
 }
 
 const ID_PATTERN = /^l\d-[a-z0-9-]+$/;
@@ -98,5 +101,6 @@ export function defineTask(input: TaskDefinitionInput): TestbedTask {
     budget,
     secrets: Object.freeze([...input.secrets]),
     doneWhen,
+    expectsAnswer: input.expectsAnswer ?? false,
   });
 }
