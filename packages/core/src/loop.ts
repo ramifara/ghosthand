@@ -1202,7 +1202,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     const streak = noteNone(ctx, op === BLOCKED);
     const viaVision =
       streak >= 2
-        ? await visionGround(ctx, `no listed element fits (${streak} times on this screen)`, "advance")
+        ? await visionGround(
+            ctx,
+            `no listed element fits (${streak} times on this screen)`,
+            answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance",
+          )
         : undefined;
     return viaVision ?? (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
   }
@@ -1335,11 +1339,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
                 : `unnamed controls (q=${snapshot.quality.score.toFixed(2)})`,
             )
           : streak >= 2
-            ? await visionGround(
-                ctx,
-                `no listed element fits (${streak} times on this screen)`,
-                effect === "forbidden" ? "advance" : effect,
-              )
+            ? await visionGround(ctx, `no listed element fits (${streak} times on this screen)`, effect)
             : undefined;
       if (viaVision) return viaVision;
       const handed = await handOff(ctx, reason, needsText ? element?.name : undefined);
