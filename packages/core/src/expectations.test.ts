@@ -114,7 +114,10 @@ describe("verify path (three-state, records who decided)", () => {
     let asked = 0;
     const counting: DecisionProvider = {
       ...decisionWith(0.99),
-      ask: async (...a) => (asked++, decisionWith(0.99).ask(...a)),
+      ask: async (...a) => {
+        asked++;
+        return decisionWith(0.99).ask(...a);
+      },
     };
     const r = await evaluateDoneWhen(compileDoneWhen(["url is /profile", "it looks right"]), snap(), {
       decision: counting,

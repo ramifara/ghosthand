@@ -4,7 +4,11 @@ import type { RunRecord } from "@ghosthand/recorder";
 
 export function table(rows: string[][]): string {
   const widths: number[] = [];
-  for (const row of rows) row.forEach((c, i) => (widths[i] = Math.max(widths[i] ?? 0, c.length)));
+  for (const row of rows) {
+    row.forEach((c, i) => {
+      widths[i] = Math.max(widths[i] ?? 0, c.length);
+    });
+  }
   return rows
     .map((row) =>
       row
