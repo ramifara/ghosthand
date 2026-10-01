@@ -9,6 +9,7 @@ import { actionsForReplay, readRun } from "@ghosthand/recorder";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config-loader.ts";
 import { loadEnvFile, parseEnv } from "./env-file.ts";
+import { exportPlaywrightSpec } from "./export-spec.ts";
 import { type ComputerLauncher, runAgent, runReplay } from "./run-agent.ts";
 import { openRuntime } from "./runtime.ts";
 
@@ -143,5 +144,72 @@ describe("runAgent + replay (fake computer, recorded decisions)", () => {
     expect(replay.value.result.decisionCalls).toBe(0);
     expect(computers.at(-1)?.actions).toEqual(["set_value e3", "set_value e4", "press e5"]);
     expect(existsSync(join(replay.value.folder, "events.jsonl"))).toBe(true);
+  });
+});
+
+describe("replay v1: healing and spec export", () => {
+  it("heals a renamed button with one Jev call and exports a Playwright spec", async () => {
+    const { rt } = await runtime();
+    const { launch } = launcher(rt);
+    const run = await runAgent(rt, { task, launch, decision: new ScriptedDecisionProvider(recording) });
+    if (!run.ok) throw new Error(run.error);
+    const log = readRun(run.value.runId, { runsDir: rt.runsDir });
+    if (!log.ok) throw new Error(log.error.message);
+    const steps = actionsForReplay(log.value.events).map((a) => ({
+      step: a.step,
+      action: a.action,
+      target: a.target ?? null,
+    }));
+
+    let moved: FakeLoginComputer | undefined;
+    const movedLaunch: ComputerLauncher = async () => {
+      moved = new FakeLoginComputer({
+        email: "alice@testbed.local",
+        passwordSecret: "TESTBED_PASSWORD",
+        secrets: rt.secrets,
+        submitLabel: "Log in",
+      });
+      return { ok: true, value: { computer: moved, surface: "fake", close: async () => {} } };
+    };
+    const noHeal = await runReplay(rt, { task, steps, launch: movedLaunch, replayOf: run.value.runId });
+    expect(noHeal.ok && noHeal.value.outcome).toBe("failure");
+
+    const healer = new ScriptedDecisionProvider({
+      model: "jev-1.13.0",
+      calls: [
+        {
+          answers: {
+            same_control: {
+              type: "choice",
+              choice: "e5",
+              confidence: 0.93,
+              probabilities: { e5: 0.93, e3: 0.02, e4: 0.02, none: 0.03 },
+            },
+          },
+          usage: { inputTokens: 300, outputTokens: 5 },
+          latencyMs: 190,
+        },
+      ],
+    });
+    const healed = await runReplay(rt, {
+      task,
+      steps,
+      launch: movedLaunch,
+      replayOf: run.value.runId,
+      decision: healer,
+    });
+    if (!healed.ok) throw new Error(healed.error);
+    expect(healed.value.outcome).toBe("success");
+    expect(healed.value.result).toMatchObject({ decisionCalls: 1, heals: 1 });
+    expect(moved?.loggedIn).toBe(true);
+
+    const spec = exportPlaywrightSpec(task, steps);
+    expect(spec).toContain(
+      'page.getByRole("button" as Parameters<Page["getByRole"]>[0], { name: "Sign in", exact: true })',
+    );
+    expect(spec).toContain('process.env["TESTBED_PASSWORD"]');
+    expect(spec).toContain('.fill("alice@testbed.local")');
+    expect(spec).toContain("toHaveURL");
+    expect(spec).not.toContain(PASSWORD);
   });
 });
