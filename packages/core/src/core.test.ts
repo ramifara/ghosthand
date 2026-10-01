@@ -263,6 +263,17 @@ describe("budgets", () => {
     u.spend(0.02);
     expect(u.exceeded()?.kind).toBe("usd");
   });
+
+  it("does not count takeover pauses against the time budget", () => {
+    let now = 0;
+    const b = new BudgetTracker({ steps: 9, seconds: 10, usd: 1 }, { now: () => now });
+    now = 12_000;
+    b.paused(5_000);
+    expect(b.elapsedMs).toBe(7_000);
+    expect(b.exceeded()).toBeUndefined();
+    b.paused(-1);
+    expect(b.elapsedMs).toBe(7_000);
+  });
 });
 
 describe("done_when", () => {

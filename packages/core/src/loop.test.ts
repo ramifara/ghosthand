@@ -112,4 +112,45 @@ describe("runTask (mode B, recorded decisions, no network)", () => {
     expect(r.outcome).toBe("budget_exhausted");
     expect(r.steps).toBe(2);
   });
+
+  it("drops the pending action when the user takes over before it, then re-observes", async () => {
+    const [c0, c1, c2] = recording.calls;
+    if (!c0 || !c1 || !c2) throw new Error("fixture");
+    const { computer, decision, sink, task, secrets, events } = setup({
+      ...recording,
+      calls: [c0, c0, c1, c2],
+    });
+    // Checkpoints: loop top of step 1 (run), before act of step 1 (paused 1.5 s), then always running.
+    const pauses = [0, 1500];
+    let checks = 0;
+    const r = await runTask(task, {
+      computer,
+      decision,
+      events: sink,
+      secrets,
+      control: {
+        checkpoint: async () => {
+          checks++;
+          return pauses.shift() ?? 0;
+        },
+      },
+    });
+    expect(r.outcome).toBe("success");
+    expect(r.decisionCalls).toBe(4);
+    expect(computer.actions).toEqual(["set_value e3", "set_value e4", "press e5"]);
+    const takeovers = events.filter((e) => e.type === "human" && e.kind === "takeover");
+    expect(takeovers).toHaveLength(1);
+    expect(checks).toBeGreaterThan(4);
+    // The dropped decision produced no action event for step 1.
+    const firstAction = events.find((e) => e.type === "action");
+    expect(firstAction?.type === "action" ? firstAction.step : -1).toBe(2);
+  });
+
+  it("puts the target's bounds and confidence on action events", async () => {
+    const { computer, decision, sink, task, secrets, events } = setup();
+    await runTask(task, { computer, decision, events: sink, secrets });
+    const action = events.find((e) => e.type === "action");
+    if (action?.type !== "action") throw new Error("no action");
+    expect(action.target?.confidence).toBeGreaterThan(0.5);
+  });
 });
