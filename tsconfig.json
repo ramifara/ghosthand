@@ -1,0 +1,53 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/consultants"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/decision-typesafe"
+    },
+    {
+      "path": "packages/driver-playwright"
+    },
+    {
+      "path": "packages/engine"
+    },
+    {
+      "path": "packages/evals"
+    },
+    {
+      "path": "packages/knowledge"
+    },
+    {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "packages/models"
+    },
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "packages/qa"
+    },
+    {
+      "path": "packages/recorder"
+    },
+    {
+      "path": "packages/testbed-kit"
+    },
+    {
+      "path": "packages/voice"
+    },
+    {
+      "path": "apps/cli"
+    },
+    {
+      "path": "scripts"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@ghosthand/evals",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs task suites against the testbed and records results",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/engine": "workspace:*",
+    "@ghosthand/protocol": "workspace:*",
+    "@ghosthand/testbed-kit": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

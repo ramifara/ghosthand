@@ -1,0 +1,25 @@
+{
+  "name": "@ghosthand/engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Composition root: config, providers, run lifecycle",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/core": "workspace:*",
+    "@ghosthand/protocol": "workspace:*",
+    "@ghosthand/decision-typesafe": "workspace:*",
+    "@ghosthand/driver-playwright": "workspace:*",
+    "@ghosthand/recorder": "workspace:*",
+    "@ghosthand/consultants": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}
