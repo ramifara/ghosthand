@@ -63,6 +63,7 @@ export {
   toModelUsage,
 } from "./model-client.ts";
 export { FALLBACK_KINDS, type ModelAttempt, type ModelError, ModelErrorKind } from "./model-error.ts";
+export { createModelPlanner, plannerErrorFromModel } from "./model-planner.ts";
 export { formatModelRef, type ModelRef, parseModelRef } from "./model-ref.ts";
 export {
   type CommandOutput,

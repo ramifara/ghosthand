@@ -8,6 +8,7 @@ export * from "./gates.ts";
 export * from "./literals.ts";
 export * from "./logger.ts";
 export * from "./loop.ts";
+export * from "./planner.ts";
 export * from "./questions.ts";
 export * from "./secrets.ts";
 export * from "./stall.ts";
