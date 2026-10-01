@@ -29,6 +29,8 @@ export interface EvalFlags {
   extras: ExtrasFlags;
   /** Experiment: start every task at this path. */
   startPath?: string;
+  /** Browser profile (default "evals"); use another one to run evals side by side. */
+  profile?: string;
 }
 
 export async function evalCommand(flags: EvalFlags): Promise<number> {
@@ -72,7 +74,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
         startUrl: p.spec.startUrl,
         allowOrigins: p.spec.allowOrigins,
         headless: flags.headless,
-        profile: "evals",
+        profile: flags.profile ?? "evals",
         cookies: p.cookies,
         uploadDir: TESTBED_UPLOADS_DIR,
       }),

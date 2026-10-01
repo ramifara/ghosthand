@@ -32,7 +32,7 @@ Usage:
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
   ghosthand eval [--suite l1|l1-l2|l1-l3|l4|l5|l6|l4-l6|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
-                [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off] [--start-path /]
+                [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off] [--start-path /] [--profile <name>]
   ghosthand test <spec.md> [--runs N] [--out report.html] [--decision jev|heuristic] [--variant k=v,...]
                 [--vision auto|none] [--only case-id,...] [--headless]
   ghosthand mcp [--interactive]
@@ -127,6 +127,7 @@ export async function main(argv: string[]): Promise<number> {
         // Evals keep runs independent: recipes and learning only when asked (ADR 0010).
         extras: extrasFlags(values, "off"),
         ...(values["start-path"] ? { startPath: values["start-path"] } : {}),
+        ...(values.profile ? { profile: values.profile } : {}),
       });
     case "recipes":
       return recipesCommand(rest, {
