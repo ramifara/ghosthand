@@ -13,3 +13,4 @@ export * from "./json.ts";
 export * from "./result.ts";
 export * from "./snapshot.ts";
 export * from "./task.ts";
+export * from "./voice.ts";
