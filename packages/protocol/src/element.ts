@@ -95,6 +95,9 @@ export const Element = z.object({
   /** Nearby row/card/form/dialog text that disambiguates similar elements. */
   context: z.string().optional(),
   href: z.string().optional(),
+  /** Option labels for selects/listboxes (first 64), with the total count. */
+  options: z.array(z.string()).optional(),
+  optionCount: z.number().int().nonnegative().optional(),
   region: Region,
   /** Frame path; "main" for the top document. */
   frame: z.string(),
