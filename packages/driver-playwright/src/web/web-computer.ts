@@ -62,7 +62,7 @@ import { startPageScreencast } from "./screencast.ts";
 import { SecretScope } from "./secret-scope.ts";
 import type { DomState, SettleOptions, SettleResult } from "./settle.ts";
 import { DEFAULT_SETTLE, waitForSettle } from "./settle.ts";
-import { generateTotp } from "./totp.ts";
+import { generateTotp, isTotpSecretName } from "./totp.ts";
 
 export interface WebComputerOptions {
   context: BrowserContext;
@@ -981,6 +981,8 @@ export class WebComputer implements Computer {
 
   #fill(token: string, value: FieldValue, route: ActionRoute): Promise<ActionResult> {
     if (typeof value === "string") return this.#fillText(token, value, undefined, route);
+    // A secret named *_TOTP holds a base32 seed: the field gets the current one-time code, never the seed.
+    if (isTotpSecretName(value.secretRef)) return this.fillTotp(token, value.secretRef);
     const resolved = this.#scope.resolve(value.secretRef);
     if (resolved === undefined)
       return Promise.resolve(

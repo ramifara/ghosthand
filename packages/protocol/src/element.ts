@@ -50,6 +50,12 @@ export const ElementAction = z.enum([
   "select_text",
   "focus",
   "scroll_into_view",
+  /** Can be dragged (HTML5 `draggable`, `aria-grabbed`, or a "draggable"/"sortable" role description). */
+  "drag",
+  /** Accepts a drop (`aria-dropeffect`, or a "drop" role description). */
+  "drop",
+  /** Opens a context menu on right-click (`aria-haspopup="menu"` on a non-button). */
+  "context_menu",
 ]);
 export type ElementAction = z.infer<typeof ElementAction>;
 
