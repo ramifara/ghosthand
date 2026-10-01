@@ -212,7 +212,9 @@ export async function evaluateDoneWhen(
   }
 
   const all = results.filter((r) => r.detail !== "none-predicate");
-  const state: VerifyState = all.every((r) => r.state === "satisfied") ? "satisfied" : "unknown";
+  // Absence checks alone never prove completion: with no positive predicate evaluated, the state is unknown.
+  const state: VerifyState =
+    all.length > 0 && all.every((r) => r.state === "satisfied") ? "satisfied" : "unknown";
   return { state, decidedBy, predicates: results, costUsd, decisionCalls };
 }
 

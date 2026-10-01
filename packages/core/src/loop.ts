@@ -50,6 +50,8 @@ import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer
 export interface EventSink {
   emit(draft: RunEventDraft): void;
   writeScreenshot?(step: number, bytes: Uint8Array): string;
+  /** The file name writeScreenshot will use for `step`, so the capture can finish off the critical path. */
+  screenshotName?(step: number): string;
   writeState?(step: number, purpose: string, state: unknown): string;
 }
 
@@ -153,6 +155,8 @@ export function defaultPlan(task: TaskSpec): Plan {
 
 type StepOutcome =
   | { kind: "continue" }
+  /** Nothing left to do on an answer task: read the answer from the page. */
+  | { kind: "answer"; reason: string }
   | { kind: "subgoal_done" }
   | { kind: "end"; outcome: RunOutcome; reason: string };
 
@@ -301,6 +305,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     let refusals = 0;
     let lastGoalDone = 0;
     const handoffs = { count: 0 };
+    const acted = { count: 0 };
     const extraTexts: string[] = [];
 
     while (true) {
@@ -339,9 +344,19 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         return finish("error", `observe failed: ${observed.error.kind}: ${observed.error.message}`);
       const snapshot = observed.value;
       let screenshot: string | undefined;
+      // With a reserved name the capture runs in parallel with verify/decide and is written at step end.
+      let pendingShot: Promise<void> | undefined;
       if (cfg.screenshots && deps.events.writeScreenshot) {
-        const shot = await deps.computer.screenshot();
-        if (shot.ok) screenshot = deps.events.writeScreenshot(current, shot.value.data);
+        const write = deps.events.writeScreenshot.bind(deps.events);
+        if (deps.events.screenshotName) {
+          screenshot = deps.events.screenshotName(current);
+          pendingShot = deps.computer.screenshot().then((shot) => {
+            if (shot.ok) write(current, shot.value.data);
+          });
+        } else {
+          const shot = await deps.computer.screenshot();
+          if (shot.ok) screenshot = write(current, shot.value.data);
+        }
       }
       timing.observeMs = clock.now() - t;
       emit({
@@ -401,6 +416,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         onResumed: (pausedMs) => resumed(current, pausedMs),
         handoffs,
         extraTexts,
+        acted,
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -430,7 +446,15 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           predicates: done.predicates.map(({ predicate, state }) => ({ predicate, state })),
         });
       }
-      if (done.state === "satisfied") {
+      // A task-level goal (single subgoal from the task) that holds before any action is suspicious: its
+      // checks are too weak to tell "done" from "not started". Require at least one action first.
+      const preSatisfied =
+        done.state === "satisfied" &&
+        acted.count === 0 &&
+        plan.source === "task" &&
+        plan.subgoals.length === 1;
+      if (done.state === "satisfied" && !preSatisfied) await pendingShot;
+      if (done.state === "satisfied" && !preSatisfied) {
         if (speculative) {
           await speculative.response;
           log.debug({ step: current }, "speculative decision discarded: subgoal done");
@@ -464,8 +488,13 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       const outcome = await decideAndAct(ctx, speculative);
       modeCounts.B = (modeCounts.B ?? 0) + 1;
       timings.push(timing);
+      await pendingShot;
       emit({ type: "step.end", step, timing, mode: "B" });
 
+      if (outcome.kind === "answer") {
+        emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
+        return answerAndFinish(outcome.reason);
+      }
       if (outcome.kind === "end") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
         if (outcome.outcome === "stuck" && (await replan(i, subgoal, outcome.reason, history))) {
@@ -489,7 +518,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     }
   }
 
-  if (task.expectsAnswer) {
+  return answerAndFinish("every subgoal's done_when is satisfied");
+
+  async function answerAndFinish(why: string): Promise<RunResult> {
+    if (!task.expectsAnswer) return finish("success", why);
     const final = await deps.computer.observe();
     const answered = final.ok
       ? await extractAnswer(task.instruction, final.value, {
@@ -503,11 +535,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       decisionCalls += answered.decisionCalls;
       modelCalls += answered.modelCalls;
       budget.spend(answered.costUsd);
-      return finish("success", "every subgoal's done_when is satisfied; answer reported", answered);
+      return finish("success", `${why}; answer reported`, answered);
     }
-    return finish("failure", "done_when satisfied but no answer could be read from the page");
+    return finish("failure", `${why}, but no answer could be read from the page`);
   }
-  return finish("success", "every subgoal's done_when is satisfied");
 }
 
 interface DecideContext {
@@ -536,6 +567,8 @@ interface DecideContext {
   extraTexts: string[];
   /** Writer hint for this re-ask only. */
   hint?: string;
+  /** Actions executed in this subgoal. */
+  acted: { count: number };
 }
 
 /** Literal source for the text head: goal, instruction and writer-supplied texts. */
@@ -698,6 +731,16 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
     return { kind: "continue" };
   }
+  // On an answer task, "nothing to do" (or the model's own done opinion) means: read the answer now.
+  // The oracle still grades the answer; this only decides when to stop acting.
+  if (ctx.task.expectsAnswer && (op === BLOCKED || (ctx.acted.count > 0 && goalDone >= cfg.gates.stuck))) {
+    history.push({ step, text: "reading the answer from the page" });
+    return {
+      kind: "answer",
+      reason:
+        op === BLOCKED ? "nothing left to do on the page" : `goal looks done (p=${goalDone.toFixed(2)})`,
+    };
+  }
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
@@ -734,6 +777,14 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
         if (text) {
           action = { type: "set_value", token: element.token, value: text.value };
           describe = `set_value "${element.name}" ← ${text.label}`;
+        }
+        break;
+      }
+      case "select_text": {
+        const text = pickText(answers.selection, ctx);
+        if (text && typeof text.value === "string") {
+          action = { type: "select_text", token: element.token, text: text.value };
+          describe = `select text ${JSON.stringify(text.value)} in "${element.name}"`;
         }
         break;
       }
@@ -825,6 +876,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     mode: "B",
   });
   t = clock.now();
+  ctx.acted.count++;
   const result = await execute(deps.computer, action);
   ctx.timing.actMs = clock.now() - t;
   deps.events.emit({ type: "effect", step, result });
@@ -1092,6 +1144,8 @@ export function execute(computer: Computer, action: Action): Promise<ActionResul
       return computer.focus(action.token);
     case "scroll_into_view":
       return computer.scrollIntoView(action.token);
+    case "select_text":
+      return computer.selectText(action.token, action.text);
     case "click":
       return computer.click(action.target, {
         ...(action.button ? { button: action.button } : {}),

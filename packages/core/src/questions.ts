@@ -33,6 +33,7 @@ const OPERATION_TEXT: Record<Operation, string> = {
   set_value: "Type text into an input field or text area.",
   toggle: "Check or uncheck a checkbox, radio button or switch.",
   select_option: "Choose an option in a dropdown or list box.",
+  select_text: "Select a word or phrase inside a text field or editor (to format, copy or replace it).",
 };
 
 const TARGET_TEXT: Record<Operation, string> = {
@@ -40,6 +41,8 @@ const TARGET_TEXT: Record<Operation, string> = {
   set_value: "Which input field should be filled next to make progress on `task.goal`?",
   toggle: "Which checkbox, radio button or switch should be toggled next to make progress on `task.goal`?",
   select_option: "Which dropdown or list box should be set next to make progress on `task.goal`?",
+  select_text:
+    "In which text field or editor should a word or phrase be selected next to make progress on `task.goal`?",
 };
 
 export const targetHead = (op: Operation): string => `${op}_target`;
@@ -109,6 +112,22 @@ export function buildActQuestions({
       type: "choice",
       instructions: withSuffix(
         "If an input field is filled next, which text belongs in it according to `task.goal`? Stored secrets appear as [input:NAME] and are typed by the system.",
+      ),
+      criteria,
+    };
+  }
+
+  // Selecting text is not typing: its own head, literals only (secrets are never selected by value).
+  const literals = textOptions.filter((o) => o.kind === "literal");
+  if (offered.includes("select_text") && literals.length > 0) {
+    const criteria: ChoiceQuestion["criteria"] = {};
+    for (const o of literals.slice(0, MAX_CHOICE_OPTIONS - 1))
+      criteria[o.key] = `Select the text: ${JSON.stringify(o.kind === "literal" ? o.text : "")}`;
+    criteria[NONE] = "None of these is the text to select.";
+    questions.selection = {
+      type: "choice",
+      instructions: withSuffix(
+        "If a word or phrase is selected next (to format, copy or replace it), which text should be selected according to `task.goal`?",
       ),
       criteria,
     };

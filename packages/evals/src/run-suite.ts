@@ -3,6 +3,7 @@
 // Runs a suite N times against the testbed and writes results.jsonl + summary.md.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Planner, Writer } from "@ghosthand/core";
 import {
   type ComputerLauncher,
   type EngineRuntime,
@@ -34,6 +35,9 @@ export interface RunSuiteOptions {
   ) => Promise<{ ok: true; value: PreparedTestbedRun } | { ok: false; error: TestbedError }>;
   tasks?: readonly TestbedTask[];
   onRow?: (row: EvalRow) => void;
+  /** Mode C planner and writer hand-off (optional). */
+  planner?: Planner;
+  writer?: Writer;
 }
 
 export interface SuiteReport {
@@ -70,6 +74,8 @@ export async function runSuite(
         task: prepared.value.spec,
         launch: opts.launcherFor(prepared.value),
         decision,
+        ...(opts.planner ? { planner: opts.planner } : {}),
+        ...(opts.writer ? { writer: opts.writer } : {}),
         hooks: { oracle: prepared.value.oracle },
       });
       const base = {

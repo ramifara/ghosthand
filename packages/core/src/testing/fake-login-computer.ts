@@ -156,6 +156,9 @@ export class FakeLoginComputer implements Computer {
   async focus(): Promise<ActionResult> {
     return result("confirmed");
   }
+  async selectText(): Promise<ActionResult> {
+    return result("refused");
+  }
   async scrollIntoView(): Promise<ActionResult> {
     return result("confirmed");
   }

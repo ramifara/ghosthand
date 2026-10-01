@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { HeuristicDecisionProvider } from "@ghosthand/core";
-import { createDecisionProvider, openRuntime, webLauncher } from "@ghosthand/engine";
+import {
+  createAssistants,
+  createDecisionProvider,
+  openRuntime,
+  type PlannerChoice,
+  type WriterChoice,
+  webLauncher,
+} from "@ghosthand/engine";
 import { runSuite } from "@ghosthand/evals";
 import type { DecisionProvider, TaskSpec } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
@@ -15,6 +22,8 @@ export interface EvalFlags {
   decision: "jev" | "heuristic";
   out?: string;
   json: boolean;
+  planner?: PlannerChoice;
+  writer?: WriterChoice;
 }
 
 export async function evalCommand(flags: EvalFlags): Promise<number> {
@@ -33,7 +42,14 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
       return d.value;
     };
   }
+  const assistants =
+    flags.decision === "heuristic"
+      ? undefined
+      : await createAssistants(rt, { planner: flags.planner ?? "auto", writer: flags.writer ?? "auto" });
+  if (assistants) process.stderr.write(`assistants: ${assistants.describe}\n`);
   const report = await runSuite(rt, {
+    ...(assistants?.planner ? { planner: assistants.planner } : {}),
+    ...(assistants?.writer ? { writer: assistants.writer } : {}),
     suite: flags.suite,
     n: flags.n,
     ...(flags.only ? { only: flags.only } : {}),
@@ -52,6 +68,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
         `${row.task} #${row.attempt}: ${row.pass ? "PASS" : "fail"} (${row.outcome}, ${row.steps} steps, ${Math.round(row.wallMs)} ms)\n`,
       ),
   });
+  await assistants?.close();
   if (!report.ok) return fail(report.error.message);
   out(
     flags.json

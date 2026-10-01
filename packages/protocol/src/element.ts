@@ -47,6 +47,7 @@ export const ElementAction = z.enum([
   "set_value",
   "toggle",
   "select_option",
+  "select_text",
   "focus",
   "scroll_into_view",
 ]);

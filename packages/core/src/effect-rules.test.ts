@@ -98,6 +98,19 @@ describe("forbidden phrases", () => {
     expect(rules.map((r) => r.phrase)).toEqual(["edit any order", "sign out"]);
   });
 
+  it("takes only the leading word of a name as its verb (Save changes is not a change)", () => {
+    const rules = forbiddenRules(
+      ["change the status or tags of any order"],
+      "Assign order ord_1033 to Mira Varga.",
+    );
+    expect(
+      matchForbidden(el("Save changes", { context: "Edit order · Status · Tags · Customer" }), rules),
+    ).toBeUndefined();
+    expect(matchForbidden(el("Change status", { context: "Order ord_1033" }), rules)).toBe(
+      "change the status or tags of any order",
+    );
+  });
+
   it("matches the verb in the name and the object in the name or context", () => {
     const rules = forbiddenRules(
       ["change the password", "export account data", "sign out", "edit another user's profile"],

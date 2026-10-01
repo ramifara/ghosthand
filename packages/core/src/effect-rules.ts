@@ -109,7 +109,8 @@ export function matchForbidden(
   rules: readonly ForbiddenRule[],
 ): string | undefined {
   const name = stemTokens(element.name);
-  const verbs = new Set(name);
+  // Only the leading word of a control's name is its action ("Save changes" saves; "changes" is a noun).
+  const verbs = new Set(name.slice(0, 1));
   const objects = new Set([...name, ...stemTokens(element.context ?? "")]);
   for (const r of rules) {
     if (!r.verbs.some((v) => verbs.has(v))) continue;

@@ -325,6 +325,23 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expect(find(s, "Far away button").states).not.toContain("offscreen");
   });
 
+  it("selects text in a rich-text editor and in a textarea", async () => {
+    const c = await open("controls.html");
+    let s = await observe(c);
+    const bio = find(s, "Bio", "textbox");
+    expect(bio.actions).toContain("select_text");
+    const r = await act(c.selectText(bio.token, "fixtures"));
+    expectConfirmed(r);
+    expect(await c.page.evaluate(() => getSelection()?.toString())).toBe("fixtures");
+    s = await observe(c);
+    await act(c.setValue(find(s, "Notes", "textbox").token, "alpha beta gamma"));
+    s = await observe(c);
+    const notes = await act(c.selectText(find(s, "Notes", "textbox").token, "beta"));
+    expectConfirmed(notes);
+    const missing = await act(c.selectText(find(s, "Notes", "textbox").token, "delta"));
+    expect(missing.effect).not.toBe("confirmed");
+  });
+
   it("confirms pointer actions on tokens and coordinates", async () => {
     const c = await open("controls.html");
     let s = await observe(c);

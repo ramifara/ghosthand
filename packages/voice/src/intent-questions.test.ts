@@ -79,7 +79,7 @@ describe("Jev question builders (voice)", () => {
     const empty = buildVoiceDecision({
       utterance: "x",
       page: { title: "" },
-      candidates: { press: [], set_value: [], toggle: [], select_option: [] },
+      candidates: { press: [], set_value: [], toggle: [], select_option: [], select_text: [] },
       askIntent: false,
       operations: ["press"],
     });

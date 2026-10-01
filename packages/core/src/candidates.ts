@@ -4,7 +4,7 @@
 import type { Element, ElementAction, Region, Snapshot } from "@ghosthand/protocol";
 
 /** Operations the loop can offer to Jev in mode B. */
-export const OPERATIONS = ["press", "set_value", "toggle", "select_option"] as const;
+export const OPERATIONS = ["press", "set_value", "toggle", "select_option", "select_text"] as const;
 export type Operation = (typeof OPERATIONS)[number];
 
 export const MAX_CANDIDATES_PER_HEAD = 200;
@@ -25,6 +25,7 @@ const OPERATION_ACTION: Record<Operation, ElementAction> = {
   set_value: "set_value",
   toggle: "toggle",
   select_option: "select_option",
+  select_text: "select_text",
 };
 
 export const isNamed = (el: Element): boolean => el.name.trim().length > 0;

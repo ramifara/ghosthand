@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
+import type { PlannerChoice, WriterChoice } from "@ghosthand/engine";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
@@ -100,6 +101,12 @@ export async function main(argv: string[]): Promise<number> {
         decision: values.decision === "heuristic" ? "heuristic" : "jev",
         ...(values.out ? { out: values.out } : {}),
         json,
+        planner: (["codex", "claude", "models", "none"].includes(values.planner ?? "")
+          ? values.planner
+          : "auto") as PlannerChoice,
+        writer: (["models", "codex", "none"].includes(values.writer ?? "")
+          ? values.writer
+          : "auto") as WriterChoice,
       });
     case "tasks":
       return tasksCommand(json);
@@ -158,10 +165,9 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     planner: (["codex", "claude", "models", "none"].includes(values.planner ?? "")
       ? values.planner
       : "auto") as "auto" | "codex" | "claude" | "models" | "none",
-    writer: (["models", "none"].includes(values.writer ?? "") ? values.writer : "auto") as
-      | "auto"
-      | "models"
-      | "none",
+    writer: (["models", "codex", "none"].includes(values.writer ?? "")
+      ? values.writer
+      : "auto") as WriterChoice,
   };
 }
 

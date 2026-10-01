@@ -7,6 +7,7 @@ import {
   createClaudePlanner,
   createCodexConsultant,
   createCodexPlanner,
+  createConsultantWriter,
 } from "@ghosthand/consultants";
 import { FallbackPlanner, type Planner, type Writer } from "@ghosthand/core";
 import {
@@ -17,11 +18,12 @@ import {
   type ModelClient,
   type VisionGrounder,
 } from "@ghosthand/models";
+import { envValue } from "./env-file.ts";
 import { type ModelsSetupOptions, setupModels } from "./model-providers.ts";
 import type { EngineRuntime } from "./runtime.ts";
 
 export type PlannerChoice = "auto" | "codex" | "claude" | "models" | "none";
-export type WriterChoice = "auto" | "models" | "none";
+export type WriterChoice = "auto" | "models" | "codex" | "none";
 
 /**
  * A models-layer client over every provider with a key and every reachable local server, or
@@ -105,7 +107,21 @@ export async function createAssistants(
     undefined,
   );
   if (planner) parts.push(`planner ${planner.id}`);
-  const writer = models && choice.writer !== "none" ? createModelWriter(models) : undefined;
+  // Writer: the models layer when an OpenAI key is set, else the user's Codex login (slower, no API key).
+  const hasOpenAi = envValue("OPENAI_API_KEY", rt.envFile) !== undefined;
+  let writer: Writer | undefined;
+  if (models && (choice.writer === "models" || (choice.writer === "auto" && hasOpenAi))) {
+    writer = createModelWriter(models);
+  } else if (choice.writer === "codex" || choice.writer === "auto") {
+    const consultant = createCodexConsultant();
+    const probe = await consultant.probe();
+    if (probe.installed && probe.auth !== "none") {
+      const model = rt.config.consultant.codex.model;
+      const w = createConsultantWriter(consultant, model === undefined ? {} : { model });
+      closers.push(() => w.close());
+      writer = w;
+    }
+  }
   if (writer) parts.push(`writer ${writer.id}`);
   return {
     ...(planner ? { planner } : {}),

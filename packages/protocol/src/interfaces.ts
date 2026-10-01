@@ -53,6 +53,7 @@ export interface Computer {
   selectOption(token: string, option: string): Promise<ActionResult>;
   focus(token: string): Promise<ActionResult>;
   scrollIntoView(token: string): Promise<ActionResult>;
+  selectText(token: string, text: string): Promise<ActionResult>;
   click(
     target: PointerTarget,
     opts?: { button?: "left" | "right" | "middle"; count?: number },

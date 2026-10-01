@@ -51,6 +51,8 @@ export function actionsFor(f: ActionFacts): ElementAction[] {
       return ["scroll_into_view"];
     case "textbox":
     case "searchbox":
+      // Text can be selected (to format, copy or replace part of it).
+      return ["set_value", "select_text", ...base];
     case "spinbutton":
       return ["set_value", ...base];
     case "combobox":
@@ -64,7 +66,8 @@ export function actionsFor(f: ActionFacts): ElementAction[] {
     case "menuitemradio":
       return ["toggle", ...base];
     case "slider":
-      return base;
+      // Set through the keyboard (Home/End/arrows) to a numeric value; see WebComputer#fillText.
+      return ["set_value", ...base];
     default:
       return ["press", ...base];
   }

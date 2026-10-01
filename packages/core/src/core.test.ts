@@ -68,6 +68,11 @@ describe("literals", () => {
       "42",
     ]);
   });
+  it("keeps dates, money and percentages whole", () => {
+    expect(
+      extractLiterals("set the range from 2026-01-12 to 2026-01-25 and cap at $1,250.50 or 15%"),
+    ).toEqual(["2026-01-12", "2026-01-25", "$1,250.50", "15%"]);
+  });
   it("never offers a registered secret as a literal", () => {
     const r = new SecretsRegistry([["PW", "s3cret-pw"]]);
     const opts = buildTextOptions(`type "s3cret-pw" and "hello"`, ["PW"], r);
@@ -129,6 +134,20 @@ describe("question builders", () => {
       "none",
       "ambiguous",
     ]);
+  });
+
+  it("asks a separate selection question with literals only when text can be selected", () => {
+    const s2 = snap([
+      el("e1", { role: "textbox", roleClass: "textbox", name: "Bio", actions: ["set_value", "select_text"] }),
+    ]);
+    const q = buildActQuestions({
+      candidates: buildCandidates(s2),
+      textOptions: buildTextOptions('make the word "fixtures" bold', ["PW"]),
+    });
+    expect(q.offered).toContain("select_text");
+    const sel = q.questions.selection as { criteria: Record<string, unknown> };
+    expect(Object.keys(sel.criteria)).toEqual(["lit_1", "none"]);
+    expect(String(sel.criteria.lit_1)).toContain("fixtures");
   });
 
   it("caps target heads at 255 options including sentinels", () => {
