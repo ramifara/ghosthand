@@ -33,7 +33,8 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 - `packages/protocol`: Zod schemas and types for everything crossing a process boundary, plus the `Result` helpers. No runtime deps beyond Zod.
 - `packages/core`: step loop, question builders, gates, budgets, stall detection. Pure logic behind interfaces.
 - `packages/decision-typesafe`: `DecisionProvider` over `@typesafe-ai/sdk`. The only importer of that SDK.
-- `packages/consultants`: Codex app-server consultant.
+- `packages/consultants`: Codex app-server consultant and the Claude consultant (the user's own `claude` CLI, opt-in; ADR 0007).
+- `packages/models`: AI SDK providers (OpenAI, Anthropic, Google, OpenRouter, local OpenAI-compatible), catalog, role chains, `VisionGrounder`.
 - `packages/driver-playwright`: the web `Computer` (browser detection, profiles, observe, act, settle, origin guard).
 - `packages/recorder`: run folders, `events.jsonl`, screenshots, traces, SQLite index, replay reader.
 - `packages/engine`: composition root (config, providers, run lifecycle). `apps/cli`: the `ghosthand` command.

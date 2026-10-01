@@ -60,6 +60,7 @@
     "secrets:check": "node scripts/secrets-check.ts",
     "probe:jev": "node scripts/probe-jev.ts",
     "probe:codex": "node scripts/probe-codex.ts",
+    "probe:claude": "node scripts/probe-claude.ts",
     "probe:planner": "node scripts/probe-planner.ts",
     "models:snapshot": "node scripts/models-snapshot.ts",
     "dist:desktop": "bun run --filter @ghosthand/desktop dist",
