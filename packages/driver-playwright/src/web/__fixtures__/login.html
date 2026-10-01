@@ -1,0 +1,37 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in</title>
+  </head>
+  <body>
+    <header><nav><a href="/login.html">Home</a> <a href="/help">Help</a></nav></header>
+    <main>
+      <h1>Sign in</h1>
+      <form id="login" method="post" action="/dashboard" aria-label="Sign in form">
+        <label>Email <input type="email" name="email" data-testid="login-email" required /></label>
+        <label>Password <input type="password" name="password" data-testid="login-password" required /></label>
+        <label>Account name <input type="text" name="account" /></label>
+        <label><input type="checkbox" id="reveal" /> Show password</label>
+        <p id="preview" aria-live="polite"></p>
+        <label>One-time code <input type="text" name="otp" autocomplete="one-time-code" inputmode="numeric" /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p>Need help? <a href="https://support.example.org/login">Contact support</a></p>
+      <button aria-hidden="true" tabindex="-1">Hidden helper</button>
+      <button style="display: none">Invisible button</button>
+    </main>
+    <footer><a href="/privacy">Privacy</a></footer>
+    <script>
+      const pw = document.querySelector("input[name=password]");
+      const preview = document.getElementById("preview");
+      const update = () => {
+        preview.textContent = document.getElementById("reveal").checked ? `Your password: ${pw.value}` : "";
+      };
+      document.getElementById("reveal").addEventListener("change", update);
+      pw.addEventListener("input", update);
+    </script>
+  </body>
+</html>

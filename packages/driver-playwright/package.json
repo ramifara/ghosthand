@@ -11,7 +11,9 @@
   "dependencies": {
     "@ghosthand/core": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
-    "playwright-core": "catalog:"
+    "otpauth": "catalog:",
+    "playwright-core": "catalog:",
+    "zod": "catalog:"
   },
   "scripts": {
     "test": "vitest run"

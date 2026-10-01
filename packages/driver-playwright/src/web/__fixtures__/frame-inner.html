@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Payment</title>
+  </head>
+  <body>
+    <form aria-label="Card details">
+      <label>Card holder <input name="holder" /></label>
+      <button type="button" id="pay">Pay now</button>
+      <p id="paid"></p>
+    </form>
+    <script>
+      document.getElementById("pay").addEventListener("click", () => {
+        document.getElementById("paid").textContent = "Payment sent";
+      });
+    </script>
+  </body>
+</html>

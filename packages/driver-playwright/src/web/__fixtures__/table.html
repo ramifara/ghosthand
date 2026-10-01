@@ -1,0 +1,56 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Users</title>
+  </head>
+  <body>
+    <nav aria-label="Primary"><a href="/table.html">Users</a> <a href="/login.html">Sign out</a></nav>
+    <main>
+      <h1>Users</h1>
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Role</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="status" role="status"></p>
+    </main>
+    <dialog id="edit" aria-labelledby="edit-title">
+      <h2 id="edit-title">Edit user</h2>
+      <form method="dialog">
+        <label>Name <input name="name" id="edit-name" /></label>
+        <button value="save" id="save">Save</button>
+        <button value="cancel" formnovalidate>Cancel</button>
+      </form>
+    </dialog>
+    <script>
+      const users = [
+        ["Alice Martin", "alice@example.com", "Admin"],
+        ["Bob Stone", "bob@example.com", "Editor"],
+        ["Carol Diaz", "carol@example.com", "Viewer"],
+      ];
+      const rows = document.getElementById("rows");
+      const dialog = document.getElementById("edit");
+      users.forEach(([name, email, role], i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${name}</td><td>${email}</td><td>${role}</td><td><button class="edit">Edit</button> <button class="delete">Delete</button></td>`;
+        tr.querySelector(".edit").addEventListener("click", () => {
+          document.getElementById("edit-title").textContent = `Edit ${name}`;
+          document.getElementById("edit-name").value = name;
+          dialog.showModal();
+        });
+        tr.querySelector(".delete").addEventListener("click", () => {
+          tr.remove();
+          document.getElementById("status").textContent = `Deleted ${name}`;
+        });
+        rows.appendChild(tr);
+      });
+      dialog.addEventListener("close", () => {
+        document.getElementById("status").textContent = `Dialog closed (${dialog.returnValue})`;
+      });
+    </script>
+  </body>
+</html>
