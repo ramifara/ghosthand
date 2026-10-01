@@ -925,7 +925,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           decisionCalls: 0,
           modelCalls: 1,
         });
-    } else noteVisionNeeded(step, "the answer is not in the page text", NO_VISION_PROVIDER);
+    } else noteVisionNeeded(step, "no answer could be read from the page text", NO_VISION_PROVIDER);
     return finish("failure", `${why}, but no answer could be read from the page`);
   }
 }
