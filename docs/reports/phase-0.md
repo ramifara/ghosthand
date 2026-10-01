@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
 # Phase 0 report (P0-13)
 
-Date: 2026-10-01. Status: **code complete; Jev measurements pending the TypeSafe key.**
+Date: 2026-10-01. Status: **done. Phase 0 acceptance met with real Jev (L1 20/20, median step 910 ms).**
 
 ## What was built
 
@@ -43,13 +43,35 @@ Phase 1 work that also landed: P1-02 models (#10), P1-03 planner (#11, #18), P1-
 
 Median planning turn 5.3 s (app-server, gpt-5.6-sol) to 7.9 s (gpt-6.1-sol); 9/9 schema-valid. Planner probe (P1-03): 6/6 valid plans, 7–11 s each. See `docs/research/codex-probe.md`, `docs/research/planner-probe.md`.
 
-### Jev (P0-04)
+### Acceptance run with real Jev (P0-12)
 
-**Pending.** `~/.config/ghosthand/env` does not exist yet, so no live calls were made. Run `bun run probe:jev --out docs/research/jev-probe-results.md`, then `ghosthand eval --suite l1 --n 5 --headless` for the acceptance numbers (L1 4/5, median step ≤ 1 s, ≤ 1 consultant call, replay with 0 calls).
+`ghosthand eval --suite l1 --n 5 --headless --planner none`, `jev-1.13.0` direct, git `a5677a9`.
+
+| Task | Pass | Median steps | Median wall | Mean cost |
+|---|---|---|---|---|
+| `l1-login@1` | 5/5 | 3 | 5.01 s | $0.000295 |
+| `l1-login-wrong-password@1` | 5/5 | 3 | 5.10 s | $0.000365 |
+| `l1-update-profile@1` | 5/5 | 3 | 4.91 s | $0.000332 |
+| `l1-form-validation@1` | 5/5 | 4 | 6.42 s | $0.000451 |
+
+| Metric | Value | Phase 0 target |
+|---|---|---|
+| Runs passed (oracle) | **20/20** | L1 task 4/5 |
+| Median step / p95 | **910 ms** / 1.26 s | ≤ 1 s |
+| Split: settle / observe / decide / act / verify | 7 / 126 / 243 / 454 / 1 ms | |
+| Cost per step | **$0.000111** | (P1: < $0.001) |
+| Jev calls / LLM calls | 70 / 0 (LLM share 0%) | ≤ 1 consultant call |
+| Who did the work | B 100% | |
+
+Replay of recorded runs re-executes with 0 decision calls (verified on the live testbed for l1-login, l1-update-profile, l1-login-wrong-password).
+
+### Jev probe (P0-04)
+
+Details in `docs/research/jev-probe.md`. p50 225 ms / p95 313 ms over 30 calls; limits as documented (255 options, 10 levels, null levels rejected, 32k state+question rule enforced, over-context = 400 `max_tokens_exceeded`); 10/10 identical choices on repeats (max drift 0.03); 46 calls cost $0.0028. Two code changes followed: over-context maps to `too_large`, and the score-mean tolerance scales with levels because the API rounds probabilities.
 
 ## Wrong or low-confidence decisions
 
-None recorded yet with real Jev. Two bugs were found by the plumbing runs and fixed:
+None in the acceptance run: every action passed its gates first time (70 Jev calls for 65 steps; the extra calls are the answer step and option questions). Two bugs were found by the plumbing runs and fixed:
 
 1. Secret text options were keyed `secret_<NAME>`; key-based redaction then turned their probabilities into `"[redacted]"`, which broke the event schema. Keys are now opaque (`sec_N`) and the recorder re-validates every event after redaction.
 2. Testbed `done_when` included the oracle predicate, which would have let the agent see ground truth. The engine strips oracle predicates from the loop; the oracle only grades the run afterwards.
@@ -67,6 +89,5 @@ None recorded yet with real Jev. Two bugs were found by the plumbing runs and fi
 
 ## Open questions for review
 
-- TypeSafe key: needed for every acceptance number above.
 - OpenAI key: needed to measure the models planner/writer (Codex covers planning today).
 - ADR 0005 (models layer) is marked proposed; it records refusal/abort/budget stopping the fallback chain, `store: false`, and per-role minimum context.

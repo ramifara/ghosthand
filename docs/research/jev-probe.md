@@ -35,9 +35,58 @@ The script was dry-run against a local mock of `/v1/systemone` (127.0.0.1 only) 
 
 ## Results
 
-**Pending.** No TypeSafe API key is available on this machine yet (`~/.config/ghosthand/env` does not exist). Once it exists, run `node scripts/probe-jev.ts --out /tmp/jev-probe.md` and paste the tables here, then:
+### Run 2026-10-01T13:24:55.514Z
 
-- set `error-422-context.json` in `packages/decision-typesafe/src/__recordings__/` to the real over-context status and message, and adjust `kindForStatus` if it is not a 413 or a 422 mentioning context or tokens;
-- revisit `CHARS_PER_TOKEN` (3) in `preflight.ts` against the measured ratio;
-- record whether null score levels and the 32k state + longest-question rule are enforced;
-- record the determinism rate, which decides whether replays may reuse answers.
+Model `jev-1.13.0`, direct API, Node v26.4.0. Spend cap $0.100000.
+
+#### Question types (one request, production settings)
+
+| question | type | answer |
+|---|---|---|
+| goal_done | noul | p=0.09 |
+| target | choice | e3 (conf 0.95; e3=0.96, e1=0.02, none=0.01, e2=0.01, e5=0, e4=0) |
+| risk | score | 0.94 (conf 0.87; 1=0.92, 0=0.07, 2=0.01) |
+
+Request `req_01a0f7a3829974cebc60826d67bbebec`, 609 input tokens, 296 ms, $0.000026.
+
+#### Latency (30 sequential calls, 3 questions, 2.5 s timeout, 1 retry)
+
+| ok | errors | p50 ms | p95 ms | min ms | max ms | mean input tokens |
+|---|---|---|---|---|---|---|
+| 30 | 0 | 225 | 313 | 203 | 319 | 609 |
+
+#### Limits (preflight disabled, no retry)
+
+| case | expected | outcome | HTTP | est. tokens (chars/3) | input tokens | ms | detail |
+|---|---|---|---|---|---|---|---|
+| choice with 255 options | accept | accepted | 200 | 1659 | 4916 | 255 | o17 (conf 0.98; o17=0.99, o99=0.01, o207=0, o133=0, o104=0, o176=0, … 249 more) |
+| choice with 256 options | reject | rejected: invalid | 400 | 1666 | - | 173 | 400 Too many choices. Must have at most 255 choices. |
+| score with 10 levels | accept | accepted (1 abstained) | 200 | 67 | 370 | 214 | ABSTAIN: score 6.86 is not within 0.02 of the distribution mean 6.7600 |
+| score with 11 levels | reject | rejected: invalid | 400 | 71 | - | 174 | 400 Too many score levels. Must have at most 10 levels. |
+| score with a null level | unknown | rejected: invalid | 422 | 30 | - | 177 | 422 questions.level.score.criteria.1.str: Input should be a valid string; questions.level.score.criteria.1.dict[any,any]: Input should be a valid dictionary; qu |
+| ~30k-token state | accept | accepted | 200 | 56045 | 30173 | 483 | p=0.62 |
+| ~40k-token state (over the 32k state+question rule) | reject | rejected: invalid | 400 | 74719 | - | 251 | 400 {"detail":{"error_type":"max_tokens_exceeded"}} |
+| ~70k-token state (over 64k) | reject | rejected: invalid | 400 | 130741 | - | 390 | 400 {"detail":{"error_type":"max_tokens_exceeded"}} |
+
+Measured 5.60 characters per token on the filler text (the preflight assumes 3).
+
+#### Determinism (10 identical requests)
+
+| ok | errors | identical answers | fraction | same choice | max probability drift |
+|---|---|---|---|---|---|
+| 10 | 0 | 1 | 0.10 | 10/10 | 0.0300 |
+
+#### Cost
+
+| calls | input tokens | cost (USD) |
+|---|---|---|
+| 46 | 66333 | $0.002786 |
+
+### What changed because of these numbers
+
+- Over-context is a **400** with `{"detail":{"error_type":"max_tokens_exceeded"}}` (not 413/422). It now maps to `too_large` (`error-400-max-tokens.json` recording).
+- The documented limits hold: 255 options / 10 levels; null score levels are rejected (422); the 32k "state + longest question" rule is enforced (~40k state rejected while under 64k total).
+- Score answers come with rounded probabilities: a 10-level score of 6.86 had a recomputed mean of 6.76. The fail-closed check now allows `max(0.02, 0.015 × (levels − 1))`.
+- Measured ~5.6 characters per token on English filler (the ~30k case: 56k estimated vs 30.2k billed). The preflight's chars/3 over-counts by ~1.9×, so it is conservative: the 20k-token state guard trips at roughly 10–11k real tokens of prose (JSON element tables tokenize less densely, so the real margin is smaller). Kept as is; revisit if narrowing triggers too often.
+- Determinism: 10/10 identical choices, max probability drift 0.03; the fail-closed probability checks are unaffected.
+- Latency p50 225 ms / p95 313 ms direct, matching the research notes' ~180–250 ms.

@@ -171,6 +171,7 @@ describe("createTypeSafeDecisionProvider", () => {
       ["error-403", "auth", 403],
       ["error-422-validation", "invalid", 422],
       ["error-422-context", "too_large", 422],
+      ["error-400-max-tokens", "too_large", 400],
       ["error-429", "rate_limit", 429],
       ["error-500", "server", 500],
       ["error-529", "overloaded", 529],

@@ -11,8 +11,8 @@ import {
   TypeSafeError,
 } from "@typesafe-ai/sdk";
 
-/** The over-context status is undocumented; a 413 or a 422 that mentions context or tokens counts. */
-const CONTEXT_MESSAGE = /context|token|too long|too large|length/i;
+/** Over-context: measured 2026-10-01 as 400 `{"detail":{"error_type":"max_tokens_exceeded"}}`; 413/422 kept for safety. */
+const CONTEXT_MESSAGE = /max_tokens_exceeded|context|token|too long|too large|length/i;
 
 export function kindForStatus(status: number, message: string): DecisionErrorKind {
   if (status === 401 || status === 403) return "auth";
@@ -20,8 +20,8 @@ export function kindForStatus(status: number, message: string): DecisionErrorKin
   if (status === 529) return "overloaded";
   if (status === 408) return "timeout";
   if (status === 413) return "too_large";
-  if (status === 422) return CONTEXT_MESSAGE.test(message) ? "too_large" : "invalid";
-  if (status === 400 || status === 404) return "invalid";
+  if (status === 400 || status === 422) return CONTEXT_MESSAGE.test(message) ? "too_large" : "invalid";
+  if (status === 404) return "invalid";
   if (status >= 500) return "server";
   return "unknown";
 }
