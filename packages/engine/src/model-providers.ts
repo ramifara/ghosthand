@@ -134,7 +134,8 @@ export async function setupModels(rt: EngineRuntime, opts: ModelsSetupOptions = 
   const token = opts.chatgptAccessToken;
   if (token) rt.secrets.register("OPENAI_CHATGPT_ACCESS_TOKEN", token);
   const providers: ModelProvider[] = keys.flatMap((k) => {
-    if (token && k.provider === "openai") return [createOpenAIChatGptProvider({ getAccessToken: () => token })];
+    if (token && k.provider === "openai")
+      return [createOpenAIChatGptProvider({ getAccessToken: () => token })];
     const p = hostedProvider(k);
     return p === undefined ? [] : [p];
   });
