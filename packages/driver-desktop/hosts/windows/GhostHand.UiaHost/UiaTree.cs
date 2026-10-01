@@ -109,6 +109,8 @@ internal static class UiaTree
         }
         var value = Pattern<ValuePattern>(el, ValuePattern.Pattern);
         if (value is not null) s.Add(value.Current.IsReadOnly ? "read-only" : "editable");
+        else if (Role(el) is "Edit" or "Document" && c.IsKeyboardFocusable && el.TryGetCurrentPattern(TextPattern.Pattern, out _))
+            s.Add("editable"); // rich edit controls (Win11 Notepad) expose TextPattern only; typing edits them
         return s;
     }
 
@@ -127,7 +129,10 @@ internal static class UiaTree
         var v = Pattern<ValuePattern>(el, ValuePattern.Pattern);
         if (v is not null) return v.Current.Value;
         var rv = Pattern<RangeValuePattern>(el, RangeValuePattern.Pattern);
-        return rv is not null ? rv.Current.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        if (rv is not null) return rv.Current.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (Role(el) is "Edit" or "Document" && Pattern<TextPattern>(el, TextPattern.Pattern) is { } tp)
+            return tp.DocumentRange.GetText(4000).TrimEnd('\r', '\n');
+        return null;
     }
 
     public static string? SelectedOption(AutomationElement el)

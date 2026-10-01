@@ -111,7 +111,13 @@ if (values.app) {
         r ? `${r.nativeRoute} → ${JSON.stringify(r.after?.value)}` : JSON.stringify(act.error),
         strict,
       );
-    } else step("set_value", false, "no editable text field found", strict);
+    } else
+      step(
+        "set_value",
+        false,
+        `no editable text field among ${snap?.nodes.map((n) => `${n.role}[${n.states.join(",")}]`).join(" ")}`,
+        strict,
+      );
     const shot = await call("screenshot");
     const s = shot.result as { width: number; height: number } | undefined;
     step("screenshot", s !== undefined, s ? `${s.width}x${s.height}` : JSON.stringify(shot.error), false);
