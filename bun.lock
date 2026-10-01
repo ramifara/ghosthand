@@ -7,6 +7,7 @@
       "devDependencies": {
         "@biomejs/biome": "2.5.15",
         "@changesets/cli": "3.0.3",
+        "@ghosthand/consultants": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@types/node": "catalog:",
@@ -34,6 +35,7 @@
       "dependencies": {
         "@ghosthand/core": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "vitest": "catalog:",
