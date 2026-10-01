@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+import { HeuristicDecisionProvider } from "@ghosthand/core";
+import { createDecisionProvider, openRuntime, webLauncher } from "@ghosthand/engine";
+import { runSuite } from "@ghosthand/evals";
+import type { DecisionProvider } from "@ghosthand/protocol";
+import { fail, out } from "../io.ts";
+
+export interface EvalFlags {
+  suite: string;
+  n: number;
+  only?: string[];
+  headless: boolean;
+  /** "jev" (default) or "heuristic" (plumbing smoke without a key). */
+  decision: "jev" | "heuristic";
+  out?: string;
+  json: boolean;
+}
+
+export async function evalCommand(flags: EvalFlags): Promise<number> {
+  const opened = await openRuntime({ logLevel: "warn" });
+  if (!opened.ok) return fail(opened.error.message);
+  const rt = opened.value;
+  let makeDecision: () => DecisionProvider;
+  if (flags.decision === "heuristic") makeDecision = createHeuristic;
+  else {
+    const probe = createDecisionProvider(rt, rt.config.budget.usd);
+    if (!probe.ok) return fail(probe.error.message);
+    makeDecision = () => {
+      const d = createDecisionProvider(rt, rt.config.budget.usd);
+      if (!d.ok) throw new Error(d.error.message);
+      return d.value;
+    };
+  }
+  const report = await runSuite(rt, {
+    suite: flags.suite,
+    n: flags.n,
+    ...(flags.only ? { only: flags.only } : {}),
+    ...(flags.out ? { outDir: flags.out } : {}),
+    decision: makeDecision,
+    launcherFor: (p) =>
+      webLauncher(rt, {
+        startUrl: p.spec.startUrl,
+        allowOrigins: p.spec.allowOrigins,
+        headless: flags.headless,
+        profile: "evals",
+        cookies: p.cookies,
+      }),
+    onRow: (row) =>
+      process.stderr.write(
+        `${row.task} #${row.attempt}: ${row.pass ? "PASS" : "fail"} (${row.outcome}, ${row.steps} steps, ${Math.round(row.wallMs)} ms)\n`,
+      ),
+  });
+  if (!report.ok) return fail(report.error.message);
+  out(
+    flags.json
+      ? JSON.stringify(report.value.summary, null, 2)
+      : `${report.value.markdown}\nresults: ${report.value.outDir}`,
+  );
+  return 0;
+}
+
+const createHeuristic = () => new HeuristicDecisionProvider();

@@ -29,6 +29,7 @@
         "@ghosthand/core": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
         "@ghosthand/engine": "workspace:*",
+        "@ghosthand/evals": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
         "@ghosthand/testbed-kit": "workspace:*",
@@ -167,9 +168,11 @@
       "name": "@ghosthand/evals",
       "version": "0.0.0",
       "dependencies": {
+        "@ghosthand/core": "workspace:*",
         "@ghosthand/engine": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/testbed-kit": "workspace:*",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "vitest": "catalog:",
