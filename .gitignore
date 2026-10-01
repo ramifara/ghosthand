@@ -19,3 +19,4 @@ playwright-report/
 # Originals kept locally; tracked copies live in docs/
 /plan/
 /research/
+.claude/
