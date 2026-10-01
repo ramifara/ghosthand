@@ -86,6 +86,13 @@ export interface DoneWhenDeps {
   decision?: DecisionProvider;
   /** Testbed/control-API oracle; returns pass or fail, or undefined when unavailable. */
   oracle?: (taskId: string) => Promise<boolean | undefined>;
+  /** Evaluates `http` predicates (API/DB checks) outside the page. */
+  http?: (p: Extract<Predicate, { kind: "http" }>) => Promise<boolean | undefined>;
+  /** Vision reviewer for model predicates the decision model left inconclusive. */
+  vision?: (
+    criteria: string,
+    signal?: AbortSignal,
+  ) => Promise<{ state: VerifyState; detail?: string; costUsd?: number }>;
   /** Rendered state for model checks (built by the loop). */
   state?: Entry;
   signal?: AbortSignal;
@@ -93,7 +100,7 @@ export interface DoneWhenDeps {
 
 export interface DoneWhenResult {
   state: VerifyState;
-  decidedBy: "deterministic" | "oracle" | "decision" | "none";
+  decidedBy: "deterministic" | "oracle" | "decision" | "vision" | "none";
   predicates: PredicateResult[];
   costUsd: number;
   decisionCalls: number;
@@ -144,6 +151,15 @@ export async function evaluateDoneWhen(
   }
 
   for (const p of pending) {
+    if (p.kind === "http") {
+      const pass = deps.http ? await deps.http(p) : undefined;
+      const s: VerifyState = pass === undefined ? "unknown" : pass ? "satisfied" : "unsatisfied";
+      results.push({ predicate: p, state: s, ...(pass === undefined ? { detail: "no http checker" } : {}) });
+      if (pass !== undefined && decidedBy !== "oracle") decidedBy = "deterministic";
+      if (s === "unsatisfied")
+        return { state: s, decidedBy: "deterministic", predicates: results, costUsd, decisionCalls };
+      continue;
+    }
     if (p.kind === "oracle") {
       const pass = deps.oracle ? await deps.oracle(p.taskId) : undefined;
       const s: VerifyState = pass === undefined ? "unknown" : pass ? "satisfied" : "unsatisfied";
@@ -170,7 +186,7 @@ export async function evaluateDoneWhen(
       costUsd += r.value.costUsd;
       const a = r.value.answers.holds;
       const prob = a?.type === "noul" ? a.p : undefined;
-      const s: VerifyState =
+      let s: VerifyState =
         prob === undefined
           ? "unknown"
           : prob >= HOLDS_PASS
@@ -178,14 +194,20 @@ export async function evaluateDoneWhen(
             : prob <= HOLDS_FAIL
               ? "unsatisfied"
               : "unknown";
-      results.push({
-        predicate: p,
-        state: s,
-        detail: prob === undefined ? "abstain" : `p=${prob.toFixed(3)}`,
-      });
-      decidedBy = decidedBy === "none" ? "decision" : decidedBy;
+      let detail = prob === undefined ? "abstain" : `p=${prob.toFixed(3)}`;
+      let by: DoneWhenResult["decidedBy"] = "decision";
+      // Inconclusive (or visual) checks go to the vision reviewer when one is configured.
+      if (s === "unknown" && deps.vision) {
+        const v = await deps.vision(p.criteria, deps.signal);
+        costUsd += v.costUsd ?? 0;
+        s = v.state;
+        detail = `${detail}; vision: ${v.detail ?? v.state}`;
+        by = "vision";
+      }
+      results.push({ predicate: p, state: s, detail });
+      decidedBy = decidedBy === "none" || by === "vision" ? by : decidedBy;
       if (s === "unsatisfied")
-        return { state: s, decidedBy: "decision", predicates: results, costUsd, decisionCalls };
+        return { state: s, decidedBy: by, predicates: results, costUsd, decisionCalls };
     }
   }
 

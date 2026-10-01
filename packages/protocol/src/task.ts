@@ -19,6 +19,16 @@ export const Predicate = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), text: z.string().min(1) }),
   /** A field (by accessible name) has this redacted value. */
   z.object({ kind: z.literal("value"), name: z.string().min(1), value: z.string() }),
+  /** An HTTP check (API or DB-backed endpoint), evaluated by the engine, never by the page. */
+  z.object({
+    kind: z.literal("http"),
+    method: z.enum(["GET", "HEAD"]).default("GET"),
+    url: z.string().min(1),
+    status: z.number().int().optional(),
+    /** Dot path into a JSON body (e.g. "user.name"), compared with `equals`. */
+    path: z.string().optional(),
+    equals: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  }),
   /** A testbed oracle (control API) passes. */
   z.object({ kind: z.literal("oracle"), taskId: z.string().min(1) }),
   /** Ask the decision model; used only when no deterministic check applies. */
