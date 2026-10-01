@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
+#
+# GhostHand X11 sandbox: Xvfb + xfwm4 + AT-SPI on a private display, with the desktop RPC host.
+# Build:  docker build -t ghosthand-x11:latest -f packages/driver-desktop/hosts/linux/Containerfile packages/driver-desktop
+# (or `packages/driver-desktop/hosts/linux/run-sandbox.sh build`). Chromium is optional: --build-arg WITH_CHROMIUM=1.
+FROM debian:trixie-slim
+
+ARG WITH_CHROMIUM=0
+# Optional faster Debian mirror, e.g. --build-arg DEBIAN_MIRROR=http://ftp.de.debian.org/debian
+ARG DEBIAN_MIRROR=""
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+# mss (MIT, pip): XShm screenshots in a few ms; Debian has no package for it.
+RUN if [ -n "$DEBIAN_MIRROR" ]; then sed -i "s|^URIs: http://deb.debian.org/debian\$|URIs: $DEBIAN_MIRROR|" /etc/apt/sources.list.d/debian.sources; fi \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      xvfb xfwm4 x11-utils x11-xserver-utils xdotool \
+      dbus dbus-x11 at-spi2-core libatk-adaptor \
+      python3 python3-gi python3-gi-cairo gir1.2-atspi-2.0 gir1.2-gtk-3.0 python3-pip \
+      ffmpeg imagemagick x11vnc novnc python3-websockify \
+      xterm fonts-dejavu-core adwaita-icon-theme-legacy ca-certificates \
+ && if [ "$WITH_CHROMIUM" = "1" ]; then apt-get install -y --no-install-recommends chromium; fi \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip3 install --no-cache-dir --break-system-packages mss==10.0.0
+
+# Unprivileged user; the container also runs with --cap-drop ALL and no-new-privileges.
+RUN useradd --create-home --uid 1000 --shell /bin/bash ghost \
+ && mkdir -p /opt/ghosthand /work && chown ghost:ghost /work
+
+COPY hosts/linux/ghosthand_desktop_host /opt/ghosthand/ghosthand_desktop_host
+COPY testbed/desktop-testbed.py /opt/ghosthand/testbed/desktop-testbed.py
+COPY hosts/linux/sandbox-entry.sh /opt/ghosthand/sandbox-entry.sh
+
+# Accessibility on for every toolkit we may launch (GTK3 atk-bridge, Qt, Java, Chromium/Electron flag in the host).
+ENV GTK_MODULES=gail:atk-bridge NO_AT_BRIDGE=0 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 QT_ACCESSIBILITY=1 \
+    ACCESSIBILITY_ENABLED=1 GNOME_ACCESSIBILITY=1 PYTHONPATH=/opt/ghosthand PYTHONDONTWRITEBYTECODE=1 GHOSTHAND_IN_CONTAINER=1
+
+USER ghost
+WORKDIR /home/ghost
+ENTRYPOINT ["/opt/ghosthand/sandbox-entry.sh"]

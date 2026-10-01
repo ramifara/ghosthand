@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../node_modules/.cache/tsc/driver-desktop",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/driver-desktop.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../core"
+    }
+  ]
+}

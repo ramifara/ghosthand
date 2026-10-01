@@ -20,3 +20,9 @@ playwright-report/
 /plan/
 /research/
 .claude/
+# Desktop driver native hosts (Python, .NET, Swift build output)
+__pycache__/
+*.pyc
+packages/driver-desktop/hosts/windows/**/bin/
+packages/driver-desktop/hosts/windows/**/obj/
+packages/driver-desktop/hosts/macos/.build/

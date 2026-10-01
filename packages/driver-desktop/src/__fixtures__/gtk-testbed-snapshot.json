@@ -1,0 +1,644 @@
+{
+  "snapshotId": "h2",
+  "takenAt": 1790000000000,
+  "screen": {
+    "x": 0,
+    "y": 0,
+    "width": 1280,
+    "height": 800
+  },
+  "scale": 1,
+  "title": "GhostHand Desktop Testbed",
+  "nodes": [
+    {
+      "ref": 0,
+      "parent": null,
+      "depth": 0,
+      "role": "frame",
+      "name": "GhostHand Desktop Testbed",
+      "states": ["active", "enabled", "resizable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 570,
+        "height": 674
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false
+    },
+    {
+      "ref": 1,
+      "parent": 0,
+      "depth": 1,
+      "role": "filler",
+      "name": "",
+      "states": ["enabled", "sensitive", "showing", "vertical", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 45,
+        "width": 528,
+        "height": 608
+      },
+      "window": 0,
+      "childCount": 7,
+      "secret": false
+    },
+    {
+      "ref": 2,
+      "parent": 1,
+      "depth": 2,
+      "role": "heading",
+      "name": "Profile",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 45,
+        "width": 528,
+        "height": 17
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 3,
+      "parent": 1,
+      "depth": 2,
+      "role": "panel",
+      "name": "",
+      "states": ["enabled", "horizontal", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 72,
+        "width": 528,
+        "height": 189
+      },
+      "window": 0,
+      "childCount": 8,
+      "secret": false
+    },
+    {
+      "ref": 4,
+      "parent": 3,
+      "depth": 3,
+      "role": "button",
+      "name": "Save profile",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 97,
+        "y": 227,
+        "width": 452,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 5,
+      "parent": 3,
+      "depth": 3,
+      "role": "check box",
+      "name": "Subscribe to the newsletter",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 97,
+        "y": 198,
+        "width": 452,
+        "height": 21
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 6,
+      "parent": 3,
+      "depth": 3,
+      "role": "combo box",
+      "name": "Plan",
+      "states": ["enabled", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Selection"],
+      "actions": ["press"],
+      "bounds": {
+        "x": 97,
+        "y": 156,
+        "width": 452,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false,
+      "options": ["Free", "Pro", "Team"],
+      "optionCount": 3,
+      "selectedOption": "Free"
+    },
+    {
+      "ref": 7,
+      "parent": 3,
+      "depth": 3,
+      "role": "label",
+      "name": "Plan",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 156,
+        "width": 64,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 8,
+      "parent": 3,
+      "depth": 3,
+      "role": "text",
+      "name": "Email",
+      "states": ["editable", "enabled", "focusable", "sensitive", "showing", "single-line", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "EditableText", "Text"],
+      "actions": ["activate"],
+      "bounds": {
+        "x": 97,
+        "y": 114,
+        "width": 452,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false,
+      "value": ""
+    },
+    {
+      "ref": 9,
+      "parent": 3,
+      "depth": 3,
+      "role": "label",
+      "name": "Email",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 114,
+        "width": 64,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 10,
+      "parent": 3,
+      "depth": 3,
+      "role": "text",
+      "name": "Full name",
+      "states": [
+        "editable",
+        "enabled",
+        "focusable",
+        "focused",
+        "sensitive",
+        "showing",
+        "single-line",
+        "visible"
+      ],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "EditableText", "Text"],
+      "actions": ["activate"],
+      "bounds": {
+        "x": 97,
+        "y": 72,
+        "width": 452,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false,
+      "value": "Ada Lovelace"
+    },
+    {
+      "ref": 11,
+      "parent": 3,
+      "depth": 3,
+      "role": "label",
+      "name": "Full name",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 72,
+        "width": 64,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 12,
+      "parent": 1,
+      "depth": 2,
+      "role": "heading",
+      "name": "Shopping list",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 290,
+        "width": 528,
+        "height": 17
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 13,
+      "parent": 1,
+      "depth": 2,
+      "role": "scroll pane",
+      "name": "",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 317,
+        "width": 528,
+        "height": 265
+      },
+      "window": 0,
+      "childCount": 3,
+      "secret": false
+    },
+    {
+      "ref": 14,
+      "parent": 13,
+      "depth": 3,
+      "role": "viewport",
+      "name": "",
+      "states": ["enabled", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 317,
+        "width": 528,
+        "height": 265
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false
+    },
+    {
+      "ref": 15,
+      "parent": 14,
+      "depth": 4,
+      "role": "list box",
+      "name": "Shopping list",
+      "states": ["enabled", "sensitive", "showing", "visible", "manages-descendants"],
+      "interfaces": ["Accessible", "Collection", "Component", "Selection"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 317,
+        "width": 528,
+        "height": 265
+      },
+      "window": 0,
+      "childCount": 3,
+      "secret": false
+    },
+    {
+      "ref": 16,
+      "parent": 15,
+      "depth": 5,
+      "role": "list item",
+      "name": "Eggs",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 317,
+        "width": 528,
+        "height": 46
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false
+    },
+    {
+      "ref": 17,
+      "parent": 16,
+      "depth": 6,
+      "role": "filler",
+      "name": "",
+      "states": ["enabled", "horizontal", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 323,
+        "width": 516,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 2,
+      "secret": false
+    },
+    {
+      "ref": 18,
+      "parent": 17,
+      "depth": 7,
+      "role": "label",
+      "name": "Eggs",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 323,
+        "width": 420,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 19,
+      "parent": 17,
+      "depth": 7,
+      "role": "button",
+      "name": "Remove",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 455,
+        "y": 323,
+        "width": 88,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "description": "Remove Eggs from the shopping list",
+      "secret": false
+    },
+    {
+      "ref": 20,
+      "parent": 15,
+      "depth": 5,
+      "role": "list item",
+      "name": "Bread",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 363,
+        "width": 528,
+        "height": 46
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false
+    },
+    {
+      "ref": 21,
+      "parent": 20,
+      "depth": 6,
+      "role": "filler",
+      "name": "",
+      "states": ["enabled", "horizontal", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 369,
+        "width": 516,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 2,
+      "secret": false
+    },
+    {
+      "ref": 22,
+      "parent": 21,
+      "depth": 7,
+      "role": "label",
+      "name": "Bread",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 369,
+        "width": 420,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 23,
+      "parent": 21,
+      "depth": 7,
+      "role": "button",
+      "name": "Remove",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 455,
+        "y": 369,
+        "width": 88,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "description": "Remove Bread from the shopping list",
+      "secret": false
+    },
+    {
+      "ref": 24,
+      "parent": 15,
+      "depth": 5,
+      "role": "list item",
+      "name": "Coffee",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 409,
+        "width": 528,
+        "height": 46
+      },
+      "window": 0,
+      "childCount": 1,
+      "secret": false
+    },
+    {
+      "ref": 25,
+      "parent": 24,
+      "depth": 6,
+      "role": "filler",
+      "name": "",
+      "states": ["enabled", "horizontal", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 415,
+        "width": 516,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 2,
+      "secret": false
+    },
+    {
+      "ref": 26,
+      "parent": 25,
+      "depth": 7,
+      "role": "label",
+      "name": "Coffee",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 27,
+        "y": 415,
+        "width": 420,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 27,
+      "parent": 25,
+      "depth": 7,
+      "role": "button",
+      "name": "Remove",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 455,
+        "y": 415,
+        "width": 88,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "description": "Remove Coffee from the shopping list",
+      "secret": false
+    },
+    {
+      "ref": 28,
+      "parent": 1,
+      "depth": 2,
+      "role": "filler",
+      "name": "",
+      "states": ["enabled", "horizontal", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 592,
+        "width": 528,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 2,
+      "secret": false
+    },
+    {
+      "ref": 29,
+      "parent": 28,
+      "depth": 3,
+      "role": "text",
+      "name": "New item",
+      "states": ["editable", "enabled", "focusable", "sensitive", "showing", "single-line", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "EditableText", "Text"],
+      "actions": ["activate"],
+      "bounds": {
+        "x": 21,
+        "y": 592,
+        "width": 427,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false,
+      "value": ""
+    },
+    {
+      "ref": 30,
+      "parent": 28,
+      "depth": 3,
+      "role": "button",
+      "name": "Add item",
+      "states": ["enabled", "focusable", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Action", "Collection", "Component", "Image"],
+      "actions": ["click"],
+      "bounds": {
+        "x": 456,
+        "y": 592,
+        "width": 93,
+        "height": 34
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false
+    },
+    {
+      "ref": 31,
+      "parent": 1,
+      "depth": 2,
+      "role": "label",
+      "name": "Status",
+      "states": ["enabled", "multi-line", "sensitive", "showing", "visible"],
+      "interfaces": ["Accessible", "Collection", "Component", "Hypertext", "Text"],
+      "actions": [],
+      "bounds": {
+        "x": 21,
+        "y": 636,
+        "width": 528,
+        "height": 17
+      },
+      "window": 0,
+      "childCount": 0,
+      "secret": false,
+      "text": "Ready."
+    }
+  ],
+  "complete": true,
+  "walkMs": 100,
+  "appName": "desktop-testbed.py"
+}

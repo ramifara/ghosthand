@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
+**/__pycache__
+**/*.pyc
+node_modules
+src
+hosts/windows
+hosts/macos
