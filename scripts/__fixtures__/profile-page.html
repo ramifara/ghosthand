@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!-- Source of profile-page.png, the screenshot used by scripts/probe-codex.ts. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Acme Workspace - Profile settings</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 0; color: #1d2433; background: #f5f6f8; }
+  header { background: #0f766e; color: white; padding: 12px 24px; display: flex; gap: 24px; align-items: center; }
+  header b { font-size: 16px; }
+  header a { color: #ccfbf1; text-decoration: none; }
+  main { display: flex; gap: 24px; padding: 24px; }
+  nav { width: 180px; display: flex; flex-direction: column; gap: 8px; }
+  nav a { color: #1d2433; text-decoration: none; padding: 6px 10px; border-radius: 6px; }
+  nav a.active { background: #ccfbf1; font-weight: 600; }
+  section { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 20px 24px; width: 520px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  label { display: block; font-weight: 600; margin: 14px 0 4px; }
+  input, select { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #b8c0cc; border-radius: 6px; font: inherit; }
+  .row { display: flex; gap: 12px; margin-top: 20px; }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid #b8c0cc; background: white; font: inherit; }
+  button.primary { background: #0f766e; color: white; border-color: #0f766e; }
+  .hint { color: #5b6475; font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header><b>Acme Workspace</b><a href="#">Projects</a><a href="#">Reports</a><a href="#">Settings</a></header>
+<main>
+  <nav>
+    <a class="active" href="#">Profile</a>
+    <a href="#">Notifications</a>
+    <a href="#">Security</a>
+    <a href="#">Billing</a>
+  </nav>
+  <section>
+    <h1>Profile settings</h1>
+    <label for="name">Display name</label>
+    <input id="name" value="Dana Smith">
+    <label for="email">Email</label>
+    <input id="email" value="dana@example.test">
+    <label for="tz">Time zone</label>
+    <select id="tz"><option>UTC</option><option>Europe/Berlin</option></select>
+    <div class="hint">Changes apply after you save.</div>
+    <div class="row"><button class="primary">Save changes</button><button>Cancel</button></div>
+  </section>
+</main>
+</body>
+</html>
