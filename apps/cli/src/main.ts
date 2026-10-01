@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
+import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
@@ -18,6 +19,7 @@ Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
+  ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
   ghosthand runs list [--limit N] [--task <id>]
   ghosthand doctor
   ghosthand profile create <name> | list | import <chrome-profile-dir> <name> | remove <name>
@@ -80,6 +82,16 @@ export async function main(argv: string[]): Promise<number> {
       });
     case "export":
       return exportCommand(rest[0], { ...(values.out ? { out: values.out } : {}) });
+    case "eval":
+      return evalCommand({
+        suite: values.suite ?? "l1",
+        n: Number(values.n ?? "5"),
+        ...(values.only ? { only: values.only.split(",") } : {}),
+        headless: values.headless ?? false,
+        decision: values.decision === "heuristic" ? "heuristic" : "jev",
+        ...(values.out ? { out: values.out } : {}),
+        json,
+      });
     case "tasks":
       return tasksCommand(json);
     case "observe":
@@ -108,6 +120,10 @@ function parse(argv: string[]) {
       config: { type: "string" },
       "no-trace": { type: "boolean" },
       "no-heal": { type: "boolean" },
+      suite: { type: "string" },
+      n: { type: "string" },
+      only: { type: "string" },
+      decision: { type: "string" },
       out: { type: "string" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },

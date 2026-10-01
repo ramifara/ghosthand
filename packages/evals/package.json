@@ -11,7 +11,9 @@
   "dependencies": {
     "@ghosthand/engine": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
-    "@ghosthand/testbed-kit": "workspace:*"
+    "@ghosthand/testbed-kit": "workspace:*",
+    "zod": "catalog:",
+    "@ghosthand/core": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"

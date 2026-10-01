@@ -24,6 +24,9 @@
     },
     {
       "path": "../../packages/testbed-kit"
+    },
+    {
+      "path": "../../packages/evals"
     }
   ]
 }
