@@ -1,0 +1,9 @@
+{
+  "description": "Bad API key (probed shape: FastAPI detail object).",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 401,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_401401401401401401401401401401ab" },
+    "body": { "detail": { "error_type": "authentication_error", "message": "Invalid API key." } }
+  }
+}

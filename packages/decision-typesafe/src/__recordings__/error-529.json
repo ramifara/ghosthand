@@ -1,0 +1,9 @@
+{
+  "description": "Overloaded.",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 529,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_529529529529529529529529529529ab" },
+    "body": { "detail": { "error_type": "overloaded_error", "message": "Overloaded." } }
+  }
+}

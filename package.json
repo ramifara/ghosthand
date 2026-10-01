@@ -55,6 +55,7 @@
     "eval": "node apps/cli/src/main.ts eval",
     "license:check": "node scripts/license-check.ts",
     "secrets:check": "node scripts/secrets-check.ts",
+    "probe:jev": "node scripts/probe-jev.ts",
     "dist:desktop": "bun run --filter @ghosthand/desktop dist",
     "mail": "mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025",
     "changeset": "changeset"
@@ -62,6 +63,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@changesets/cli": "3.0.3",
+    "@ghosthand/decision-typesafe": "workspace:*",
+    "@ghosthand/protocol": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "7.0.2",
     "vitest": "catalog:"

@@ -1,0 +1,9 @@
+{
+  "description": "Internal server error.",
+  "request": { "method": "POST", "path": "/v1/systemone" },
+  "response": {
+    "status": 500,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_500500500500500500500500500500ab" },
+    "body": { "detail": { "error_type": "api_error", "message": "Internal server error." } }
+  }
+}

@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@ghosthand/core": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "@typesafe-ai/sdk": "catalog:",
+    "zod": "catalog:"
   },
   "scripts": {
     "test": "vitest run"

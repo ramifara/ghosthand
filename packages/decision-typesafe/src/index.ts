@@ -2,3 +2,35 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 
 export const decisionTypesafePackageName = "@ghosthand/decision-typesafe" as const;
+
+export { CostMeter, type CostMeterOptions, costUsd, DEFAULT_PRICE_INPUT_PER_M } from "./cost-meter.ts";
+export { type DecisionLogger, type LogFields, silentLogger } from "./logger.ts";
+export { kindForStatus, mapSdkError } from "./map-sdk-error.ts";
+export {
+  CHARS_PER_TOKEN,
+  estimateRequestTokens,
+  estimateTokens,
+  type PreflightCaps,
+  preflight,
+  type TokenEstimate,
+} from "./preflight.ts";
+export {
+  createTypeSafeDecisionProvider,
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL,
+  DEFAULT_RETRIES,
+  DEFAULT_TIMEOUT_MS,
+  type FetchLike,
+  PROVIDER_NAME,
+  TYPESAFE_DIRECT_CAPABILITIES,
+  type TypeSafeDecisionProviderOptions,
+} from "./typesafe-provider.ts";
+export {
+  abstainedNames,
+  PROBABILITY_SUM_TOLERANCE,
+  SCORE_MEAN_TOLERANCE,
+  validateAnswers,
+  validateChoiceAnswer,
+  validateNoulAnswer,
+  validateScoreAnswer,
+} from "./validate-response.ts";

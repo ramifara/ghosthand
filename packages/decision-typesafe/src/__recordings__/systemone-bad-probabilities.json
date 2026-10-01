@@ -1,0 +1,28 @@
+{
+  "description": "Synthetic: the choice probabilities sum to 0.8 and the score is far from its distribution mean. Both answers must abstain; the noul passes.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.13.0", "questions": ["goal_done", "target", "risk"] },
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b" },
+    "body": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "goal_done": { "type": "noul", "noul": 0.97 },
+        "target": {
+          "type": "choice",
+          "choice": "e2",
+          "confidence": 0.6,
+          "probabilities": { "e1": 0.1, "e2": 0.6, "e3": 0.05, "none": 0.05 }
+        },
+        "risk": {
+          "type": "score",
+          "score": 1.5,
+          "confidence": 0.9,
+          "probabilities": { "0": 0.9, "1": 0.1, "2": 0.0 },
+          "legend": { "0": "read-only", "1": "reversible", "2": "irreversible" }
+        }
+      },
+      "usage": { "input_tokens": 1834, "output_tokens": 15 }
+    }
+  }
+}
