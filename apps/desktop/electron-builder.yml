@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
+# Unsigned builds for Linux (AppImage, deb), Windows (NSIS) and macOS (dmg). Run from apps/desktop after
+# `electron-vite build` (`bun run dist:desktop` from the repo root does both).
+appId: dev.ghosthand.desktop
+productName: GhostHand
+executableName: ghosthand
+copyright: Copyright (C) 2026 Rami Fara and GhostHand contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!out/**/*.map"
+# Playwright spawns the browser and reads its own files at run time; keep it outside the asar.
+asarUnpack:
+  - node_modules/playwright-core/**
+extraMetadata:
+  main: out/main/main.js
+  # Window association on Linux (WM_CLASS / app_id).
+  desktopName: ghosthand.desktop
+npmRebuild: false
+# Electron fuses (flipped in the packaged binary). utilityProcess does not need RunAsNode.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
+  grantFileProtocolExtraPrivileges: false
+  loadBrowserProcessSpecificV8Snapshot: false
+linux:
+  target: [AppImage, deb]
+  category: Development
+  maintainer: GhostHand contributors <ghosthand@users.noreply.github.com>
+  artifactName: ${productName}-${version}-${arch}.${ext}
+deb:
+  depends: [libnss3, libgtk-3-0, libxss1, libasound2]
+win:
+  target: [nsis]
+  artifactName: ${productName}-${version}-setup-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+mac:
+  target: [dmg]
+  category: public.app-category.developer-tools
+  identity: null
+  hardenedRuntime: false
+  artifactName: ${productName}-${version}-${arch}.${ext}
+publish: null
