@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
+import { mcpCommand } from "./commands/mcp.ts";
 import { modelsCommand } from "./commands/models.ts";
 import { observeCommand } from "./commands/observe.ts";
 import { browsersCommand, profileCommand } from "./commands/profile.ts";
@@ -12,6 +13,7 @@ import { replayCommand } from "./commands/replay.ts";
 import { type RunFlags, runCommand } from "./commands/run.ts";
 import { runsCommand } from "./commands/runs.ts";
 import { tasksCommand } from "./commands/tasks.ts";
+import { testCommand } from "./commands/test.ts";
 import { fail, out } from "./io.ts";
 
 export const HELP = `ghosthand, a Jev CUA
@@ -22,6 +24,9 @@ Usage:
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
   ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
+  ghosthand test <spec.md> [--runs N] [--out report.html] [--decision jev|heuristic] [--variant k=v,...]
+                [--vision auto|none] [--only case-id,...] [--headless]
+  ghosthand mcp [--interactive]
   ghosthand runs list [--limit N] [--task <id>]
   ghosthand doctor
   ghosthand models list [--provider <id>] [--role planner|writer|vision_reviewer|vision_grounder|judge] [--all]
@@ -94,6 +99,25 @@ export async function main(argv: string[]): Promise<number> {
       });
     case "tasks":
       return tasksCommand(json);
+    case "test":
+      return testCommand({
+        spec: rest[0],
+        ...(values.runs ? { runs: Number(values.runs) } : {}),
+        ...(values.out ? { out: values.out } : {}),
+        decision: values.decision === "heuristic" ? "heuristic" : "jev",
+        vision: values.vision === "none" ? "none" : "auto",
+        ...(values.variant ? { variant: values.variant } : {}),
+        headless: values.headless ?? false,
+        ...(values.profile ? { profile: values.profile } : {}),
+        ...(values.only ? { only: values.only.split(",") } : {}),
+        ...(values.config ? { config: values.config } : {}),
+        json,
+      });
+    case "mcp":
+      return mcpCommand({
+        interactive: values.interactive ?? false,
+        ...(values.config ? { config: values.config } : {}),
+      });
     case "observe":
       return observeCommand(values.url, {
         headless: values.headless ?? false,
@@ -154,6 +178,10 @@ export function parse(argv: string[]) {
       only: { type: "string" },
       decision: { type: "string" },
       out: { type: "string" },
+      runs: { type: "string" },
+      variant: { type: "string" },
+      vision: { type: "string" },
+      interactive: { type: "boolean" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
     },

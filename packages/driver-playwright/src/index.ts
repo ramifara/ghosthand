@@ -17,6 +17,7 @@ export * from "./browser/profile-paths.ts";
 export * from "./browser/profile-store.ts";
 export * from "./web/action-effects.ts";
 export * from "./web/aria-tree.ts";
+export * from "./web/audit-a11y.ts";
 export * from "./web/build-elements.ts";
 export * from "./web/capture-snapshot.ts";
 export * from "./web/element-rules.ts";

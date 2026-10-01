@@ -100,6 +100,7 @@ const exempt = [
   /__fixtures__\//,
   /__recordings__\//,
   /^docs\/(plan|research)\//,
+  /^docs\/reports\/.*\.html$/,
   /^\.changeset\/.*\.md$/,
   /\.(svg|png|ico|jpg|webp|zip)$/,
   /^CLAUDE\.md$/,

@@ -179,6 +179,21 @@ describe("profile", () => {
     });
   });
 
+  test("planted bug profile-title drops the job title but still reports success", async () => {
+    await post(control, "/reset", { variant: { bug: "profile-title" } });
+    const cookie = sessionCookie(await login());
+    const res = await put({ ...alice, name: "Alice Moreau", title: "Staff Engineer" }, cookie);
+    expect(res.status).toBe(200);
+    const body = await json<{ user: { name: string; title: string }; message: string }>(res);
+    expect(body.message).toBe("Profile saved.");
+    expect(body.user.name).toBe("Alice Moreau");
+    expect(body.user.title).toBe("Engineer");
+    const verdict = await oracle("l1-update-profile");
+    expect(verdict.pass).toBe(false);
+    expect(verdict.checks.titleUpdated).toBe(false);
+    await post(control, "/reset", {});
+  });
+
   test("taken handle is rejected by the server; form-validation oracle needs both attempts", async () => {
     const cookie = sessionCookie(await login());
     const taken = await put({ ...alice, handle: "bob" }, cookie);

@@ -91,7 +91,9 @@ export function createAppApi(testbed: Testbed): Hono<Env> {
       c.set("audit", { action: "profile.update", detail: { fieldErrors: result.fieldErrors } });
       return c.json({ error: "validation", fieldErrors: result.fieldErrors }, 400);
     }
-    const next = result.value;
+    // Planted bug (variant bug=profile-title): the job title is silently dropped, the save still "succeeds".
+    const next =
+      testbed.variant.bug === "profile-title" ? { ...result.value, title: user.title } : result.value;
     const clash = testbed.db
       .query<{ id: number }, { handle: string; id: number }>(
         "select id from users where handle = $handle and id != $id",

@@ -12,6 +12,13 @@ Borrowed ideas (no code copied unless stated)
 - Playwright (Apache-2.0, Microsoft): AI aria snapshot format and aria-ref locators, used through the public API.
 - browser-use (MIT), Stagehand (MIT), Midscene (MIT), cua (MIT): agent loop and element-table design ideas.
 - TypeSafe SDK for JS (@typesafe-ai/sdk, MIT): used as a dependency.
+- Playwright Test Agents (Apache-2.0, Microsoft): the Markdown test-plan shape (suites, cases, steps,
+  expected results) that QA specs follow.
+- cooper667/jev-playwright: preflight step classification (ok/transient/derived/visual/external), advisory
+  vs decisive steps, and the one-line verdict for calling agents (ideas only).
+- axe-core (MPL-2.0, Deque Systems): used unmodified as a dependency; its script is evaluated in pages under
+  test for the QA accessibility score. Source: https://github.com/dequelabs/axe-core
+- Model Context Protocol TypeScript SDK (@modelcontextprotocol/sdk, MIT): used as a dependency.
 
 Copied code
 -----------

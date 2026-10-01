@@ -14,6 +14,7 @@ import type {
 import { ActionResult as ActionResultSchema, Element, Snapshot } from "@ghosthand/protocol";
 import type { Browser, BrowserContext } from "playwright-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { auditA11y } from "./audit-a11y.ts";
 import { registerGhosthandEngine } from "./engine-client.ts";
 import { readZipEntries, redactZip } from "./redact-zip.ts";
 import type { BrowserLaunch, FixtureServer } from "./test-support.ts";
@@ -577,4 +578,17 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expect(checks.every((ch) => ch.ok)).toBe(true);
     expect(c.capabilities().surface).toBe("web");
   });
+
+  it("collects console errors and failed responses, and audits with axe", async () => {
+    const c = await open("errors.html");
+    const go = find(await observe(c), "Go", "button");
+    await act(c.press(go.token));
+    await c.waitIdle({ capMs: 2000 });
+    expect(c.consoleErrors.some((e) => e.includes("boom on load"))).toBe(true);
+    expect(c.consoleErrors.some((e) => e.includes("boom from button"))).toBe(true);
+    expect(c.httpErrors).toContainEqual({ status: 404, method: "GET", url: `${server.origin}/missing-api` });
+    const audit = await auditA11y(c.page);
+    if (!audit.ok) throw new Error(audit.error.message);
+    expect(audit.value.violations.map((v) => v.id)).toContain("image-alt");
+  }, 20_000);
 });
