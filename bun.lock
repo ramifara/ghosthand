@@ -146,6 +146,7 @@
         "@ghosthand/driver-playwright": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
+        "@ghosthand/testbed-kit": "workspace:*",
         "@opentelemetry/api": "catalog:",
         "@opentelemetry/core": "2.11.0",
         "@opentelemetry/resources": "2.11.0",

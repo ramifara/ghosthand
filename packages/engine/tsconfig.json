@@ -27,6 +27,9 @@
     },
     {
       "path": "../recorder"
+    },
+    {
+      "path": "../testbed-kit"
     }
   ]
 }

@@ -21,7 +21,8 @@
     "playwright-core": "catalog:",
     "zod": "catalog:",
     "@ghosthand/consultants": "workspace:*",
-    "@ghosthand/driver-playwright": "workspace:*"
+    "@ghosthand/driver-playwright": "workspace:*",
+    "@ghosthand/testbed-kit": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
