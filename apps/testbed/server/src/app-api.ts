@@ -12,11 +12,15 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { registerAccountRoutes } from "./account-api.ts";
 import { auditMiddleware, type Env } from "./audit-middleware.ts";
+import { registerAuthRoutes, startTotpChallenge } from "./auth-api.ts";
 import { registerCatalogRoutes } from "./catalog-api.ts";
+import { registerLabRoutes } from "./lab-api.ts";
 import { registerOrderRoutes } from "./orders-api.ts";
 import { verifyPassword } from "./password.ts";
+import { registerPreferencesRoutes } from "./preferences-api.ts";
 import { readJson } from "./read-json.ts";
 import { registerSettingsRoutes } from "./settings-api.ts";
+import { registerSsoRoutes } from "./sso-api.ts";
 import type { Testbed } from "./testbed.ts";
 
 export function createAppApi(testbed: Testbed): Hono<Env> {
@@ -65,6 +69,9 @@ export function createAppApi(testbed: Testbed): Hono<Env> {
       });
       return c.json({ error: LOGIN_ERROR_MESSAGE }, 401);
     }
+    // L5: users with TOTP get a two-step challenge instead of a session.
+    const challenge = startTotpChallenge(c, testbed, user);
+    if (challenge) return challenge;
     const token = testbed.createSession(user.id);
     setCookie(c, SESSION_COOKIE, token, { httpOnly: true, sameSite: "Lax", path: "/" });
     c.set("audit", { action: "auth.login", actor: user.email, detail: { email: user.email } });
@@ -133,6 +140,10 @@ export function createAppApi(testbed: Testbed): Hono<Env> {
   registerSettingsRoutes(app, testbed);
   registerCatalogRoutes(app, testbed);
   registerAccountRoutes(app, testbed);
+  registerLabRoutes(app, testbed);
+  registerAuthRoutes(app, testbed);
+  registerSsoRoutes(app, testbed);
+  registerPreferencesRoutes(app, testbed);
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;

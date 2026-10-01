@@ -12,6 +12,8 @@ import {
   DEFAULT_NOW,
   DEFAULT_SEED,
   DEFAULT_VARIANT,
+  EMPTY_LAB,
+  type LabState,
   type MailRow,
   ORDER_TAGS,
   type OrderRow,
@@ -25,8 +27,10 @@ import {
   type UserRow,
   Variant,
 } from "@ghosthand/testbed-kit";
+import { contactPrefs, statuses } from "./auth-db.ts";
 import { type Clock, createFrozenClock } from "./clock.ts";
 import { openDatabase, TABLES } from "./db.ts";
+import { readLab, seedLab } from "./lab-db.ts";
 import { namedSeeds, seedBase } from "./seed-data.ts";
 import { ensureSettings } from "./shop-seed.ts";
 
@@ -90,6 +94,7 @@ export class Testbed {
   private initialOrders: OrderRow[] = [];
   private initialSettings: SettingsRow[] = [];
   private initialBios: BioRow[] = [];
+  private initialLab: LabState = EMPTY_LAB;
 
   constructor(clock: Clock = createFrozenClock(DEFAULT_NOW)) {
     this.clock = clock;
@@ -106,6 +111,7 @@ export class Testbed {
     this.clock.set(DEFAULT_NOW);
     this.resetId += 1;
     seedBase(this.db, this.seed);
+    seedLab(this.db, this.seed);
     this.captureInitial();
   }
 
@@ -114,6 +120,7 @@ export class Testbed {
     this.initialOrders = this.orders();
     this.initialSettings = this.settings();
     this.initialBios = this.bios();
+    this.initialLab = readLab(this.db);
   }
 
   applySeed(name: string): boolean {
@@ -223,6 +230,10 @@ export class Testbed {
       initialBios: this.initialBios,
       cart: this.cart(),
       pickupStores: this.pickupStores(),
+      lab: readLab(this.db),
+      initialLab: this.initialLab,
+      statuses: statuses(this.db),
+      contactPrefs: contactPrefs(this.db),
     };
   }
 

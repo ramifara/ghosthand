@@ -2,8 +2,11 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Wire shapes of the testbed control API (:4401) and the state snapshot oracles read.
 import { z } from "zod";
+import { StatusRow } from "./auth.ts";
 import { CartItemRow, PickupStoreRow } from "./catalog.ts";
+import { LabState } from "./lab.ts";
 import { CustomerRow, OrderRow } from "./orders.ts";
+import { ContactPrefsRow } from "./preferences.ts";
 import { BioRow, SettingsRow } from "./settings.ts";
 import { Variant, VariantOverrides } from "./variant.ts";
 
@@ -71,6 +74,13 @@ export const TestbedState = z.object({
   /** Catalog carts (P1-06 big page). */
   cart: z.array(CartItemRow),
   pickupStores: z.array(PickupStoreRow),
+  /** L4 lab pages (iframes, shadow DOM, drag and drop, upload, scrolling, menus); see `lab.ts`. */
+  lab: LabState.optional(),
+  initialLab: LabState.optional(),
+  /** L5 status messages (session-expiry task); rows exist only after a save. */
+  statuses: z.array(StatusRow).optional(),
+  /** L6 contact preferences; rows exist only after a save (defaults: DEFAULT_CONTACT_PREFS). */
+  contactPrefs: z.array(ContactPrefsRow).optional(),
 });
 export type TestbedState = z.infer<typeof TestbedState>;
 

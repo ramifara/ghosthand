@@ -2,7 +2,12 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Resolves the active variant: server value from the last reset, overridden by query-string flags.
 // Query overrides are kept in localStorage until the next reset (tracked by resetId).
-import { DEFAULT_VARIANT, type Variant, VariantOverrides } from "@ghosthand/testbed-kit/variant";
+import {
+  DEFAULT_VARIANT,
+  ROBUSTNESS_FLAGS,
+  type Variant,
+  VariantOverrides,
+} from "@ghosthand/testbed-kit/variant";
 
 export const VARIANT_STORAGE_KEY = "ghosthand.testbed.variant";
 
@@ -25,26 +30,41 @@ function readStored(store: KeyValueStore | undefined, resetId: number): VariantO
   return {};
 }
 
+/** Query-string flags the web app honors; each one is validated on its own so one bad value drops only itself. */
+const QUERY_FLAGS = ["testids", "a11y", ...ROBUSTNESS_FLAGS] as const;
+
+function queryOverrides(search: string): VariantOverrides {
+  const params = new URLSearchParams(search);
+  const out: Record<string, unknown> = {};
+  for (const flag of QUERY_FLAGS) {
+    if (!params.has(flag)) continue;
+    const one = VariantOverrides.safeParse({ [flag]: params.get(flag) });
+    if (one.success) Object.assign(out, one.data);
+  }
+  return VariantOverrides.parse(out);
+}
+
 export function resolveVariant(
   server: { variant: Variant; resetId: number },
   search: string,
   store: KeyValueStore | undefined,
 ): Variant {
-  const params = new URLSearchParams(search);
-  const fromQuery = VariantOverrides.safeParse({
-    ...(params.has("testids") ? { testids: params.get("testids") } : {}),
-    ...(params.has("a11y") ? { a11y: params.get("a11y") } : {}),
-  });
-  const query: VariantOverrides = fromQuery.success ? fromQuery.data : {};
+  const query = queryOverrides(search);
   const stored = readStored(store, server.resetId);
   const overrides: VariantOverrides = { ...stored, ...query };
-  if (query.testids !== undefined || query.a11y !== undefined) {
+  if (Object.keys(query).length > 0) {
     store?.setItem(VARIANT_STORAGE_KEY, JSON.stringify({ resetId: server.resetId, overrides }));
   }
-  return {
+  const resolved: Variant = {
     testids: overrides.testids ?? server.variant.testids ?? DEFAULT_VARIANT.testids,
     a11y: overrides.a11y ?? server.variant.a11y ?? DEFAULT_VARIANT.a11y,
   };
+  // L6 flags: present only when set, so the default variant stays exactly { testids, a11y }.
+  for (const flag of ROBUSTNESS_FLAGS) {
+    const value = overrides[flag] ?? server.variant[flag];
+    if (value !== undefined) Object.assign(resolved, { [flag]: value });
+  }
+  return resolved;
 }
 
 let active: Variant = DEFAULT_VARIANT;

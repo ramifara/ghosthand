@@ -9,7 +9,8 @@
     "test": "playwright test"
   },
   "dependencies": {
-    "@ghosthand/testbed-kit": "workspace:*"
+    "@ghosthand/testbed-kit": "workspace:*",
+    "otpauth": "catalog:"
   },
   "devDependencies": {
     "@playwright/test": "catalog:",

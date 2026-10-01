@@ -48,7 +48,7 @@ describe("defineTask", () => {
 
 describe("registry", () => {
   it("lists the L1, L2 and L3 tasks", () => {
-    expect(listTaskIds()).toEqual([
+    expect(listTaskIds().filter((id) => /^l[123]-/.test(id))).toEqual([
       "l1-login",
       "l1-login-wrong-password",
       "l1-update-profile",
@@ -70,7 +70,7 @@ describe("registry", () => {
     ]);
     expect(tasks.filter((t) => t.level === 2)).toHaveLength(8);
     expect(tasks.filter((t) => t.level === 3)).toHaveLength(6);
-    for (const t of tasks.filter((t) => t.level > 1)) {
+    for (const t of tasks.filter((t) => t.level > 1 && t.level <= 3)) {
       expect(t.version).toBe(1);
       expect(t.setup.login).toBe("alice@testbed.local");
       expect(t.doneWhen.all.length).toBeGreaterThan(0);
@@ -83,7 +83,7 @@ describe("registry", () => {
     for (const task of tasks) {
       const spec = toTaskSpec(task);
       expect(spec.startUrl.startsWith("http://127.0.0.1:4400/")).toBe(true);
-      expect(spec.allowOrigins).toEqual(["http://127.0.0.1:4400"]);
+      expect(spec.allowOrigins).toEqual(["http://127.0.0.1:4400", ...task.allowOrigins]);
       expect(spec.plan?.subgoals[0]?.doneWhen).toEqual(task.doneWhen);
       expect(spec.instruction).not.toMatch(/violet|copper/);
     }
