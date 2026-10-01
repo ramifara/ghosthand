@@ -84,3 +84,11 @@ export const nodeSystem: SystemProbe = {
 export function packageRoot(): string {
   return fileURLToPath(new URL("../../", import.meta.url));
 }
+
+/**
+ * Runs argv with fd 3 as the JSON-RPC channel and stdout folded into stderr: services that a private
+ * `dbus-run-session` activates inherit stdout and would corrupt the protocol stream otherwise.
+ */
+export function rpcFdWrapper(argv: string[]): { command: string; args: string[] } {
+  return { command: "sh", args: ["-c", 'exec 3>&1 1>&2; GHOSTHAND_RPC_FD=3 exec "$@"', "sh", ...argv] };
+}

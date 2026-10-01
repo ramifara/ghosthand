@@ -14,7 +14,7 @@ import type { DesktopApp } from "../desktop-computer.ts";
 import type { ConnectedHost } from "./connect-host.ts";
 import { connectHost } from "./connect-host.ts";
 import type { SystemProbe } from "./system.ts";
-import { nodeSystem, packageRoot } from "./system.ts";
+import { nodeSystem, packageRoot, rpcFdWrapper } from "./system.ts";
 
 export type SandboxRuntime = "docker" | "podman" | "host";
 
@@ -35,8 +35,10 @@ export interface X11SandboxOptions {
   network?: boolean;
   /** Local folder shared with the sandbox as /work (state files, recordings). Default: a fresh temp folder. */
   workDir?: string;
-  /** App to launch on the first open(). Use `testbedApp()` for the desktop testbed. */
+  /** App to launch on the first open(). */
   app?: DesktopApp;
+  /** App that depends on where the sandbox runs (e.g. `testbedApp`); used when `app` is not given. */
+  appFor?: (ctx: { runtime: SandboxRuntime; sandboxWorkDir: string }) => DesktopApp;
   secrets?: SecretsRegistry;
   logger?: Logger;
   startupTimeoutMs?: number;
@@ -128,9 +130,15 @@ export async function ensureImage(
 }
 
 /** Argv for the desktop testbed app inside the given sandbox, writing its state to the shared folder. */
-export function testbedApp(runtime: SandboxRuntime, sandboxWorkDir: string, seed = "default"): DesktopApp {
+export function testbedApp(
+  runtime: SandboxRuntime | "native",
+  sandboxWorkDir: string,
+  seed = "default",
+): DesktopApp {
   const script =
-    runtime === "host" ? join(packageRoot(), "testbed", "desktop-testbed.py") : CONTAINER_TESTBED;
+    runtime === "docker" || runtime === "podman"
+      ? CONTAINER_TESTBED
+      : join(packageRoot(), "testbed", "desktop-testbed.py");
   return { argv: ["python3", script, "--state", `${sandboxWorkDir}/state.json`, "--seed", seed] };
 }
 
@@ -207,10 +215,15 @@ export async function launchX11Sandbox(
     if (ownWork) rmSync(workDir, { recursive: true, force: true });
   };
 
+  const appFor = (sandboxWorkDir: string): DesktopApp | undefined =>
+    opts.app ?? opts.appFor?.({ runtime, sandboxWorkDir });
+
   if (runtime === "host") {
+    const app = appFor(workDir);
     const hostDir = join(packageRoot(), LINUX_HOST_DIR);
     const display = freeDisplay();
-    const args = [
+    const argv = [
+      "dbus-run-session",
       "--",
       "python3",
       "-m",
@@ -226,8 +239,14 @@ export async function launchX11Sandbox(
       wm,
       ...(opts.vncPort !== undefined ? ["--vnc-port", String(opts.vncPort)] : []),
     ];
+    // Private runtime dir: the private session's a11y bus and activated services keep out of /run/user.
+    const runtimeDir = mkdtempSync(join(tmpdir(), "ghosthand-x11-rt-"));
+    const { DBUS_SESSION_BUS_ADDRESS: _sessionBus, ...base } = system.env;
     const env: NodeJS.ProcessEnv = {
-      ...system.env,
+      ...base,
+      XDG_RUNTIME_DIR: runtimeDir,
+      GVFS_DISABLE_FUSE: "1",
+      GIO_USE_VFS: "local",
       DISPLAY: display,
       PYTHONPATH: hostDir,
       PYTHONDONTWRITEBYTECODE: "1",
@@ -237,17 +256,19 @@ export async function launchX11Sandbox(
     };
     const connected = await connectHost({
       spawn: {
-        command: "dbus-run-session",
-        args,
+        ...rpcFdWrapper(argv),
         env,
         startupTimeoutMs: opts.startupTimeoutMs ?? 60_000,
       },
       surface: "x11",
-      ...(opts.app ? { app: opts.app } : {}),
+      ...(app ? { app } : {}),
       ...(opts.secrets ? { secrets: opts.secrets } : {}),
       shared: { hostPath: workDir, localPath: workDir },
       ...(opts.logger ? { logger: opts.logger } : {}),
-      onClose: cleanupWork,
+      onClose: async () => {
+        rmSync(runtimeDir, { recursive: true, force: true });
+        await cleanupWork();
+      },
     });
     if (!connected.ok) return connected;
     return ok({ ...connected.value, runtime, workDir, sandboxWorkDir: workDir });
@@ -279,10 +300,11 @@ export async function launchX11Sandbox(
     ...(uid !== undefined ? { uid } : {}),
     ...(gid !== undefined ? { gid } : {}),
   });
+  const app = appFor(CONTAINER_WORK);
   const connected = await connectHost({
     spawn: { command: runtime, args, startupTimeoutMs: opts.startupTimeoutMs ?? 90_000 },
     surface: "x11",
-    ...(opts.app ? { app: opts.app } : {}),
+    ...(app ? { app } : {}),
     ...(opts.secrets ? { secrets: opts.secrets } : {}),
     shared: { hostPath: CONTAINER_WORK, localPath: workDir },
     ...(opts.logger ? { logger: opts.logger } : {}),
