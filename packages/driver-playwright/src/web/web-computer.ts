@@ -1412,7 +1412,12 @@ export class WebComputer implements Computer {
       run: async () => {
         await this.#page.mouse.move(at.x, at.y);
         await this.#page.mouse.wheel(dx, dy);
-        await sleep(100);
+        // Wheel scrolling applies asynchronously (and smoothly); wait up to 1 s for the position to move.
+        for (let waited = 0; waited < 1000; waited += 50) {
+          await sleep(50);
+          const now = await this.#page.evaluate(scrollState, at).catch(() => before);
+          if (now !== before) break;
+        }
       },
       judge: () => ({ effect: "unverifiable", evidence: [] }),
     }).then(async (r) => {
