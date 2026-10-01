@@ -24,6 +24,7 @@
         "ghosthand": "./src/main.ts",
       },
       "dependencies": {
+        "@ghosthand/core": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
         "@ghosthand/engine": "workspace:*",
         "@ghosthand/protocol": "workspace:*",

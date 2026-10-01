@@ -15,7 +15,8 @@
     "@ghosthand/engine": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
     "@ghosthand/driver-playwright": "workspace:*",
-    "@ghosthand/recorder": "workspace:*"
+    "@ghosthand/recorder": "workspace:*",
+    "@ghosthand/core": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
