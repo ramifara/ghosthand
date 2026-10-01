@@ -29,7 +29,7 @@ Date: 2026-10-01. Branch `feat/phase-3-speed-knowledge`. Decisions are in [ADR 0
 | Testbed L4–L6 | 24 new tasks with DB/audit oracles and e2e smoke (46/46 e2e green on a fresh instance). Ports follow `GHOSTHAND_TESTBED_PORT_OFFSET`. | `apps/testbed/**`, `packages/testbed-kit/**` |
 | Driver | Drag/drop/context-menu detection in frames and open shadow roots, stepped pointer drags (HTML5 and pointer-event libraries), uploads from `uploadDir`, downloads, `canScroll`, frame-aware scroll, menu-item toggles. TOTP: a secret named `*_TOTP` types the current code. | `packages/driver-playwright` |
 
-Tests: `bun run check` green (1,180+ unit tests across 140 files, 77 server tests), 46/46 testbed e2e, license and secrets checks clean.
+Tests: `bun run check` is green. It ran 1,159 unit tests in 134 files plus 77 server tests; 2 tests skipped because they need a running testbed. The driver browser tests (`GHOSTHAND_BROWSER_TESTS=1`) passed 151/151, the testbed e2e smoke tests passed 46/46 on a fresh instance, and the license and secrets checks are clean, including over the run folders and `knowledge.sqlite` of this report.
 
 ## Measurements
 
@@ -142,7 +142,11 @@ Per task (median steps with Jev-decided steps in parentheses, median wall):
 
 **LLM share above 20% on L4 and L6.** Codex hand-offs and replans on the vision tasks and on `l4-dnd-checklist` / `l6-popups-profile` push it up. On the vision tasks those calls are wasted: once a run is known to need vision, it should stop early instead of replanning. This is listed below.
 
-### 4. Who did the work
+### 4. L1–L3 regression check (default assistants, n = 2)
+
+**36/36 passed.** The median step is 793 ms (p95 1.94 s, decide 255 ms). Jev cost per step is $0.000355, with 257 Jev calls and 48 LLM calls (Codex writer and replans, 16% LLM share). Who did the work: B 97%, C 3%. Phase 2's baseline was 90/90 with a 742 ms median step, so modes A/D, the new operations and the router changes left B/C behavior intact. The step time is within noise of that baseline: these runs had more writer hand-offs on the order tasks.
+
+### 5. Who did the work
 
 | Measurement | Shares (steps) |
 |---|---|
