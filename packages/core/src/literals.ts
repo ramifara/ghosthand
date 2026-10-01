@@ -52,7 +52,10 @@ export function buildTextOptions(
     if (secret) continue; // never offer a secret as a literal
     options.push({ key: `lit_${++i}`, kind: "literal", text });
   }
-  for (const name of secretNames) options.push({ key: `secret_${name}`, kind: "secret", name });
+  // Keys must not contain the secret name: key-based log redaction would treat them as sensitive.
+  secretNames.forEach((name, j) => {
+    options.push({ key: `sec_${j + 1}`, kind: "secret", name });
+  });
   return options;
 }
 

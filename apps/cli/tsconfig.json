@@ -12,6 +12,18 @@
     },
     {
       "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/driver-playwright"
+    },
+    {
+      "path": "../../packages/recorder"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/testbed-kit"
     }
   ]
 }

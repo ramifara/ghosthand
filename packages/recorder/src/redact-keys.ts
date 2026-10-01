@@ -35,13 +35,18 @@ export function isSensitiveKey(key: string): boolean {
   return SENSITIVE_SUFFIXES.some((s) => k.endsWith(s));
 }
 
-/** Returns a deep copy of `value` with the values of sensitive keys replaced by "[redacted]". */
+/**
+ * Returns a deep copy of `value` with string values of sensitive keys replaced by "[redacted]".
+ * Only strings are replaced: numbers, booleans and nested structures under a sensitive key keep their
+ * type (and nested strings are still checked), so redaction never breaks the event schema. For example a
+ * choice option keyed after a secret name keeps its probability.
+ */
 export function redactKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((v) => redactKeys(v));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = isSensitiveKey(k) && v !== null && v !== undefined ? REDACTED : redactKeys(v);
+      out[k] = isSensitiveKey(k) && typeof v === "string" ? REDACTED : redactKeys(v);
     }
     return out;
   }

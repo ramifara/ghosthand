@@ -24,6 +24,12 @@
     },
     {
       "path": "../consultants"
+    },
+    {
+      "path": "../recorder"
+    },
+    {
+      "path": "../testbed-kit"
     }
   ]
 }

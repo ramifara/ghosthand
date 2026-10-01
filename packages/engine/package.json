@@ -12,9 +12,17 @@
     "@ghosthand/core": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
     "@ghosthand/decision-typesafe": "workspace:*",
-    "@ghosthand/driver-playwright": "workspace:*",
     "@ghosthand/recorder": "workspace:*",
-    "@ghosthand/consultants": "workspace:*"
+    "pino": "catalog:",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/sdk-trace-base": "catalog:",
+    "@opentelemetry/core": "2.11.0",
+    "@opentelemetry/resources": "2.11.0",
+    "playwright-core": "catalog:",
+    "zod": "catalog:",
+    "@ghosthand/consultants": "workspace:*",
+    "@ghosthand/driver-playwright": "workspace:*",
+    "@ghosthand/testbed-kit": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
