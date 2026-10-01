@@ -35,6 +35,7 @@ export async function launchWeb(
     allowOrigins: opts.allowOrigins ?? [],
     // The testbed control API is always blocked (the driver blocks :4401; this covers a port offset).
     blockOrigins: [...rt.config.blockedOrigins, CONTROL_ORIGIN],
+    ...(opts.uploadDir ? { uploadDir: opts.uploadDir } : {}),
     logger: rt.logger.child({ pkg: "driver-playwright" }),
   });
   if (!launched.ok)
