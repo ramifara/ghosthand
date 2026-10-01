@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { Action, ActionResult } from "./action.ts";
 import { Answer, DecisionError, Questions } from "./decision.ts";
+import { Rect } from "./geometry.ts";
 import { Plan, Predicate, TaskSpec } from "./task.ts";
 
 const Base = { t: z.number().int().nonnegative(), seq: z.number().int().nonnegative(), runId: z.string() };
@@ -111,6 +112,10 @@ export const RunEvent = z.discriminatedUnion("type", [
         role: z.string(),
         name: z.string(),
         automationId: z.string().optional(),
+        /** Top-viewport CSS pixels at observe time (live-view overlay). */
+        bounds: Rect.optional(),
+        /** The decision model's confidence in this target. */
+        confidence: z.number().min(0).max(1).optional(),
       })
       .optional(),
     mode: RouterMode,
