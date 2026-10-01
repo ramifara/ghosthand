@@ -428,26 +428,37 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         screen: screenFingerprint(start.value).key,
         quality: start.value.quality.score,
       });
-      emit({ type: "action", step, action: { type: "navigate", url }, effectClass: "advance", mode: "A" });
-      const t0 = clock.now();
-      const opened = await deps.computer.open(url);
-      timing.actMs = clock.now() - t0;
+      // Prefer the page's own link to that route (in-app navigation keeps the app loaded); else go to it.
+      const link = linkTo(start.value, url);
+      const action: Action = link ? { type: "press", token: link.token } : { type: "navigate", url };
       emit({
-        type: "effect",
+        type: "action",
         step,
-        result: {
+        action,
+        ...(link ? { target: fingerprintOf(link) } : {}),
+        effectClass: "advance",
+        mode: "A",
+      });
+      const t0 = clock.now();
+      let result: ActionResult;
+      if (link) result = await deps.computer.press(link.token);
+      else {
+        const opened = await deps.computer.open(url);
+        result = {
           effect: opened.ok ? "confirmed" : "refused",
           route: "navigation",
           evidence: opened.ok ? [{ kind: "url", after: url }] : [],
           ...(opened.ok ? {} : { error: { kind: "driver" as const, message: opened.error.message } }),
           invalidatedSnapshots: [start.value.id],
-          durationMs: timing.actMs,
-        },
-      });
+          durationMs: clock.now() - t0,
+        };
+      }
+      timing.actMs = clock.now() - t0;
+      emit({ type: "effect", step, result });
       emit({ type: "step.end", step, timing, mode: "A" });
       timings.push(timing);
       modeCounts.A = (modeCounts.A ?? 0) + 1;
-      if (opened.ok) replayedActions++;
+      if (result.effect !== "refused") replayedActions++;
     }
   }
 
@@ -1402,6 +1413,28 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""})`,
   });
   return { kind: "continue" };
+}
+
+/** The unique link on the page whose target is `url`'s path (same origin). */
+export function linkTo(snapshot: Snapshot, url: string): Element | undefined {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const strip = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  const hits = snapshot.elements.filter((e) => {
+    if (!e.href || e.states.includes("hidden") || !e.actions.includes("press")) return false;
+    try {
+      const h = new URL(e.href, snapshot.url ?? url);
+      return h.origin === target.origin && strip(h.pathname) === strip(target.pathname);
+    } catch {
+      return false;
+    }
+  });
+  const names = new Set(hits.map((e) => e.stableId));
+  return names.size === 1 ? hits[0] : undefined;
 }
 
 /** Pixels per scroll step: most of a typical viewport, so consecutive views overlap a little. */
