@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Run lifecycle: recorder + tracing + per-run log around the core loop (mode B) or a replay (mode A).
-import { type ApprovalRequest, type EventSink, type RunResult, runTask } from "@ghosthand/core";
+import {
+  type ApprovalRequest,
+  type EventSink,
+  type Planner,
+  type RunResult,
+  runTask,
+  type Writer,
+} from "@ghosthand/core";
 import type {
   Computer,
   DecisionProvider,
@@ -109,6 +116,10 @@ export interface AgentRunOptions {
   hooks?: RunHooks;
   /** Record a Playwright trace into the run folder. */
   trace?: boolean;
+  /** Mode C: plans when the task has none and replans failed subgoals. */
+  planner?: Planner;
+  /** Writer hand-off when Jev is unsure. */
+  writer?: Writer;
 }
 
 export async function runAgent(
@@ -176,6 +187,8 @@ export async function runAgent(
       logger: rt.logger.child({ pkg: "core" }),
       ...(hooks.oracle ? { oracle: hooks.oracle } : {}),
       ...(hooks.approve ? { approve: hooks.approve } : {}),
+      ...(opts.planner ? { planner: opts.planner } : {}),
+      ...(opts.writer ? { writer: opts.writer } : {}),
       ...(hooks.signal ? { signal: hooks.signal } : {}),
     });
   } catch (e) {

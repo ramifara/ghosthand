@@ -17,6 +17,7 @@ export const HELP = `ghosthand, a Jev CUA
 
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
+                [--planner auto|codex|models|none] [--writer auto|models|none] [--yes]
   ghosthand replay <runId> [--headless]
   ghosthand export <runId> [--out file.spec.ts]
   ghosthand eval [--suite l1|l1-l2|l1-l3|smoke] [--n 5] [--only id,id] [--decision jev|heuristic]
@@ -72,6 +73,15 @@ export async function main(argv: string[]): Promise<number> {
         yes: values.yes ?? false,
         trace: !(values["no-trace"] ?? false),
         json,
+        planner: (["codex", "models", "none"].includes(values.planner ?? "") ? values.planner : "auto") as
+          | "auto"
+          | "codex"
+          | "models"
+          | "none",
+        writer: (["models", "none"].includes(values.writer ?? "") ? values.writer : "auto") as
+          | "auto"
+          | "models"
+          | "none",
       });
     case "replay":
       return replayCommand(rest[0], {
@@ -121,6 +131,8 @@ function parse(argv: string[]) {
       "no-trace": { type: "boolean" },
       "no-heal": { type: "boolean" },
       suite: { type: "string" },
+      planner: { type: "string" },
+      writer: { type: "string" },
       n: { type: "string" },
       only: { type: "string" },
       decision: { type: "string" },

@@ -65,6 +65,7 @@ export {
 export { FALLBACK_KINDS, type ModelAttempt, type ModelError, ModelErrorKind } from "./model-error.ts";
 export { createModelPlanner, plannerErrorFromModel } from "./model-planner.ts";
 export { formatModelRef, type ModelRef, parseModelRef } from "./model-ref.ts";
+export * from "./model-writer.ts";
 export {
   type CommandOutput,
   formatModelsTable,

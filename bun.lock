@@ -149,6 +149,7 @@
         "@ghosthand/core": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
+        "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
         "@ghosthand/recorder": "workspace:*",
         "@ghosthand/testbed-kit": "workspace:*",

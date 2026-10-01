@@ -16,3 +16,4 @@ export * from "./state-builder.ts";
 export * from "./testing/fake-login-computer.ts";
 export * from "./testing/heuristic-decision-provider.ts";
 export * from "./testing/scripted-decision-provider.ts";
+export * from "./writer.ts";
