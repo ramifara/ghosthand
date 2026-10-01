@@ -46,14 +46,11 @@ describe("container arguments", () => {
     expect(a.slice(-2)).toEqual(["--vnc-port", "6080"]);
   });
 
-  it("maps users for podman and non-1000 docker users", () => {
+  it("maps the user namespace for podman; docker runs the image's own user", () => {
     expect(containerArgs({ ...base, runtime: "podman" })).toEqual(
       expect.arrayContaining(["--userns", "keep-id"]),
     );
-    expect(containerArgs({ ...base, uid: 1234, gid: 99 })).toEqual(
-      expect.arrayContaining(["--user", "1234:99"]),
-    );
-    expect(containerArgs({ ...base, uid: 1000, gid: 1000 })).not.toContain("--user");
+    expect(containerArgs(base)).not.toContain("--user");
   });
 });
 
@@ -65,6 +62,9 @@ describe("image tag", () => {
     expect(files.some((f) => f.endsWith("desktop-testbed.py"))).toBe(true);
     expect(imageTag()).toMatch(/^[0-9a-f]{12}$/);
     expect(imageTag()).toBe(imageTag());
+    expect(imageTag(undefined, { uid: 1001, gid: 118 })).not.toBe(
+      imageTag(undefined, { uid: 1000, gid: 1000 }),
+    );
   });
 });
 

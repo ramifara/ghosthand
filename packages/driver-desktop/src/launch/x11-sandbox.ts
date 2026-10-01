@@ -4,7 +4,7 @@
 // podman) or, without one, directly on the host as an unprivileged user on a private display. The user's
 // own display is never used.
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger, SecretsRegistry } from "@ghosthand/core";
@@ -73,12 +73,20 @@ export function imageInputs(root = packageRoot()): string[] {
   return files;
 }
 
-export function imageTag(root = packageRoot()): string {
+/** The image's user: the host user's UID/GID (root maps to 1000; the work folder is opened up then). */
+export function imageUser(): { uid: number; gid: number } {
+  const uid = process.getuid?.() ?? 1000;
+  const gid = process.getgid?.() ?? 1000;
+  return uid === 0 ? { uid: 1000, gid: 1000 } : { uid, gid };
+}
+
+export function imageTag(root = packageRoot(), user = imageUser()): string {
   const h = createHash("sha256");
   for (const f of imageInputs(root)) {
     h.update(f.slice(root.length));
     h.update(readFileSync(f));
   }
+  h.update(`user ${user.uid}:${user.gid}`);
   return h.digest("hex").slice(0, 12);
 }
 
@@ -99,13 +107,14 @@ export async function ensureImage(
 ): Promise<Result<string, ComputerError>> {
   const system = opts.system ?? nodeSystem;
   const root = packageRoot();
-  const ref = `${opts.image ?? "ghosthand-x11"}:${imageTag(root)}`;
+  const user = imageUser();
+  const ref = `${opts.image ?? "ghosthand-x11"}:${imageTag(root, user)}`;
   const inspect = await system.run(runtime, ["image", "inspect", ref], { timeoutMs: 15_000 });
   if (inspect.code === 0) return ok(ref);
   if (opts.build === false)
     return err({
       kind: "launch_failed",
-      message: `image ${ref} is missing (build it with run-sandbox.sh build)`,
+      message: `image ${ref} is missing; allow the first run to build it (about 220 MB of Debian packages)`,
     });
   opts.logger?.info({ image: ref }, "building the X11 sandbox image (first run takes a few minutes)");
   const mirror = system.env.GHOSTHAND_DEBIAN_MIRROR;
@@ -118,6 +127,10 @@ export async function ensureImage(
       "-t",
       `${opts.image ?? "ghosthand-x11"}:latest`,
       ...(mirror ? ["--build-arg", `DEBIAN_MIRROR=${mirror}`] : []),
+      "--build-arg",
+      `GHOST_UID=${user.uid}`,
+      "--build-arg",
+      `GHOST_GID=${user.gid}`,
       "-f",
       join(root, LINUX_HOST_DIR, "Containerfile"),
       root,
@@ -153,8 +166,6 @@ export function containerArgs(o: {
   wm: string;
   vncPort?: number;
   network: boolean;
-  uid?: number;
-  gid?: number;
 }): string[] {
   const args = [
     "run",
@@ -173,8 +184,7 @@ export function containerArgs(o: {
     `${o.workDir}:${CONTAINER_WORK}:rw`,
   ];
   if (o.runtime === "podman") args.push("--userns", "keep-id");
-  else if (o.uid !== undefined && o.uid !== 1000)
-    args.push("--user", `${o.uid}:${o.gid ?? o.uid}`, "-e", "HOME=/tmp");
+
   if (o.vncPort !== undefined) {
     // Publishing a port needs a network; bind it to loopback only.
     args.push("-p", `127.0.0.1:${o.vncPort}:${o.vncPort}`, "-e", "GHOSTHAND_VNC_LISTEN=0.0.0.0");
@@ -285,8 +295,8 @@ export async function launchX11Sandbox(
     return image;
   }
   const name = `ghosthand-x11-${randomBytes(4).toString("hex")}`;
-  const uid = process.getuid?.();
-  const gid = process.getgid?.();
+  // Root on the host: the image user is 1000, so the private work folder must be writable for it.
+  if (process.getuid?.() === 0) chmodSync(workDir, 0o777);
   const args = containerArgs({
     runtime,
     image: image.value,
@@ -297,8 +307,6 @@ export async function launchX11Sandbox(
     wm,
     ...(opts.vncPort !== undefined ? { vncPort: opts.vncPort } : {}),
     network: opts.network ?? false,
-    ...(uid !== undefined ? { uid } : {}),
-    ...(gid !== undefined ? { gid } : {}),
   });
   const app = appFor(CONTAINER_WORK);
   const connected = await connectHost({

@@ -24,9 +24,14 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then sed -i "s|^URIs: http://deb.debian.org/debi
  && rm -rf /var/lib/apt/lists/* \
  && pip3 install --no-cache-dir --break-system-packages mss==10.0.0
 
-# Unprivileged user; the container also runs with --cap-drop ALL and no-new-privileges.
-RUN useradd --create-home --uid 1000 --shell /bin/bash ghost \
- && mkdir -p /opt/ghosthand /work && chown ghost:ghost /work
+# Unprivileged user with the host user's UID/GID (build args), so the private shared folder stays 0700 and
+# dbus finds the user in /etc/passwd. The container also runs with --cap-drop ALL and no-new-privileges.
+ARG GHOST_UID=1000
+ARG GHOST_GID=1000
+RUN if [ "$GHOST_UID" = "0" ]; then echo "build with a non-root GHOST_UID" >&2; exit 1; fi \
+ && (getent group "$GHOST_GID" >/dev/null || groupadd --gid "$GHOST_GID" ghost) \
+ && useradd --create-home --uid "$GHOST_UID" --gid "$GHOST_GID" --shell /bin/bash ghost \
+ && mkdir -p /opt/ghosthand /work && chown ghost:"$GHOST_GID" /work
 
 COPY hosts/linux/ghosthand_desktop_host /opt/ghosthand/ghosthand_desktop_host
 COPY testbed/desktop-testbed.py /opt/ghosthand/testbed/desktop-testbed.py
