@@ -1,0 +1,23 @@
+{
+  "name": "@ghosthand/testbed-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Testbed app API (:4410, proxied on :4400) and control API (:4401): Hono on Bun with bun:sqlite",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ghosthand/testbed-kit": "workspace:*",
+    "hono": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:"
+  }
+}

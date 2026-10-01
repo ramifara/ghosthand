@@ -1,0 +1,18 @@
+{
+  "name": "@ghosthand/testbed-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright smoke tests that perform each testbed task like a human and check its oracle",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@ghosthand/testbed-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

@@ -47,6 +47,15 @@
       "path": "apps/cli"
     },
     {
+      "path": "apps/testbed/server"
+    },
+    {
+      "path": "apps/testbed/web"
+    },
+    {
+      "path": "apps/testbed/e2e"
+    },
+    {
       "path": "scripts"
     }
   ]

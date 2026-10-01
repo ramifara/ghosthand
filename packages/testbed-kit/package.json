@@ -6,9 +6,14 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fixtures": "./src/fixtures.ts",
+    "./profile-schema": "./src/profile-schema.ts",
+    "./schemas": "./src/control-schemas.ts",
+    "./variant": "./src/variant.ts"
   },
   "dependencies": {
+    "@ghosthand/protocol": "workspace:*",
     "zod": "catalog:"
   },
   "scripts": {
