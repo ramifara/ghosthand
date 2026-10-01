@@ -12,7 +12,7 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 ## Stack
 
 - Bun workspaces for install and scripts (`bunfig.toml`: hoisted linker). **Node 24 runtime** for engine, Playwright, CLI and Electron. Packages use ESM and `node:` APIs only, never `Bun.*` (the testbed server is the exception: Hono on Bun with `bun:sqlite`).
-- TypeScript 7 (`tsgo -b` with project references), Biome 2, Vitest, `@playwright/test`, Zod v4, pino, OpenTelemetry, changesets.
+- TypeScript 7 native compiler (`tsc -b` with project references; formerly tsgo), Biome 2, Vitest, `@playwright/test`, Zod v4, pino, OpenTelemetry, changesets.
 - UI (testbed now, desktop in Phase 2): Vite 8, React 19, Tailwind v4, shadcn/ui, TanStack Query/Router, Zustand.
 
 ## Commands

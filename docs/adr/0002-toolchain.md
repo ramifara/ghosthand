@@ -13,7 +13,7 @@ We want fast monorepo DX. Playwright and Electron only officially support Node. 
 - **Bun** installs and runs scripts (`bun.lock`, root `workspaces` + `catalog`, `bunfig.toml` with `linker = "hoisted"`, `trustedDependencies: ["electron", "esbuild"]`).
 - **Node 24+** runs the engine, Playwright, the CLI, Vitest and Electron. Packages are ESM using `node:` APIs only. The testbed server runs on Bun (Hono + `bun:sqlite`).
 - Internal packages are source-first: `exports` point at `src/index.ts`, so nothing is built in development. The CLI runs from source with Node's type stripping.
-- TypeScript 7 (`tsgo -b`, project references), Biome 2 (lint and format), Vitest (root `projects` config), `@playwright/test` for e2e, changesets for versioning.
+- TypeScript 7, the native compiler formerly previewed as tsgo (`tsc -b`, project references), Biome 2 (lint and format), Vitest (root `projects` config), `@playwright/test` for e2e, changesets for versioning.
 
 ## Consequences
 - `bun run` honours shebangs, so Node-only tools run on Node. Never use `bun --bun run`.
