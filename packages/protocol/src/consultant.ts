@@ -5,7 +5,8 @@ import { z } from "zod";
 export const ConsultantProbe = z.object({
   installed: z.boolean(),
   version: z.string().optional(),
-  auth: z.enum(["chatgpt", "api_key", "none", "unknown"]),
+  /** `claude_ai`: the user's own Claude subscription login inside their `claude` CLI. */
+  auth: z.enum(["chatgpt", "claude_ai", "api_key", "none", "unknown"]),
   plan: z.string().optional(),
   models: z.array(z.string()),
 });

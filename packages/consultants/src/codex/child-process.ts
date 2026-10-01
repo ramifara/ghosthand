@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-// The slice of `node:child_process` the Codex consultant uses, so tests can inject a fake process.
+// The slice of `node:child_process` the CLI consultants (Codex, Claude) use, so tests can inject a fake process.
 import { spawn as nodeSpawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import type { ConsultantError, Result } from "@ghosthand/protocol";
@@ -46,7 +46,7 @@ export function spawnFailure(binary: string, e: Error): ConsultantError {
   if (code === "ENOENT" || code === "EACCES" || code === "ENOTDIR") {
     return {
       kind: "not_installed",
-      message: `Codex CLI not found or not executable at "${binary}" (${code})`,
+      message: `"${binary}" was not found or is not executable (${code})`,
     };
   }
   return { kind: "process", message: `failed to start ${binary}: ${e.message}` };
