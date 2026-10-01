@@ -57,6 +57,7 @@
     "secrets:check": "node scripts/secrets-check.ts",
     "probe:jev": "node scripts/probe-jev.ts",
     "probe:codex": "node scripts/probe-codex.ts",
+    "models:snapshot": "node scripts/models-snapshot.ts",
     "dist:desktop": "bun run --filter @ghosthand/desktop dist",
     "mail": "mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025",
     "changeset": "changeset"
@@ -67,6 +68,7 @@
     "@ghosthand/decision-typesafe": "workspace:*",
     "@ghosthand/protocol": "workspace:*",
     "@ghosthand/consultants": "workspace:*",
+    "@ghosthand/models": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "7.0.2",
     "vitest": "catalog:"

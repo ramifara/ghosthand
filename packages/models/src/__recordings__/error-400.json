@@ -1,0 +1,22 @@
+{
+  "description": "Bad request.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_err0123456789"
+    },
+    "body": {
+      "error": {
+        "message": "Invalid value for 'text.format.schema'.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_value"
+      }
+    }
+  }
+}

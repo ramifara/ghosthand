@@ -16,3 +16,7 @@ Borrowed ideas (no code copied unless stated)
 Copied code
 -----------
 (none yet; add an entry with source URL, license, copyright line and "Modified by GhostHand contributors" when code is copied)
+
+Data
+----
+- models.dev catalog snapshot (MIT, models.dev contributors): packages/models/src/catalog/models-snapshot.json, trimmed.

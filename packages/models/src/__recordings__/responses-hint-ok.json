@@ -1,0 +1,55 @@
+{
+  "description": "Writer call: a one-line focus hint as plain text.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_0123456789abcdef"
+    },
+    "body": {
+      "id": "resp_0123456789abcdef",
+      "object": "response",
+      "created_at": 1759312800,
+      "status": "completed",
+      "model": "gpt-6-luna-2026-09-22",
+      "error": null,
+      "incomplete_details": null,
+      "output": [
+        {
+          "type": "reasoning",
+          "id": "rs_01",
+          "summary": []
+        },
+        {
+          "type": "message",
+          "id": "msg_01",
+          "status": "completed",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Focus the 'Display name' text box in the Profile form, not the search field.",
+              "annotations": []
+            }
+          ]
+        }
+      ],
+      "service_tier": "default",
+      "usage": {
+        "input_tokens": 640,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 22,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 662
+      }
+    }
+  }
+}

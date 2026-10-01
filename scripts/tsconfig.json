@@ -9,6 +9,7 @@
   "references": [
     { "path": "../packages/protocol" },
     { "path": "../packages/decision-typesafe" },
-    { "path": "../packages/consultants" }
+    { "path": "../packages/consultants" },
+    { "path": "../packages/models" }
   ]
 }
