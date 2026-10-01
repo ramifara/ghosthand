@@ -4,6 +4,6 @@
 version = 1
 
 [[annotations]]
-path = ["LICENSE", "**/*.json", "bun.lock", "**/__fixtures__/**", "**/__recordings__/**", "docs/plan/**", "docs/research/**", "docs/reports/**", ".changeset/*.md", "**/*.svg", "**/*.png"]
+path = ["LICENSE", "**/*.json", "bun.lock", "**/__fixtures__/**", "**/__recordings__/**", "docs/plan/**", "docs/research/**", "docs/reports/**/*.html", ".changeset/*.md", "**/*.svg", "**/*.png"]
 SPDX-FileCopyrightText = "2026 Rami Fara and GhostHand contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
