@@ -1,0 +1,24 @@
+{
+  "description": "Rate limited with retry hints.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_err0123456789",
+      "retry-after-ms": "1200",
+      "retry-after": "2"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit reached for gpt-6-luna on requests per min (RPM): Limit 500, Used 500, Requested 1.",
+        "type": "requests",
+        "param": null,
+        "code": "rate_limit_exceeded"
+      }
+    }
+  }
+}

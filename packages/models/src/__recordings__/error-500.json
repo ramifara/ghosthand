@@ -1,0 +1,22 @@
+{
+  "description": "Server error.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 500,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_err0123456789"
+    },
+    "body": {
+      "error": {
+        "message": "The server had an error while processing your request. Sorry about that!",
+        "type": "server_error",
+        "param": null,
+        "code": null
+      }
+    }
+  }
+}

@@ -9,8 +9,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "catalog:",
     "@ghosthand/core": "workspace:*",
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "ai": "catalog:",
+    "zod": "catalog:"
   },
   "scripts": {
     "test": "vitest run"

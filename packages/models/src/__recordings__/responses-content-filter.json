@@ -1,0 +1,44 @@
+{
+  "description": "Output blocked by the content filter; no message item.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_0123456789abcdef"
+    },
+    "body": {
+      "id": "resp_0123456789abcdef",
+      "object": "response",
+      "created_at": 1759312800,
+      "status": "incomplete",
+      "model": "gpt-6-luna-2026-09-22",
+      "error": null,
+      "incomplete_details": {
+        "reason": "content_filter"
+      },
+      "output": [
+        {
+          "type": "reasoning",
+          "id": "rs_01",
+          "summary": []
+        }
+      ],
+      "service_tier": "default",
+      "usage": {
+        "input_tokens": 900,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 0,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 900
+      }
+    }
+  }
+}

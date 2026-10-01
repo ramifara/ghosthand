@@ -1,0 +1,22 @@
+{
+  "description": "Overloaded.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses"
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "req_err0123456789"
+    },
+    "body": {
+      "error": {
+        "message": "The engine is currently overloaded, please try again later.",
+        "type": "server_error",
+        "param": null,
+        "code": null
+      }
+    }
+  }
+}
