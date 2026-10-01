@@ -21,6 +21,9 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bun run check
+        env:
+          # The live desktop sandbox tests run in the desktop-x11 job.
+          GHOSTHAND_SKIP_SANDBOX_TESTS: "1"
       - run: bun run license:check
       - run: bun run secrets:check
   e2e:
@@ -46,3 +49,56 @@ jobs:
           name: playwright-results
           path: apps/testbed/e2e/test-results
           retention-days: 7
+  desktop-x11:
+    # Linux X11 sandbox: builds the container image (Xvfb, xfwm4, AT-SPI, GTK testbed) and drives it live.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Sandbox tests (container)
+        run: bunx vitest run --project @ghosthand/driver-desktop
+      - name: Host smoke (JSON-RPC over the container)
+        run: |
+          docker build -t ghosthand-x11:ci -f packages/driver-desktop/hosts/linux/Containerfile packages/driver-desktop
+          node scripts/desktop-host-smoke.ts --host docker --app "python3 /opt/ghosthand/testbed/desktop-testbed.py" --strict -- run --rm -i --network none ghosthand-x11:ci
+  desktop-windows:
+    # Windows UIA host: built here; the smoke drives Notepad on the runner's desktop and is best effort
+    # (hosted runners may lack an interactive desktop or ship a packaged Notepad).
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Build UIA host
+        run: dotnet publish packages/driver-desktop/hosts/windows/GhostHand.UiaHost -c Release -o packages/driver-desktop/hosts/windows/GhostHand.UiaHost/bin/publish
+      - name: Smoke (hello + doctor)
+        run: node scripts/desktop-host-smoke.ts --host packages/driver-desktop/hosts/windows/GhostHand.UiaHost/bin/publish/GhostHand.UiaHost.exe
+      - name: Smoke with Notepad (best effort)
+        continue-on-error: true
+        run: node scripts/desktop-host-smoke.ts --host packages/driver-desktop/hosts/windows/GhostHand.UiaHost/bin/publish/GhostHand.UiaHost.exe --app notepad.exe --strict
+  desktop-macos:
+    # macOS AX host: built here; hosted runners cannot grant Accessibility permission, so the TextEdit
+    # smoke is best effort and normally reports "not trusted".
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Build AX host
+        run: swift build -c release --package-path packages/driver-desktop/hosts/macos
+      - name: Smoke (hello + doctor)
+        run: node scripts/desktop-host-smoke.ts --host packages/driver-desktop/hosts/macos/.build/release/ghosthand-ax-host
+      - name: Smoke with TextEdit (best effort)
+        continue-on-error: true
+        run: node scripts/desktop-host-smoke.ts --host packages/driver-desktop/hosts/macos/.build/release/ghosthand-ax-host --app TextEdit --strict

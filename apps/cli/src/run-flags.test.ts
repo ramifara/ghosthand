@@ -37,3 +37,37 @@ describe("ghosthand run --allow-origin", () => {
     ]);
   });
 });
+
+describe("ghosthand run --surface", () => {
+  it("parses desktop flags", () => {
+    const flags = runFlags(
+      parse([
+        "run",
+        "--surface",
+        "x11",
+        "--app",
+        "gnome-calculator --mode basic",
+        "--runtime",
+        "docker",
+        "--vnc-port",
+        "6080",
+        "--network",
+        "Add 2 and 3",
+      ]),
+    );
+    expect(flags).toMatchObject({
+      surface: "x11",
+      app: "gnome-calculator --mode basic",
+      runtime: "docker",
+      vncPort: 6080,
+      network: true,
+      goal: "Add 2 and 3",
+    });
+    expect(runFlags(parse(["run", "--task", "l1-login"])).surface).toBeUndefined();
+  });
+
+  it("rejects unknown surfaces and runtimes", () => {
+    expect(() => runFlags(parse(["run", "--surface", "amiga", "x"]))).toThrow(/--surface/);
+    expect(() => runFlags(parse(["run", "--surface", "x11", "--runtime", "vm", "x"]))).toThrow(/--runtime/);
+  });
+});

@@ -176,6 +176,18 @@
         "vitest": "catalog:",
       },
     },
+    "packages/driver-desktop": {
+      "name": "@ghosthand/driver-desktop",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ghosthand/core": "workspace:*",
+        "@ghosthand/protocol": "workspace:*",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "vitest": "catalog:",
+      },
+    },
     "packages/driver-playwright": {
       "name": "@ghosthand/driver-playwright",
       "version": "0.0.0",
@@ -198,6 +210,7 @@
         "@ghosthand/consultants": "workspace:*",
         "@ghosthand/core": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
+        "@ghosthand/driver-desktop": "workspace:*",
         "@ghosthand/driver-playwright": "workspace:*",
         "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
@@ -575,6 +588,8 @@
     "@ghosthand/decision-typesafe": ["@ghosthand/decision-typesafe@workspace:packages/decision-typesafe"],
 
     "@ghosthand/desktop": ["@ghosthand/desktop@workspace:apps/desktop"],
+
+    "@ghosthand/driver-desktop": ["@ghosthand/driver-desktop@workspace:packages/driver-desktop"],
 
     "@ghosthand/driver-playwright": ["@ghosthand/driver-playwright@workspace:packages/driver-playwright"],
 

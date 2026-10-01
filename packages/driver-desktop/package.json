@@ -1,0 +1,22 @@
+{
+  "name": "@ghosthand/driver-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Desktop Computer over JSON-RPC native hosts: Linux X11 sandbox (AT-SPI), GNOME Wayland, Windows UIA, macOS AX",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ghosthand/core": "workspace:*",
+    "@ghosthand/protocol": "workspace:*",
+    "zod": "catalog:"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

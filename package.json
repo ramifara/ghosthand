@@ -69,6 +69,7 @@
     "mail": "mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025",
     "changeset": "changeset",
     "smoke:loop": "node scripts/smoke-loop.ts",
+    "eval:desktop": "node scripts/eval-desktop.ts",
     "smoke:mcp": "node scripts/mcp-smoke.ts"
   },
   "devDependencies": {

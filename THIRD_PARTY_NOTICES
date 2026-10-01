@@ -21,6 +21,25 @@ Borrowed ideas (no code copied unless stated)
 - Model Context Protocol TypeScript SDK (@modelcontextprotocol/sdk, MIT): used as a dependency.
 - pi-mono `packages/ai/src/auth/oauth/openai-chatgpt.ts` (MIT, Mario Zechner): structure of the Sign in with ChatGPT loopback/PKCE flow (apps/desktop/src/main/chatgpt), reimplemented from the SIWC docs; no code copied.
 - T3 Code `apps/desktop` (MIT): Electron + electron-builder monorepo layout reference.
+- cua (MIT, Cua AI): RFC 4268 native-candidate design (role classes, stable ids from role + label + ancestor
+  hash, one action per observation), the action-result effect/evidence contract and the element-token
+  freshness rules, reimplemented in packages/driver-desktop (ideas only).
+- agent-sh/computer-use-linux (MIT, Avi Fenesh): GNOME Wayland pitfalls (keycodes for letters, released
+  presses, semantic clicks because AT-SPI extents are untrusted, doctor readiness checks) (ideas only).
+- Anthropic claude-quickstarts computer-use-demo (MIT): Xvfb + window manager container recipe (ideas only).
+- dogtail and gnome-ponytail-daemon (GPL-2.0, Red Hat and contributors): the headless `mutter --headless`
+  + Mutter RemoteDesktop recipe and its pitfalls (warm-up motions, button codes). Ideas only, read from the
+  research notes; no code was copied.
+- pywinauto (BSD-3-Clause): Invoke watchdog and "semantic vs real input" split (ideas only).
+- macapptree (MIT, MacPaw): AX label fallbacks and points-vs-pixels scale (ideas only).
+
+Desktop sandbox image (not distributed by GhostHand; built locally from packages/driver-desktop/hosts/linux/Containerfile)
+--------------------------------------------------------------------------------------------------------------
+- Debian trixie packages (Xvfb, xfwm4, at-spi2-core, python3-gi, GTK 3, xdotool, ffmpeg, ImageMagick, x11vnc,
+  noVNC, websockify, xterm) under their Debian licenses.
+- python-mss 10.0.0 (MIT, Mickaël Schoentgen), installed with pip in the image for XShm screenshots.
+- Linux hosts use PyGObject and libatspi (LGPL-2.1-or-later) from the system; the Windows host uses .NET
+  (MIT) and UI Automation; the macOS host uses the system ApplicationServices/AppKit frameworks.
 
 Copied code
 -----------

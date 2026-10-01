@@ -4,6 +4,7 @@ export * from "./action.ts";
 export * from "./config.ts";
 export * from "./consultant.ts";
 export * from "./decision.ts";
+export * from "./desktop-rpc.ts";
 export * from "./element.ts";
 export * from "./errors.ts";
 export * from "./events.ts";

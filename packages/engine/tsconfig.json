@@ -17,6 +17,9 @@
       "path": "../decision-typesafe"
     },
     {
+      "path": "../driver-desktop"
+    },
+    {
       "path": "../driver-playwright"
     },
     {

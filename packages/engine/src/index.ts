@@ -4,6 +4,7 @@
 export * from "./assistants.ts";
 export * from "./config-loader.ts";
 export * from "./create-logger.ts";
+export * from "./desktop-launcher.ts";
 export * from "./doctor.ts";
 export * from "./env-file.ts";
 export * from "./export-spec.ts";

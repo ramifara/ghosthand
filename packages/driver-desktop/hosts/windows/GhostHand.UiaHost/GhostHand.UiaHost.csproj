@@ -1,0 +1,24 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
+<!-- GhostHand desktop RPC host for Windows: UI Automation first, SendInput fallback, per-monitor DPI aware. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- UIAutomationClient/UIAutomationTypes come with the WPF framework reference; System.Drawing with Forms. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>GhostHand.UiaHost</AssemblyName>
+    <RootNamespace>GhostHand.UiaHost</RootNamespace>
+    <!-- Lets the project build (not run) on Linux/macOS for CI compile checks. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- A console host, not a WinForms app: DPI awareness stays in the manifest. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>

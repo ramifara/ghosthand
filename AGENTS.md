@@ -39,6 +39,7 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 - `packages/consultants`: Codex app-server consultant and the Claude consultant (the user's own `claude` CLI, opt-in; ADR 0007).
 - `packages/models`: AI SDK providers (OpenAI, Anthropic, Google, OpenRouter, local OpenAI-compatible), catalog, role chains, `VisionGrounder`.
 - `packages/driver-playwright`: the web `Computer` (browser detection, profiles, observe, act, settle, origin guard).
+- `packages/driver-desktop`: desktop `Computer`s over JSON-RPC hosts (Linux X11 sandbox and headless GNOME Wayland in Python/AT-SPI; Windows UIA in C#; macOS AX in Swift). Host-desktop drivers need `--allow-host-desktop`. See `docs/desktop-drivers.md`.
 - `packages/recorder`: run folders, `events.jsonl`, screenshots, traces, SQLite index, replay reader.
 - `packages/engine`: composition root (config, providers, run lifecycle). `apps/cli`: the `ghosthand` command.
 - `apps/desktop`: the Electron app (ADR 0008). `src/main` (thin broker: window, IPC validation, settings, `safeStorage` secrets, ChatGPT sign-in), `src/preload` (one `window.ghosthand` bridge), `src/engine-host` (utilityProcess running the engine), `src/renderer` (React UI). The IPC contract is `packages/protocol/src/ipc.ts`. Electron tests are in `apps/desktop/e2e` (Playwright `_electron`, hidden window, skipped without a display).
