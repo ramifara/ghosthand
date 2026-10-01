@@ -154,8 +154,8 @@
       "name": "@ghosthand/recorder",
       "version": "0.0.0",
       "dependencies": {
-        "@ghosthand/core": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "vitest": "catalog:",
