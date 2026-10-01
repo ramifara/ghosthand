@@ -48,7 +48,7 @@
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "test": "vitest run",
+    "test": "vitest run && bun run --filter @ghosthand/testbed-server test",
     "test:e2e": "bun run --filter @ghosthand/testbed-e2e test",
     "check": "bun run typecheck && bun run lint && bun run test",
     "ghosthand": "node apps/cli/src/main.ts",

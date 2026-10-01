@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../../node_modules/.cache/tsc/testbed-server",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../../node_modules/.cache/tsc/testbed-server.tsbuildinfo",
+    "types": ["bun"]
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../../../packages/testbed-kit"
+    }
+  ]
+}

@@ -37,7 +37,7 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 - `packages/driver-playwright`: the web `Computer` (browser detection, profiles, observe, act, settle, origin guard).
 - `packages/recorder`: run folders, `events.jsonl`, screenshots, traces, SQLite index, replay reader.
 - `packages/engine`: composition root (config, providers, run lifecycle). `apps/cli`: the `ghosthand` command.
-- `apps/testbed/{server,web,e2e}` and `packages/testbed-kit`: the deterministic test app, task definitions and oracles.
+- `apps/testbed/{server,web,e2e}` and `packages/testbed-kit`: the deterministic test app, task definitions and oracles. In dev, Vite serves the web app on 127.0.0.1:4400 and proxies `/api` to the Bun app API on 127.0.0.1:4410; the control API (`/reset`, `/seed/:name`, `/clock`, `/oracle/:task`, `/mail`, `/session`, `/state`, `/dump`) is on 127.0.0.1:4401. Server tests use `bun test` (`bun:sqlite` doesn't load under Vitest/Node); `bun run test` runs both. Tasks live in `packages/testbed-kit/src/tasks/`; oracles are pure functions over the DB snapshot that the server runs behind `GET /oracle/:task`. Fixture credentials are in `packages/testbed-kit/src/fixture-secrets.ts`.
 - `scripts/`: probes that call paid APIs. Never run in CI.
 
 Dependency direction: `protocol → core → {decision-typesafe, models, consultants, driver-playwright, knowledge, recorder, voice, qa} → engine → {cli, desktop, mcp, evals}`. Lower layers never import higher ones.

@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../../node_modules/.cache/tsc/testbed-e2e",
+    "rootDir": ".",
+    "tsBuildInfoFile": "../../../node_modules/.cache/tsc/testbed-e2e.tsbuildinfo",
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["tests", "playwright.config.ts"],
+  "references": [
+    {
+      "path": "../../../packages/testbed-kit"
+    }
+  ]
+}

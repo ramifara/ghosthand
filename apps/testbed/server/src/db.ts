@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+// In-memory SQLite schema. Every reset opens a fresh database.
+import { Database } from "bun:sqlite";
+
+const SCHEMA = `
+create table users (
+  id integer primary key,
+  email text not null unique,
+  name text not null,
+  handle text not null unique,
+  title text not null,
+  website text not null,
+  bio text not null,
+  password_salt text not null,
+  password_hash text not null
+);
+create table sessions (
+  token text primary key,
+  user_id integer not null references users(id),
+  created_at text not null
+);
+create table audit_log (
+  id integer primary key autoincrement,
+  at text not null,
+  actor text not null,
+  method text not null,
+  path text not null,
+  action text not null,
+  outcome text not null check (outcome in ('ok', 'rejected', 'error')),
+  detail text not null
+);
+create table mail (
+  id integer primary key autoincrement,
+  at text not null,
+  to_addr text not null,
+  from_addr text not null,
+  subject text not null,
+  body text not null
+);
+create table facts (
+  key text primary key,
+  value text not null
+);
+`;
+
+export const TABLES = ["users", "sessions", "audit_log", "mail", "facts"] as const;
+
+export function openDatabase(): Database {
+  const db = new Database(":memory:", { strict: true });
+  db.exec(SCHEMA);
+  return db;
+}
