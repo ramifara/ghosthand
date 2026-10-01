@@ -1,0 +1,18 @@
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Rami Fara and GhostHand contributors
+
+GhostHand third-party notices
+=============================
+
+This file lists code, designs and ideas borrowed from other projects, with their licenses.
+npm dependencies are listed by `bun run license:check`; their notices ship with release builds.
+
+Borrowed ideas (no code copied unless stated)
+---------------------------------------------
+- Playwright (Apache-2.0, Microsoft): AI aria snapshot format and aria-ref locators, used through the public API.
+- browser-use (MIT), Stagehand (MIT), Midscene (MIT), cua (MIT): agent loop and element-table design ideas.
+- TypeSafe SDK for JS (@typesafe-ai/sdk, MIT): used as a dependency.
+
+Copied code
+-----------
+(none yet; add an entry with source URL, license, copyright line and "Modified by GhostHand contributors" when code is copied)

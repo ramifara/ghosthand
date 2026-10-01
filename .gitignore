@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
+node_modules/
+research/refs/
+runs/
+*.env
+.env*
+dist/
+out/
+dist-electron/
+release/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.DS_Store
+.worktrees/
+*.log
+# Originals kept locally; tracked copies live in docs/
+/plan/
+/research/

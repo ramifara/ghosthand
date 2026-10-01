@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GhostHand: end-to-end implementation plan v6</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1f22; --muted:#5d6168; --line:#c9c5ba;
+    --accent:#0f6b5c; --accent-soft:#e2f1ec; --warn:#9a4a00; --warn-soft:#fbeedd; --code:#efece4; --group:#f0eee8;
+    --good:#1f7a3a; --bad:#a1262d; }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg:#121416; --panel:#1b1e21; --ink:#e8e6e1; --muted:#a2a7ad; --line:#3a4046;
+    --accent:#5cc8b0; --accent-soft:#173029; --warn:#f0a55b; --warn-soft:#33250f; --code:#24282c; --group:#16191b;
+    --good:#7fd49a; --bad:#f07a80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 Inter, "Segoe UI", system-ui, sans-serif; }
+  main { max-width:1060px; margin:0 auto; padding:48px 24px 96px; }
+  h1 { font-size:2.2rem; line-height:1.15; margin:0 0 4px; letter-spacing:-0.01em; }
+  h1 small { display:block; font-size:1rem; font-weight:500; color:var(--muted); letter-spacing:0; margin-top:6px; }
+  h2 { font-size:1.35rem; margin:56px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
+  h3 { font-size:1.06rem; margin:26px 0 8px; }
+  .sub { color:var(--muted); margin:10px 0 24px; }
+  code { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:.86em; background:var(--code); padding:1px 5px; border-radius:4px; }
+  a { color:var(--accent); }
+  .tldr { background:var(--accent-soft); border-left:4px solid var(--accent); padding:16px 20px; border-radius:6px; }
+  .warn { background:var(--warn-soft); border-left:4px solid var(--warn); padding:14px 18px; border-radius:6px; margin:16px 0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0 8px; background:var(--panel); font-size:.92rem; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--code); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(290px,1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px 18px; }
+  .card h3 { margin-top:0; }
+  .small { font-size:.88rem; color:var(--muted); }
+  .cap { font-size:.88rem; color:var(--muted); margin:0 0 18px; }
+  .stages { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:8px; margin:14px 0; }
+  .stage { background:var(--panel); border:1px solid var(--line); border-top:4px solid var(--line); border-radius:6px; padding:10px 12px; font-size:.86rem; }
+  .stage.now { border-top-color:var(--accent); }
+  .stage b { display:block; font-size:.74rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  svg.dg { width:100%; height:auto; display:block; margin:14px 0 6px; }
+  .dg .box { fill:var(--panel); stroke:var(--line); stroke-width:1.5; }
+  .dg .hl { fill:var(--accent-soft); stroke:var(--accent); stroke-width:2; }
+  .dg .later { stroke-dasharray:6 4; }
+  .dg .grp { fill:var(--group); stroke:var(--line); stroke-width:1; }
+  .dg .warnbox { fill:var(--warn-soft); stroke:var(--warn); stroke-width:1.5; }
+  .dg text { fill:var(--ink); font-family:Inter, system-ui, sans-serif; font-size:14px; }
+  .dg .t { font-weight:650; }
+  .dg .m { fill:var(--muted); font-size:12px; }
+  .dg .g { fill:var(--muted); font-size:12px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; }
+  .dg .c { text-anchor:middle; }
+  .dg .ar { stroke:var(--muted); stroke-width:1.6; fill:none; }
+  .dg .ar.acc { stroke:var(--accent); }
+  .dg .ar.dash { stroke-dasharray:5 4; }
+  .dg .ah { fill:var(--muted); }
+  .dg .ahacc { fill:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>GhostHand<small>a Jev CUA · open-source, general-purpose computer use where a fast decision model makes the moves</small></h1>
+<p class="sub">End-to-end implementation plan v6, 1 October 2026. Written so any agent can pick up a task. The Markdown brief (copy button on the version page) is the authoritative execution document; this page mirrors it with the diagrams.</p>
+
+<div class="tldr">
+<strong>What's new in v6</strong>
+<ul>
+<li><strong>The folder move is done.</strong> The repo is <code>~/dev/ghosthand</code> and the T3 project "ghosthand" points at it. The old "GhostHand" project still points at the old path and should be archived in the T3 UI.</li>
+<li><strong>Stack and standards are settled</strong> (§2 and §4): React 19 + Tailwind v4 + shadcn/ui, TanStack Query + Zustand + TanStack Router, plain TypeScript with typed <code>Result</code> errors, Zod v4 schemas with a custom typed IPC, pino logs with redaction, OpenTelemetry traces, no telemetry, three-OS releases from CI.</li>
+<li><strong>Process is settled:</strong> trunk-based with PRs, squash merges and Conventional Commits; unit tests for logic and testbed e2e for the loop; <code>AGENTS.md</code> plus ADRs plus a PostPlan plan per phase; git worktrees per task.</li>
+<li><strong>Phase 0 and Phase 1 are task lists</strong> with IDs, scope, files and acceptance checks. Phases 2–7 are scoped outlines, to be detailed when reached.</li>
+</ul>
+</div>
+
+<h2>0 · How agents work from this plan</h2>
+<ol>
+<li>Read <code>AGENTS.md</code> and <code>docs/adr/</code> in the repo, and the relevant note in <code>research/notes/</code> before a task.</li>
+<li>Pick a task by ID (for example <code>P0-04</code>). Work in a git worktree on <code>feat/p0-04-decision-probe</code>. One T3 thread per task.</li>
+<li>Done means: <code>bun run check</code> green, acceptance checks met, secrets grep clean, PR with a Conventional Commit title, phase report updated if a decision changed.</li>
+<li>Never: paste or log secrets; call <code>chatgpt.com/backend-api</code>; bypass CLI permission prompts; auto-acknowledge provider safety checks; retry a mutating action; treat a model's "done" as success; touch the T3 Code Tailscale route or service.</li>
+<li>Report with measured numbers: what was built, measured, broken, and still open.</li>
+</ol>
+
+<h2>1 · The whole system</h2>
+<p class="cap">Four ways in; an engine that plans, routes, loops and records; model sources on the left; drivers on the right. Dashed boxes are later phases.</p>
+<svg class="dg" viewBox="0 0 1000 870" role="img" aria-label="GhostHand system map">
+<defs>
+ <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ah"/></marker>
+</defs>
+<text class="g" x="20" y="14">Ways in</text>
+<rect class="box" x="20" y="22" width="225" height="58" rx="8"/><text class="t c" x="132" y="47">GhostHand app</text><text class="m c" x="132" y="66">Electron · live view · approvals</text>
+<rect class="box" x="265" y="22" width="225" height="58" rx="8"/><text class="t c" x="377" y="47">Voice</text><text class="m c" x="377" y="66">push-to-talk → speech-to-text</text>
+<rect class="box" x="510" y="22" width="225" height="58" rx="8"/><text class="t c" x="622" y="47">CLI</text><text class="m c" x="622" y="66">ghosthand run "goal" --url …</text>
+<rect class="box later" x="755" y="22" width="225" height="58" rx="8"/><text class="t c" x="867" y="47">MCP server (later)</text><text class="m c" x="867" y="66">coding agents call GhostHand</text>
+<path class="ar" d="M132,80V128" marker-end="url(#m1)"/><path class="ar" d="M377,80V128" marker-end="url(#m1)"/><path class="ar" d="M622,80V128" marker-end="url(#m1)"/><path class="ar dash" d="M867,80V128" marker-end="url(#m1)"/>
+
+<rect class="grp" x="10" y="130" width="980" height="300" rx="12"/>
+<text class="g" x="26" y="154">Engine · Node (Electron utilityProcess, or the CLI)</text>
+<rect class="box" x="30" y="170" width="210" height="74" rx="8"/><text class="t c" x="135" y="200">Planner</text><text class="m c" x="135" y="219">goal → 3–12 subgoals</text><text class="m c" x="135" y="234">each with done_when checks</text>
+<rect class="box" x="270" y="170" width="210" height="74" rx="8"/><text class="t c" x="375" y="200">Strategy router</text><text class="m c" x="375" y="219">picks the cheapest mode</text><text class="m c" x="375" y="234">per subgoal</text>
+<rect class="hl" x="510" y="170" width="210" height="74" rx="8"/><text class="t c" x="615" y="200">Step loop</text><text class="m c" x="615" y="219">settle → observe → decide</text><text class="m c" x="615" y="234">→ act → verify</text>
+<rect class="box" x="750" y="170" width="220" height="74" rx="8"/><text class="t c" x="860" y="200">Session recorder</text><text class="m c" x="860" y="219">every session is</text><text class="m c" x="860" y="234">replayable</text>
+<path class="ar" d="M240,207H268" marker-end="url(#m1)"/><path class="ar" d="M480,207H508" marker-end="url(#m1)"/><path class="ar" d="M720,207H748" marker-end="url(#m1)"/>
+<rect class="box" x="30" y="320" width="290" height="88" rx="8"/><text class="t c" x="175" y="352">Safety + budgets</text><text class="m c" x="175" y="372">effect classes · approvals · takeover</text><text class="m c" x="175" y="389">secrets never reach models · caps</text>
+<rect class="box" x="350" y="320" width="290" height="88" rx="8"/><text class="t c" x="495" y="352">QA mode</text><text class="m c" x="495" y="372">Markdown specs · oracles · judge</text><text class="m c" x="495" y="389">scored reports · PR coverage</text>
+<rect class="box" x="670" y="320" width="300" height="88" rx="8"/><text class="t c" x="820" y="352">Knowledge</text><text class="m c" x="820" y="372">app maps · recipes · past sessions</text><text class="m c" x="820" y="389">source + PR element maps</text>
+<path class="ar" d="M860,244V318" marker-end="url(#m1)"/>
+<path class="ar dash" d="M700,320L440,246" marker-end="url(#m1)"/><text class="m" x="610" y="312">reuse</text>
+<path class="ar dash" d="M175,320V292H560V246" marker-end="url(#m1)"/><text class="m" x="200" y="285">gates every action</text>
+
+<path class="ar" d="M250,430V476" marker-end="url(#m1)"/><text class="m" x="262" y="458">decisions + model calls</text>
+<path class="ar" d="M750,430V476" marker-end="url(#m1)"/><text class="m" x="762" y="458">observe + act</text>
+
+<rect class="grp" x="10" y="478" width="480" height="300" rx="12"/>
+<text class="g" x="26" y="502">Model access</text>
+<rect class="hl" x="25" y="516" width="220" height="56" rx="8"/><text class="t c" x="135" y="540">TypeSafe Jev</text><text class="m c" x="135" y="559">every step · ~0.2–0.5 s</text>
+<rect class="box" x="260" y="516" width="215" height="56" rx="8"/><text class="t c" x="367" y="540">CLI consultants</text><text class="m c" x="367" y="559">your Codex CLI / Claude Code</text>
+<rect class="box" x="25" y="582" width="220" height="56" rx="8"/><text class="t c" x="135" y="606">API keys</text><text class="m c" x="135" y="625">OpenAI · Anthropic · Google</text>
+<rect class="box" x="260" y="582" width="215" height="56" rx="8"/><text class="t c" x="367" y="606">ChatGPT plan</text><text class="m c" x="367" y="625">Sign in with ChatGPT</text>
+<rect class="box" x="25" y="648" width="220" height="56" rx="8"/><text class="t c" x="135" y="672">OpenRouter</text><text class="m c" x="135" y="691">LLM + vision models</text>
+<rect class="box" x="260" y="648" width="215" height="56" rx="8"/><text class="t c" x="367" y="672">Local models</text><text class="m c" x="367" y="691">Ollama · LM Studio · vLLM</text>
+<rect class="box" x="25" y="714" width="450" height="50" rx="8"/><text class="t c" x="250" y="735">Role selector</text><text class="m c" x="250" y="753">planner · writer · vision · grounder · judge · speech → any source above</text>
+
+<rect class="grp" x="510" y="478" width="480" height="300" rx="12"/>
+<text class="g" x="526" y="502">Drivers (same Computer interface)</text>
+<rect class="hl" x="525" y="516" width="450" height="46" rx="8"/><text class="t" x="545" y="545">Web · Playwright</text><text class="m" x="790" y="545">now</text>
+<rect class="box later" x="525" y="568" width="450" height="46" rx="8"/><text class="t" x="545" y="597">Linux · X11 container</text><text class="m" x="790" y="597">next</text>
+<rect class="box later" x="525" y="620" width="450" height="46" rx="8"/><text class="t" x="545" y="649">GNOME Wayland</text><text class="m" x="790" y="649">headless, then your desktop</text>
+<rect class="box later" x="525" y="672" width="450" height="46" rx="8"/><text class="t" x="545" y="701">Windows · UI Automation</text><text class="m" x="790" y="701">later</text>
+<rect class="box later" x="525" y="724" width="450" height="46" rx="8"/><text class="t" x="545" y="753">macOS · Accessibility API</text><text class="m" x="790" y="753">later</text>
+
+<path class="ar" d="M750,778V806" marker-end="url(#m1)"/>
+<text class="g" x="520" y="802">What it drives</text><text class="g" x="20" y="802">What comes out</text>
+<rect class="box" x="520" y="810" width="145" height="50" rx="8"/><text class="t c" x="592" y="840">Testbed app</text>
+<rect class="box" x="680" y="810" width="145" height="50" rx="8"/><text class="t c" x="752" y="840">Any URL</text>
+<rect class="box later" x="840" y="810" width="140" height="50" rx="8"/><text class="t c" x="910" y="840">Desktop apps</text>
+<rect class="box" x="20" y="810" width="470" height="50" rx="8"/><text class="t c" x="255" y="832">Results · scored reports</text><text class="m c" x="255" y="850">session replays · recipes · PR coverage</text>
+</svg>
+
+<h2>2 · Decisions, consolidated</h2>
+<div class="grid">
+  <div class="card"><h3>Identity, license, repo</h3>GhostHand, "a Jev CUA". GitHub <code>ghosthand</code> under your account, private first. AGPL-3.0-only with a CLA, trademark policy, third-party notices, SPDX headers and a CI license check. No closed SDKs as dependencies.</div>
+  <div class="card"><h3>Toolchain</h3>Bun workspaces (hoisted linker, trusted deps) for install and scripts; Node 24 for the engine, Playwright, CLI and Electron. electron-vite, electron-builder, Vitest, Playwright Test, Biome, tsgo, Vite 8, React 19, changesets. Switch to pnpm only if Bun gets in the way.</div>
+  <div class="card"><h3>Core style</h3>Plain TypeScript, <code>async/await</code>, typed <code>Result</code> errors at package boundaries; exceptions only for bugs. Zod v4 schemas in <code>@ghosthand/protocol</code> for everything that crosses a process; custom typed IPC validated in the main process; engine in a <code>utilityProcess</code>.</div>
+  <div class="card"><h3>UI</h3>React 19 + Tailwind v4 + shadcn/ui; TanStack Query for engine data, Zustand for UI state, TanStack Router. Device theme from day one (light and dark both first-class), dense, developer-tool feel, modern, monospace for data, teal accent.</div>
+  <div class="card"><h3>Models</h3>Jev direct via TypeSafe, pinned <code>jev-1.13.0</code>, 2.5 s timeout. Phase 1: OpenAI key + Codex consultant. Phase 2: Sign in with ChatGPT (Plus OK, Pro recommended). Phase 6: Claude Code consultant, Anthropic, Google, OpenRouter, local. Per-role model selector; defaults chosen by measurement.</div>
+  <div class="card"><h3>Browser, secrets, storage</h3>Installed Chrome/Edge/Brave; persistent GhostHand profiles; Chrome profile import by copy. Secrets in Electron <code>safeStorage</code> (settings UI) or <code>~/.config/ghosthand/env</code> for CLI/dev. SQLite index plus one folder per run.</div>
+  <div class="card"><h3>Speech (Phase 4)</h3>Moonshine local default, Whisper downloads for other languages, hosted STT via keys. No Parakeet or custom endpoints in v1.</div>
+  <div class="card"><h3>Process</h3>Trunk-based, PRs, squash merge, Conventional Commits. Unit tests for logic, testbed e2e for the loop, coverage reported not enforced. <code>AGENTS.md</code> + ADRs + PostPlan per phase + GitHub issues. Worktrees per task, no PR size limit, one task per PR. pino + redaction, OpenTelemetry, no telemetry. Releases for Linux, Windows, macOS.</div>
+</div>
+
+<h2>3 · One step of the loop</h2>
+<p class="cap">Normally the only model call per step is one Jev request. Bigger models enter only through the orange "Escalate" box.</p>
+<svg class="dg" viewBox="0 0 1000 560" role="img" aria-label="One step of the loop">
+<defs><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ah"/></marker>
+<marker id="m2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ahacc"/></marker></defs>
+<rect class="box" x="20" y="40" width="150" height="60" rx="8"/><text class="t c" x="95" y="66">Settle</text><text class="m c" x="95" y="85">network + DOM quiet</text>
+<rect class="box" x="200" y="40" width="170" height="60" rx="8"/><text class="t c" x="285" y="66">Observe</text><text class="m c" x="285" y="85">element table + screenshot</text>
+<polygon class="box" points="460,22 545,70 460,118 375,70"/><text class="t c" x="460" y="66">Saved step</text><text class="t c" x="460" y="83">matches?</text>
+<rect class="box" x="590" y="40" width="170" height="60" rx="8"/><text class="t c" x="675" y="66">Replay step</text><text class="m c" x="675" y="85">0 model calls</text>
+<path class="ar" d="M170,70H198" marker-end="url(#m2)"/><path class="ar" d="M370,70H377" marker-end="url(#m2)"/>
+<path class="ar" d="M545,70H588" marker-end="url(#m2)"/><text class="m" x="552" y="62">yes</text>
+<path class="ar" d="M460,118V168" marker-end="url(#m2)"/><text class="m" x="468" y="148">no</text>
+<rect class="hl" x="370" y="170" width="180" height="76" rx="8"/><text class="t c" x="460" y="198">Ask Jev · 1 request</text><text class="m c" x="460" y="217">operation · target · effect</text><text class="m c" x="460" y="233">done? · stuck?</text>
+<path class="ar" d="M460,246V272" marker-end="url(#m2)"/>
+<polygon class="box" points="460,274 545,322 460,370 375,322"/><text class="t c" x="460" y="318">Gates</text><text class="t c" x="460" y="335">pass?</text>
+<rect class="box" x="590" y="292" width="170" height="60" rx="8"/><text class="t c" x="675" y="318">Act</text><text class="m c" x="675" y="337">driver reports the effect</text>
+<path class="ar" d="M545,322H588" marker-end="url(#m2)"/><text class="m" x="552" y="314">yes</text>
+<path class="ar" d="M675,100V290" marker-end="url(#m2)"/>
+<rect class="box" x="790" y="292" width="190" height="60" rx="8"/><text class="t c" x="885" y="318">Verify</text><text class="m c" x="885" y="337">check → Jev yes/no → vision</text>
+<path class="ar" d="M760,322H788" marker-end="url(#m2)"/>
+<polygon class="box" points="885,382 965,428 885,474 805,428"/><text class="t c" x="885" y="424">Subgoal</text><text class="t c" x="885" y="441">done?</text>
+<path class="ar" d="M885,352V380" marker-end="url(#m2)"/>
+<rect class="box" x="810" y="500" width="150" height="40" rx="8"/><text class="t c" x="885" y="525">Next subgoal</text>
+<path class="ar" d="M885,474V498" marker-end="url(#m2)"/><text class="m" x="893" y="490">yes</text>
+<path class="ar acc" d="M805,428H95V102" marker-end="url(#m2a)"/><text class="m" x="600" y="420">no → next step</text>
+<rect class="warnbox" x="150" y="290" width="190" height="66" rx="8"/><text class="t c" x="245" y="315">Escalate</text><text class="m c" x="245" y="334">writer hint · vision assist</text><text class="m c" x="245" y="349">or ask you</text>
+<path class="ar" d="M375,322H342" marker-end="url(#m2)"/><text class="m" x="347" y="314">no</text>
+<path class="ar dash" d="M245,290V208H368" marker-end="url(#m2)"/><text class="m" x="252" y="200">hint → ask again</text>
+<text class="m" x="20" y="490">Every observation, decision, action and check goes to the session log,</text>
+<text class="m" x="20" y="507">so any run can be replayed or turned into a recipe.</text>
+</svg>
+
+<h2>4 · Strategy router</h2>
+<svg class="dg" viewBox="0 0 1000 230" role="img" aria-label="Strategy router modes">
+<defs><marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ah"/></marker>
+<marker id="m3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ahacc"/></marker></defs>
+<text class="m" x="10" y="30">escalate when Jev is unsure, stuck, the target has no name, or the UI is visual-only →</text>
+<rect class="hl" x="10" y="50" width="150" height="86" rx="8"/><text class="t c" x="85" y="80">A · Replay</text><text class="m c" x="85" y="100">0 model calls</text><text class="m c" x="85" y="117">≤ 0.3 s / step</text>
+<rect class="hl" x="175" y="50" width="150" height="86" rx="8"/><text class="t c" x="250" y="80">B · Jev-first</text><text class="m c" x="250" y="100">1 Jev call / step</text><text class="m c" x="250" y="117">≤ 0.8 s / step</text>
+<rect class="box" x="340" y="50" width="150" height="86" rx="8"/><text class="t c" x="415" y="80">C · Plan + Jev</text><text class="m c" x="415" y="100">LLM per subgoal</text><text class="m c" x="415" y="117">≤ 1.3 s / step avg</text>
+<rect class="box" x="505" y="50" width="150" height="86" rx="8"/><text class="t c" x="580" y="80">D1 · Vision assist</text><text class="m c" x="580" y="100">1 vision call</text><text class="m c" x="580" y="117">≤ 4 s</text>
+<rect class="box" x="670" y="50" width="150" height="86" rx="8"/><text class="t c" x="745" y="80">D2 · Vision drives</text><text class="m c" x="745" y="100">≤ 8 steps in a row</text><text class="m c" x="745" y="117">≤ 5 s / step</text>
+<rect class="warnbox" x="835" y="50" width="155" height="86" rx="8"/><text class="t c" x="912" y="80">H · You</text><text class="m c" x="912" y="100">approve or take over</text><text class="m c" x="912" y="117">risky actions</text>
+<path class="ar" d="M160,93H173" marker-end="url(#m3)"/><path class="ar" d="M325,93H338" marker-end="url(#m3)"/><path class="ar" d="M490,93H503" marker-end="url(#m3)"/><path class="ar" d="M655,93H668" marker-end="url(#m3)"/><path class="ar" d="M820,93H833" marker-end="url(#m3)"/>
+<path class="ar acc dash" d="M745,138V178H250V140" marker-end="url(#m3a)"/>
+<text class="m" x="290" y="200">← drop back to Jev as soon as the element table is good again</text>
+</svg>
+
+<h2>5 · Package graph</h2>
+<p class="cap">Arrows mean "is used by". The renderer imports only <code>protocol</code>. The testbed depends only on <code>testbed-kit</code>.</p>
+<svg class="dg" viewBox="0 0 1000 400" role="img" aria-label="Package dependency graph">
+<defs><marker id="m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ah"/></marker></defs>
+<rect class="box" x="10" y="140" width="150" height="56" rx="8"/><text class="t c" x="85" y="164">protocol</text><text class="m c" x="85" y="182">zod IPC + event schemas</text>
+<rect class="box" x="195" y="140" width="150" height="56" rx="8"/><text class="t c" x="270" y="164">core</text><text class="m c" x="270" y="182">loop · router · plans</text>
+<path class="ar" d="M160,168H193" marker-end="url(#m5)"/>
+<rect class="grp" x="380" y="4" width="230" height="332" rx="10"/>
+<text class="g" x="395" y="24">Providers + drivers</text>
+<rect class="hl" x="392" y="34" width="206" height="30" rx="6"/><text class="t c" x="495" y="54">decision-typesafe</text>
+<rect class="box" x="392" y="70" width="206" height="30" rx="6"/><text class="t c" x="495" y="90">models</text>
+<rect class="box" x="392" y="106" width="206" height="30" rx="6"/><text class="t c" x="495" y="126">consultants (codex, claude)</text>
+<rect class="hl" x="392" y="142" width="206" height="30" rx="6"/><text class="t c" x="495" y="162">driver-playwright</text>
+<rect class="box" x="392" y="178" width="206" height="30" rx="6"/><text class="t c" x="495" y="198">knowledge</text>
+<rect class="box" x="392" y="214" width="206" height="30" rx="6"/><text class="t c" x="495" y="234">recorder</text>
+<rect class="box" x="392" y="250" width="206" height="30" rx="6"/><text class="t c" x="495" y="270">voice</text>
+<rect class="box" x="392" y="286" width="206" height="30" rx="6"/><text class="t c" x="495" y="306">qa</text>
+<path class="ar" d="M345,168H378" marker-end="url(#m5)"/>
+<rect class="hl" x="645" y="140" width="140" height="56" rx="8"/><text class="t c" x="715" y="164">engine</text><text class="m c" x="715" y="182">wires it together</text>
+<path class="ar" d="M610,168H643" marker-end="url(#m5)"/>
+<rect class="box" x="830" y="20" width="160" height="44" rx="8"/><text class="t c" x="910" y="47">apps/cli</text>
+<rect class="box" x="830" y="80" width="160" height="44" rx="8"/><text class="t c" x="910" y="107">apps/desktop</text>
+<rect class="box later" x="830" y="140" width="160" height="44" rx="8"/><text class="t c" x="910" y="167">mcp</text>
+<rect class="box" x="830" y="200" width="160" height="44" rx="8"/><text class="t c" x="910" y="227">evals</text>
+<path class="ar" d="M785,160L828,44" marker-end="url(#m5)"/><path class="ar" d="M785,165L828,104" marker-end="url(#m5)"/><path class="ar" d="M785,168H828" marker-end="url(#m5)"/><path class="ar" d="M785,175L828,220" marker-end="url(#m5)"/>
+<rect class="box" x="645" y="290" width="345" height="64" rx="8"/><text class="t c" x="817" y="316">apps/testbed · web + server + e2e</text><text class="m c" x="817" y="336">React UI :4400 · Hono + bun:sqlite · control API :4401</text>
+<path class="ar dash" d="M910,290V246" marker-end="url(#m5)"/><text class="m" x="918" y="272">testbed-kit</text>
+<text class="m" x="10" y="380">Tooling: Bun workspaces (hoisted linker) · electron-vite + electron-builder · Vitest · Biome · tsgo · Vite + React</text>
+</svg>
+<table>
+<tr><th>Package</th><th>Owns</th></tr>
+<tr><td>protocol</td><td>Zod schemas and types for everything crossing a process: records, events, Jev questions/answers, actions, elements, config, IPC, errors</td></tr>
+<tr><td>core</td><td>Task model, planner interface, router, step loop, gates, budgets, stall detection, done-checks, events. No I/O.</td></tr>
+<tr><td>decision-typesafe</td><td>DecisionProvider over the TypeSafe SDK, validators, cost meter, redacted logging</td></tr>
+<tr><td>models</td><td>AI SDK wrapper, providers, catalog, roles and fallbacks, cost meter, ChatGPT-plan OAuth (Phase 2)</td></tr>
+<tr><td>consultants</td><td>Codex app-server adapter now; Claude stream-json adapter later</td></tr>
+<tr><td>driver-playwright</td><td>Browser detection and profiles, aria snapshot → element table, settle, actions with effects, origin guard, credential/TOTP/mail tools, trace/video</td></tr>
+<tr><td>recorder</td><td>Event log, screenshots, trace bundling, redaction, SQLite index, replay reader</td></tr>
+<tr><td>knowledge · voice · qa · mcp · evals · testbed-kit</td><td>Phases 3, 4, 5, 5, 1, 0 respectively</td></tr>
+<tr><td>engine · apps/cli · apps/desktop · apps/testbed</td><td>Wiring, command line, Electron app, our own target app</td></tr>
+</table>
+
+<h2>6 · Standards agents must follow</h2>
+<div class="grid">
+  <div class="card"><h3>Code</h3>kebab-case filenames, one concern per file, named exports only, no default exports, no barrels except the package entry, no circular imports, every package declares its own deps. Strict TS with <code>noUncheckedIndexedAccess</code> and <code>exactOptionalPropertyTypes</code>. No <code>any</code>.</div>
+  <div class="card"><h3>Errors, logs, traces</h3><code>Result</code> with discriminated-union errors at boundaries. pino child logger per package with a redaction hook. One OpenTelemetry span per run, subgoal, step and model call, written to the run folder.</div>
+  <div class="card"><h3>Secrets</h3>A secrets registry resolves names at action time; models only ever see <code>[input:NAME]</code>. CI greps run folders, logs and the repo for test secret values.</div>
+  <div class="card"><h3>Tests and docs</h3>Vitest tests next to sources, recordings for model calls, e2e under the testbed. Paid-API probes are explicit scripts and never run in CI. <code>AGENTS.md</code>, <code>docs/adr</code>, <code>docs/architecture.md</code>, <code>CONTRIBUTING.md</code>, <code>SECURITY.md</code>.</div>
+</div>
+
+<h2>7 · Phase 0: foundations through a working Jev-first loop</h2>
+<p class="cap">Goal: <code>ghosthand run --url http://127.0.0.1:4400 "&lt;L1 task&gt;"</code> completes with Jev decisions, is recorded, and replays with zero decision calls. You need: the TypeSafe key in <code>~/.config/ghosthand/env</code>, Codex signed in (it is), Chrome installed (it is). Suggested order: 01 → 02 → 03, then 04–07 in parallel worktrees, then 08 → 12, then 13.</p>
+<table>
+<tr><th>ID</th><th>Task</th><th>Done when</th></tr>
+<tr><td>P0-01</td><td>Repo bootstrap: git, private GitHub repo, gitignore, AGPL + CLA + trademark + notices + contributing + security files, <code>AGENTS.md</code>, first four ADRs, README, copy plan and notes into <code>docs/</code></td><td>Pushed; SPDX headers everywhere; README explains <code>bun install</code> and <code>bun run check</code></td></tr>
+<tr><td>P0-02</td><td>Monorepo skeleton: workspaces, bunfig, strict tsconfig with references, Biome, Vitest, changesets, typed stubs for every package, root scripts, CI workflows</td><td><code>bun run check</code> and the license check green locally and in CI</td></tr>
+<tr><td>P0-03</td><td>Protocol v0: Zod schemas for Element, Snapshot, Capture, Action, ActionResult, Jev questions/answers, run and step events, config, errors</td><td>Fixtures parse, malformed data rejected, Zod the only runtime dep</td></tr>
+<tr><td>P0-04</td><td>TypeSafe decision provider + probe script (all three question types, 30-call latency, limits, determinism)</td><td>Recorded-response tests green; probe table saved to <code>docs/research/jev-probe.md</code></td></tr>
+<tr><td>P0-05</td><td>Codex consultant (app-server: initialize, account, models, rate limits, read-only ephemeral thread with output schema and image) + probe</td><td>Schema-valid JSON plan from a screenshot using your login; latency recorded; no tokens stored</td></tr>
+<tr><td>P0-06</td><td>Testbed L0–L1: Hono + bun:sqlite server with control API, React app (home, login, profile form, inbox fallback), testbed-kit, four tasks with DB oracles, human-style e2e smoke</td><td>Deterministic reset; e2e green in CI; oracles pass only on correct DB state</td></tr>
+<tr><td>P0-07</td><td>Browser detection (Chrome/Edge/Brave), persistent profiles, <code>ghosthand profile create|list|import</code></td><td>Login persists across two runs; imported profile carries cookies</td></tr>
+<tr><td>P0-08</td><td>Web observation: aria snapshot → enriched, redacted, ranked element table incl. frames and shadow roots</td><td>Fixture-page tests pass; passwords never appear</td></tr>
+<tr><td>P0-09</td><td>Web actions and settle: aria-ref actions with freshness and hit-test, effects from read-back, origin guard, credential and TOTP tools</td><td>Each action returns <code>confirmed</code> with evidence; stale token refused; off-allowlist navigation blocked</td></tr>
+<tr><td>P0-10</td><td>Recorder v0: run folder, redacted <code>events.jsonl</code>, screenshots, trace, SQLite index, replay reader</td><td>A run produces the folder; <code>ghosthand runs list</code> shows it; secrets grep clean</td></tr>
+<tr><td>P0-11</td><td>Core loop v0 (mode B): question builders, gates, stall detection, budgets, typed events</td><td>Unit tests green; the loop runs against recorded fixtures with no network</td></tr>
+<tr><td>P0-12</td><td>Engine + CLI: <code>run</code>, <code>replay</code>, <code>runs list</code>, <code>doctor</code>; replay v0 by fingerprint with final oracle</td><td>L1 task succeeds 4/5, median step ≤ 1 s; replay with 0 decision calls; doctor all green</td></tr>
+<tr><td>P0-13</td><td>Phase 0 report in <code>docs/reports</code> and PostPlan: timing split, Jev and Codex measurements, wrong decisions with their state, Bun verdict, Phase 1 changes</td><td>Published; your review requested</td></tr>
+</table>
+
+<h2>8 · Phase 1: web engine and CLI</h2>
+<table>
+<tr><th>ID</th><th>Task</th><th>Done when</th></tr>
+<tr><td>P1-01</td><td>Phase 1 plan in PostPlan from the Phase 0 report</td><td>Approved</td></tr>
+<tr><td>P1-02</td><td>Models layer v0: AI SDK wrapper, OpenAI provider, roles with capability requirements and fallbacks, cost meter, models.dev snapshot, <code>ghosthand models list</code></td><td>Planner and vision calls work from a role binding; cost and latency logged</td></tr>
+<tr><td>P1-03</td><td>Planner via consultant or API: 3–12 subgoals with done-checks, allowed effects, step limits; mode C replans on failure</td><td>Valid plans on L1–L2; ≤ 2 replans per run</td></tr>
+<tr><td>P1-04</td><td>Writer hand-off: one hint or free text, Jev re-asked, never picks clicks, two hand-offs → replan</td><td>Hints raise confidence on recorded failures; LLM share ≤ 20% on L1–L2</td></tr>
+<tr><td>P1-05</td><td>Verify path: oracle compiler, Jev <code>holds</code> noul, VLM for inconclusive</td><td>Three-state results logged with which check decided</td></tr>
+<tr><td>P1-06</td><td>Region narrowing and option chunking for big pages</td><td>Oversized fixture handled under 20k tokens</td></tr>
+<tr><td>P1-07</td><td>Testbed L2–L3 with 10+ tasks</td><td>e2e green; oracles verified by hand once</td></tr>
+<tr><td>P1-08</td><td>Evals harness: N runs per suite, success, steps, timing split, cost, mode shares, git SHA</td><td><code>bun run eval -- --suite l1-l3 --n 5</code> prints the table</td></tr>
+<tr><td>P1-09</td><td>Budgets and safety v1: effect classes, approvals, per-task allowlist, caps, injection fixture</td><td>Injection blocked; caps stop runs; approvals for commits</td></tr>
+<tr><td>P1-10</td><td>Speculation v0: parallel verify and decide, observation prefetch</td><td>Measured step-time improvement vs Phase 0</td></tr>
+<tr><td>P1-11</td><td>Replay v1: fingerprint → Jev "same control?" → re-ground; final checks always; basic Playwright spec export</td><td>Moved element healed with one Jev call</td></tr>
+<tr><td>P1-12</td><td>Phase 1 report with default-model and Bun decisions</td><td>Published</td></tr>
+</table>
+<p class="small">Phase 1 is done when L1–L3 tasks pass ≥ 4/5, the median Jev-first step is ≤ 0.8 s, LLM share ≤ 20% on known flows, Jev cost per step &lt; $0.001, replay heals a moved element with one call, and no secret appears anywhere.</p>
+
+<h2>9 · Phases 2–7 (outlines)</h2>
+<div class="stages">
+  <div class="stage"><b>2 · Electron app</b>utilityProcess engine, typed IPC, screencast live view with overlays, timeline, approvals, takeover, replay viewer, settings and model selector, Sign in with ChatGPT, fuses and CSP, three-OS CI builds</div>
+  <div class="stage"><b>3 · Speed + knowledge</b>Router modes A and D, app maps, recipes with trust decay, source/PR maps and coverage, speculation v1, testbed L4–L6</div>
+  <div class="stage"><b>4 · Voice</b>Push-to-talk, VAD, Moonshine and Whisper downloads, hosted STT, ~40-verb grammar → Jev → planner, overlays, local "stop", recipes from sessions</div>
+  <div class="stage"><b>5 · QA + MCP</b>Markdown specs, preflight, judge, rubric and HTML reports, pass^k, testbed L7–L8, MCP server tools</div>
+  <div class="stage"><b>6 · Providers</b>Claude Code consultant, Anthropic and Google keys, OpenRouter, local models, Jev alternatives at parity</div>
+  <div class="stage"><b>7 · Desktop</b>X11 container → GNOME Wayland → Windows UIA → macOS AX, following cua RFC 4268</div>
+</div>
+
+<h2>10 · Voice-guided mode (Phase 4 reference)</h2>
+<svg class="dg" viewBox="0 0 1000 250" role="img" aria-label="Voice-guided mode">
+<defs><marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="ah"/></marker></defs>
+<rect class="box" x="10" y="30" width="150" height="64" rx="8"/><text class="t c" x="85" y="57">Microphone</text><text class="m c" x="85" y="76">push-to-talk</text>
+<rect class="box" x="190" y="30" width="160" height="64" rx="8"/><text class="t c" x="270" y="57">Speech-to-text</text><text class="m c" x="270" y="76">hosted or local</text>
+<rect class="hl" x="380" y="30" width="210" height="64" rx="8"/><text class="t c" x="485" y="57">Command → Jev</text><text class="m c" x="485" y="76">intent choice + target choice</text>
+<rect class="box" x="620" y="30" width="160" height="64" rx="8"/><text class="t c" x="700" y="57">Step loop</text><text class="m c" x="700" y="76">acts, verifies</text>
+<rect class="box" x="810" y="30" width="180" height="64" rx="8"/><text class="t c" x="900" y="57">Screen</text><text class="m c" x="900" y="76">numbered overlays</text>
+<path class="ar" d="M160,62H188" marker-end="url(#m4)"/><path class="ar" d="M350,62H378" marker-end="url(#m4)"/><path class="ar" d="M590,62H618" marker-end="url(#m4)"/><path class="ar" d="M780,62H808" marker-end="url(#m4)"/>
+<path class="ar dash" d="M900,30V12H85V28" marker-end="url(#m4)"/><text class="m" x="400" y="9">you see the labels and say "click 4", "no, the other one", "stop"</text>
+<path class="ar dash" d="M485,94V120" marker-end="url(#m4)"/><text class="m" x="495" y="114">unclear → LLM, or ask you</text>
+<rect class="box" x="300" y="160" width="480" height="64" rx="8"/><text class="t c" x="540" y="187">Session recorder</text><text class="m c" x="540" y="206">audio · transcript · observations · decisions · actions · video</text>
+<path class="ar" d="M270,94V140H420V158" marker-end="url(#m4)"/><path class="ar" d="M700,94V158" marker-end="url(#m4)"/>
+<rect class="box" x="810" y="160" width="180" height="64" rx="8"/><text class="t c" x="900" y="187">Replay / recipe</text><text class="m c" x="900" y="206">parameterised</text>
+<path class="ar" d="M780,192H808" marker-end="url(#m4)"/>
+</svg>
+
+<h2>11 · Acceptance by phase</h2>
+<table>
+<tr><th>Phase</th><th>Done when</th></tr>
+<tr><td>0</td><td>Probes measured; testbed L0–L1 deterministic; an L1 task succeeds 4/5 with median step ≤ 1 s and ≤ 1 consultant call; replay with 0 decision calls; installed browser with a persistent profile; secrets grep clean; CI green</td></tr>
+<tr><td>1</td><td>L1–L3 ≥ 4/5; median step ≤ 0.8 s; LLM share ≤ 20%; Jev cost/step &lt; $0.001; one-call heal; evals table</td></tr>
+<tr><td>2</td><td>App runs a task with live view, approvals, takeover, replay, model selector; ChatGPT sign-in on Plus/Pro; builds for three OSes</td></tr>
+<tr><td>3</td><td>Recipe replay &lt; 5 s with 0 calls; source-aware beats blind; L4–L6 ≥ 4/5</td></tr>
+<tr><td>4</td><td>Voice drives L1–L2 hands-free; "stop" &lt; 300 ms; sessions replay</td></tr>
+<tr><td>5</td><td>Spec → scored report; planted bug caught 4/5; MCP <code>run_task</code> works from a coding agent</td></tr>
+<tr><td>6–7</td><td>Each provider and driver passes the same L1–L3 suite as the web lane</td></tr>
+</table>
+
+<h2>12 · Risks</h2>
+<ul>
+<li>Jev via OpenRouter never reaches parity → stay direct; the interface keeps the door open.</li>
+<li>Sign in with ChatGPT changes → consultants and API keys cover planning; nothing depends on the plan.</li>
+<li>Anthropic tightens CLI policy → the Claude consultant is optional and late; API keys always work.</li>
+<li>Bun friction → decide at the end of Phase 0; pnpm migration is a one-day task.</li>
+<li>Jev accuracy below community numbers → gates escalate; Phase 0–1 measurements set the defaults.</li>
+<li>Scope creep → each phase has its own plan and report, reviewed before the next starts.</li>
+</ul>
+
+<div class="warn"><strong>Before Phase 0 starts:</strong> archive the old "GhostHand" T3 project (it points at the removed folder), open threads from the "ghosthand" project, and put <code>TYPESAFE_API_KEY</code> in <code>~/.config/ghosthand/env</code> with owner-only permissions. Then say go.</div>
+
+</main>
+</body>
+</html>

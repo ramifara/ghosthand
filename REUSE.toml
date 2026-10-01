@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
+# Files that cannot carry an inline SPDX header (no comment syntax, generated, or verbatim).
+version = 1
+
+[[annotations]]
+path = ["LICENSE", "**/*.json", "bun.lock", "**/__fixtures__/**", "**/__recordings__/**", "docs/plan/**", "docs/research/**", ".changeset/*.md", "**/*.svg", "**/*.png"]
+SPDX-FileCopyrightText = "2026 Rami Fara and GhostHand contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
