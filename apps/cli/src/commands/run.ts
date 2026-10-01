@@ -2,11 +2,14 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import {
   agentSecretNames,
+  createAssistants,
   createDecisionProvider,
   type EngineRuntime,
   openRuntime,
+  type PlannerChoice,
   prepareTestbedRun,
   runAgent,
+  type WriterChoice,
   webLauncher,
 } from "@ghosthand/engine";
 import { TaskSpec } from "@ghosthand/protocol";
@@ -25,6 +28,8 @@ export interface RunFlags {
   trace: boolean;
   json: boolean;
   config?: string;
+  planner: PlannerChoice;
+  writer: WriterChoice;
 }
 
 export async function runCommand(flags: RunFlags): Promise<number> {
@@ -59,7 +64,11 @@ export async function runCommand(flags: RunFlags): Promise<number> {
   const decision = createDecisionProvider(rt, task.budget.usd);
   if (!decision.ok) return fail(decision.error.message);
 
+  const assistants = await createAssistants(rt, { planner: flags.planner, writer: flags.writer });
+  if (!flags.json) process.stderr.write(`assistants: ${assistants.describe}\n`);
   const report = await runAgent(rt, {
+    ...(assistants.planner ? { planner: assistants.planner } : {}),
+    ...(assistants.writer ? { writer: assistants.writer } : {}),
     task,
     decision: decision.value,
     trace: flags.trace,
@@ -76,6 +85,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
       ...(flags.json ? {} : { onEvent: progressPrinter() }),
     },
   });
+  await assistants.close();
   if (!report.ok) return fail(report.error);
   const r = report.value;
   if (flags.json)

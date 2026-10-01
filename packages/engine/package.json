@@ -22,7 +22,8 @@
     "zod": "catalog:",
     "@ghosthand/consultants": "workspace:*",
     "@ghosthand/driver-playwright": "workspace:*",
-    "@ghosthand/testbed-kit": "workspace:*"
+    "@ghosthand/testbed-kit": "workspace:*",
+    "@ghosthand/models": "workspace:*"
   },
   "scripts": {
     "test": "vitest run"
