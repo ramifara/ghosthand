@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@ghosthand/protocol": "workspace:*"
+    "@ghosthand/protocol": "workspace:*",
+    "zod": "catalog:"
   },
   "scripts": {
     "test": "vitest run"

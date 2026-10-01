@@ -8,6 +8,7 @@
         "@biomejs/biome": "2.5.15",
         "@changesets/cli": "3.0.3",
         "@ghosthand/consultants": "workspace:*",
+        "@ghosthand/core": "workspace:*",
         "@ghosthand/decision-typesafe": "workspace:*",
         "@ghosthand/models": "workspace:*",
         "@ghosthand/protocol": "workspace:*",
@@ -93,6 +94,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ghosthand/protocol": "workspace:*",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "vitest": "catalog:",

@@ -14,6 +14,8 @@ export type {
   CodexTransport,
 } from "./codex/codex-consultant.ts";
 export { CodexConsultant, createCodexConsultant } from "./codex/codex-consultant.ts";
+export type { CodexPlanner, CodexPlannerOptions } from "./codex/codex-planner.ts";
+export { createCodexPlanner, plannerErrorFromConsultant } from "./codex/codex-planner.ts";
 export { CodexExecSession } from "./codex/exec-session.ts";
 export type { JsonRpcFailure, RequestOptions, ServerRequestReply } from "./codex/json-rpc-client.ts";
 export { JsonRpcClient, LineDecoder } from "./codex/json-rpc-client.ts";
