@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- Copyright (C) 2026 Rami Fara and GhostHand contributors -->
 
-# 0006. Voice: local STT runtime, model sources and command recording
+# 0009. Voice: local STT runtime, model sources and command recording
 
 - Status: proposed
 - Date: 2026-10-01
