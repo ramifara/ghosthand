@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
 import type { PlannerChoice, WriterChoice } from "@ghosthand/engine";
+import type { BrowserBehaviorInput } from "@ghosthand/protocol";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
@@ -54,6 +55,11 @@ Usage:
 Options:
   --json        machine-readable output
   --config      path to ghosthand.config.ts
+  --reduce-automation-markers  reduce Chromium automation signals (run/test, best effort)
+  --human-input  vary mouse, typing and scroll timing (run/test)
+  --native-window  use the real browser window size (run/test)
+  --locale <en-US>  browser language (run/test)
+  --timezone <Europe/Berlin>  browser timezone (run/test)
   -h, --help    show this help
 `;
 
@@ -155,6 +161,7 @@ export async function main(argv: string[]): Promise<number> {
         ...(values.only ? { only: values.only.split(",") } : {}),
         ...(values.config ? { config: values.config } : {}),
         json,
+        browserBehavior: browserFlags(values),
       });
     case "mcp":
       return mcpCommand({
@@ -189,6 +196,7 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     ...(rest.length > 0 ? { goal: rest.join(" ") } : {}),
     ...(values.profile ? { profile: values.profile } : {}),
     ...(values.config ? { config: values.config } : {}),
+    browserBehavior: browserFlags(values),
     allowOrigins: values["allow-origin"] ?? [],
     headless: values.headless ?? false,
     yes: values.yes ?? false,
@@ -251,6 +259,11 @@ export function parse(argv: string[]) {
       profile: { type: "string" },
       "allow-origin": { type: "string", multiple: true },
       headless: { type: "boolean" },
+      "reduce-automation-markers": { type: "boolean" },
+      "human-input": { type: "boolean" },
+      "native-window": { type: "boolean" },
+      locale: { type: "string" },
+      timezone: { type: "string" },
       json: { type: "boolean" },
       limit: { type: "string" },
       config: { type: "string" },
@@ -292,6 +305,17 @@ export function parse(argv: string[]) {
       help: { type: "boolean", short: "h" },
     },
   });
+}
+
+/** Only explicit flags override the file's browser behavior. */
+export function browserFlags(values: ReturnType<typeof parse>["values"]): BrowserBehaviorInput {
+  return {
+    ...(values["reduce-automation-markers"] ? { reduceAutomationMarkers: true } : {}),
+    ...(values["human-input"] ? { inputPacing: "human" as const } : {}),
+    ...(values["native-window"] ? { nativeWindow: true } : {}),
+    ...(values.locale !== undefined ? { locale: values.locale } : {}),
+    ...(values.timezone !== undefined ? { timezoneId: values.timezone } : {}),
+  };
 }
 
 if (import.meta.main) {

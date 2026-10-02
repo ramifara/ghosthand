@@ -11,6 +11,7 @@ import type {
   ActionErrorKind,
   ActionResult,
   ActionRoute,
+  BrowserBehaviorInput,
   Capture,
   Computer,
   ComputerCapabilities,
@@ -26,7 +27,7 @@ import type {
   Result,
   Snapshot,
 } from "@ghosthand/protocol";
-import { err, ok, Region } from "@ghosthand/protocol";
+import { BrowserBehavior, err, ok, Region } from "@ghosthand/protocol";
 import type {
   BrowserContext,
   ConsoleMessage,
@@ -55,6 +56,7 @@ import {
   scrollState,
   viewportMetrics,
 } from "./in-page/target-scripts.ts";
+import { InputPacing } from "./input-pacing.ts";
 import { NetworkTracker } from "./network-tracker.ts";
 import { OriginGuard, siteOf } from "./origin-guard.ts";
 import { capElements, estimateSnapshotTokens, measureQuality } from "./rank-elements.ts";
@@ -87,6 +89,7 @@ export interface WebComputerOptions {
   maxTokens?: number;
   /** Playwright timeout for one action (default 5 s). */
   actionTimeoutMs?: number;
+  behavior?: BrowserBehaviorInput;
   /** Settle cap used before reading back an action's effect (default 2 s). */
   effectSettleCapMs?: number;
   /** Close the browser context in `close()` (default false for a context you pass in). */
@@ -111,12 +114,15 @@ export interface DownloadRecord {
   url: string;
 }
 
-/** An action refused before it touched the page (thrown inside `run`, turned into a refusal). */
+/** A refusal inside `run`. An earlier part of a multi-step action may have touched the page. */
 class ActionRefusal extends Error {
   readonly kind: ActionErrorKind;
-  constructor(kind: ActionErrorKind, message: string) {
+  /** False only for checks that fail before any browser input. */
+  readonly invalidatesSnapshot: boolean;
+  constructor(kind: ActionErrorKind, message: string, invalidatesSnapshot = true) {
     super(message);
     this.kind = kind;
+    this.invalidatesSnapshot = invalidatesSnapshot;
   }
 }
 
@@ -233,6 +239,8 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export async function createWebComputer(
   opts: WebComputerOptions,
 ): Promise<Result<WebComputer, ComputerError>> {
+  const behavior = BrowserBehavior.safeParse(opts.behavior ?? {});
+  if (!behavior.success) return err({ kind: "driver", message: behavior.error.message });
   const registered = await registerGhosthandEngine();
   if (!registered.ok) return registered;
   let page: Page;
@@ -280,9 +288,11 @@ export class WebComputer implements Computer {
   readonly #pendingDownloads: Promise<void>[] = [];
   readonly #downloads: DownloadRecord[] = [];
   #closed = false;
+  readonly #pacing: InputPacing;
   #screencast: { handle: ScreencastHandle; onFrame: FrameListener; options: ScreencastOptions } | undefined;
 
   constructor(opts: WebComputerOptions, page: Page) {
+    this.#pacing = new InputPacing(BrowserBehavior.parse(opts.behavior ?? {}).inputPacing);
     this.#context = opts.context;
     this.#page = page;
     this.#scope = new SecretScope(opts.secrets ?? new SecretsRegistry());
@@ -876,6 +886,7 @@ export class WebComputer implements Computer {
   async #perform(spec: ActionSpec): Promise<ActionResult> {
     const start = Date.now();
     if (this.#closed) return this.#refuse("driver", "the computer is closed", spec.route, start);
+    await this.#pacing.pause();
     let target: ResolvedTarget | undefined;
     if (spec.token !== undefined) {
       const resolved = await this.#resolveToken(spec.token);
@@ -902,11 +913,17 @@ export class WebComputer implements Computer {
     try {
       await spec.run({ locator: target?.locator, before });
     } catch (e) {
-      if (e instanceof ActionRefusal) return this.#refuse(e.kind, e.message, spec.route, start);
+      // A menu may already be open or a field partially typed when a later part fails.
+      const invalidated = spec.mutating && (!(e instanceof ActionRefusal) || e.invalidatesSnapshot);
+      if (invalidated) this.#invalidate();
+      if (e instanceof ActionRefusal)
+        return this.#result("refused", spec.route, start, [], invalidated, {
+          kind: e.kind,
+          message: e.message,
+        });
       const kind = this.#errorKind(e);
       if (kind === "timeout" || kind === "not_interactable")
-        return this.#refuse(kind, firstLine(e), spec.route, start);
-      if (spec.mutating) this.#invalidate();
+        return this.#result("refused", spec.route, start, [], spec.mutating, { kind, message: firstLine(e) });
       return this.#result("unverifiable", spec.route, start, [], spec.mutating, {
         kind,
         message: firstLine(e),
@@ -1034,6 +1051,18 @@ export class WebComputer implements Computer {
 
   // ---- semantic actions ------------------------------------------------------------------------
 
+  async #clickLocator(
+    locator: Locator,
+    opts: { button?: "left" | "right" | "middle"; clickCount?: number } = {},
+  ): Promise<void> {
+    await this.#pacing.approach(this.#page, locator, this.#timeout);
+    if (this.#pacing.human) {
+      const hit = await this.#hitTest(locator);
+      if (!hit.ok) throw new ActionRefusal("hit_test_failed", `the target is covered by ${hit.hit}`);
+    }
+    await locator.click({ ...opts, delay: this.#pacing.clickDelay, timeout: this.#timeout });
+  }
+
   press(token: string): Promise<ActionResult> {
     return this.#perform({
       route: "semantic",
@@ -1041,7 +1070,7 @@ export class WebComputer implements Computer {
       pointer: true,
       mutating: true,
       run: async ({ locator }) => {
-        await locator?.click({ timeout: this.#timeout });
+        if (locator) await this.#clickLocator(locator);
       },
       judge: this.#defaultJudge(this.#redactValue(false)),
     });
@@ -1125,7 +1154,36 @@ export class WebComputer implements Computer {
           await setSliderByKeyboard(locator, text, this.#timeout);
           return;
         }
-        await locator.fill(text, { timeout: this.#timeout });
+        const canType =
+          this.#pacing.human &&
+          (await locator.evaluate(
+            (el) =>
+              el instanceof HTMLTextAreaElement ||
+              (el instanceof HTMLElement && el.isContentEditable) ||
+              (el instanceof HTMLInputElement &&
+                ["text", "search", "email", "password", "tel", "url"].includes(el.type)),
+          ));
+        if (canType) {
+          await this.#pacing.approach(this.#page, locator, this.#timeout);
+          await locator.fill("", { timeout: this.#timeout });
+          const sensitive =
+            secretName !== undefined ||
+            this.#latest?.secretTokens.has(token) ||
+            this.#scope.redact(text) !== text;
+          if (sensitive) {
+            // Per-character API calls would expose characters and partially typed values in traces.
+            await locator.pressSequentially(text, {
+              delay: this.#pacing.typingDelay(text),
+              timeout: this.#timeout + 8000,
+            });
+          } else {
+            await this.#pacing.type(text, (char) =>
+              locator.pressSequentially(char, { timeout: this.#timeout }),
+            );
+          }
+        } else {
+          await locator.fill(text, { timeout: this.#timeout });
+        }
       },
       judge: (j) => {
         if (uploaded) return this.#judgeUpload(j, text);
@@ -1160,7 +1218,11 @@ export class WebComputer implements Computer {
   #uploadPath(name: string): string {
     const dir = this.#uploadDir;
     if (dir === undefined)
-      throw new ActionRefusal("unsupported", "uploads are disabled: no upload directory is configured");
+      throw new ActionRefusal(
+        "unsupported",
+        "uploads are disabled: no upload directory is configured",
+        false,
+      );
     const file = name.trim();
     if (
       file === "" ||
@@ -1171,18 +1233,22 @@ export class WebComputer implements Computer {
       file.includes("\0") ||
       basename(file) !== file
     )
-      throw new ActionRefusal("unsupported", `"${name}" is not a plain file name in the upload directory`);
+      throw new ActionRefusal(
+        "unsupported",
+        `"${name}" is not a plain file name in the upload directory`,
+        false,
+      );
     let root: string;
     let real: string;
     try {
       root = realpathSync(dir);
       real = realpathSync(join(root, file));
     } catch {
-      throw new ActionRefusal("not_found", `no file named "${file}" in the upload directory`);
+      throw new ActionRefusal("not_found", `no file named "${file}" in the upload directory`, false);
     }
     if (dirname(real) !== root)
-      throw new ActionRefusal("unsupported", `"${file}" points outside the upload directory`);
-    if (!statSync(real).isFile()) throw new ActionRefusal("not_found", `"${file}" is not a file`);
+      throw new ActionRefusal("unsupported", `"${file}" points outside the upload directory`, false);
+    if (!statSync(real).isFile()) throw new ActionRefusal("not_found", `"${file}" is not a file`, false);
     return real;
   }
 
@@ -1220,9 +1286,10 @@ export class WebComputer implements Computer {
         const role = await locator.getAttribute("role", { timeout: this.#timeout });
         if (role === "menuitemradio" || role === "menuitemcheckbox") {
           // Menu items usually close their menu when chosen, so their checked state cannot be read back.
-          if (current !== desired) await locator.click({ timeout: this.#timeout });
+          if (current !== desired) await this.#clickLocator(locator);
           return;
         }
+        await this.#pacing.approach(this.#page, locator, this.#timeout);
         await locator.setChecked(desired, { timeout: this.#timeout });
       },
       judge: (j) => {
@@ -1288,16 +1355,16 @@ export class WebComputer implements Computer {
         const inside = locator.getByRole("option", { name: option, exact: true });
         if ((await inside.count()) > 0) {
           if ((await inside.first().getAttribute("aria-selected")) !== "true")
-            await inside.first().click({ timeout: this.#timeout });
+            await this.#clickLocator(inside.first());
           return;
         }
         // ARIA combobox: open it, then pick the visible option by role and name.
-        await locator.click({ timeout: this.#timeout });
-        await this.#page
+        await this.#clickLocator(locator);
+        const optionLocator = this.#page
           .getByRole("option", { name: option, exact: true })
           .filter({ visible: true })
-          .first()
-          .click({ timeout: this.#timeout });
+          .first();
+        await this.#clickLocator(optionLocator);
       },
       judge: (j) => {
         const page = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
@@ -1420,7 +1487,13 @@ export class WebComputer implements Computer {
     const result = await this.#perform({
       route,
       mutating,
-      run: () => run(p),
+      run: async () => {
+        const fresh = await this.#point(target);
+        if (!fresh.ok) throw new ActionRefusal(fresh.kind, fresh.why);
+        p.x = fresh.x;
+        p.y = fresh.y;
+        await run(p);
+      },
       judge: (j) => {
         if (judge) return judge(j, p);
         const strong = pageEvidence(j.pageBefore, j.pageAfter, (s) => this.#scope.redact(s));
@@ -1456,13 +1529,14 @@ export class WebComputer implements Computer {
         pointer: true,
         mutating: true,
         run: async ({ locator }) => {
-          await locator?.click({ button, clickCount, timeout: this.#timeout });
+          if (locator) await this.#clickLocator(locator, { button, clickCount });
         },
         judge: this.#defaultJudge(this.#redactValue(false)),
       });
-    return this.#pointAction(target, "pointer", true, (p) =>
-      this.#page.mouse.click(p.x, p.y, { button, clickCount }),
-    );
+    return this.#pointAction(target, "pointer", true, async (p) => {
+      await this.#pacing.move(this.#page, p);
+      await this.#page.mouse.click(p.x, p.y, { button, clickCount, delay: this.#pacing.clickDelay });
+    });
   }
 
   move(target: PointerTarget): Promise<ActionResult> {
@@ -1473,7 +1547,10 @@ export class WebComputer implements Computer {
         pointer: true,
         mutating: false,
         run: async ({ locator }) => {
-          await locator?.hover({ timeout: this.#timeout });
+          if (locator) {
+            await this.#pacing.approach(this.#page, locator, this.#timeout);
+            await locator.hover({ timeout: this.#timeout });
+          }
         },
         judge: (j) => {
           const hovered = j.after !== "gone" && j.after !== undefined && j.after.hovered;
@@ -1487,7 +1564,7 @@ export class WebComputer implements Computer {
       target,
       "pointer",
       false,
-      (p) => this.#page.mouse.move(p.x, p.y),
+      (p) => this.#pacing.move(this.#page, p),
       () => ({ effect: "unverifiable", evidence: [] }),
     ).then(async (r) => {
       if (r.effect !== "unverifiable") return r;
@@ -1583,13 +1660,14 @@ export class WebComputer implements Computer {
     to: () => Promise<{ x: number; y: number }>,
   ): Promise<void> {
     const mouse = this.#page.mouse;
-    await mouse.move(from.x, from.y);
+    await this.#pacing.move(this.#page, from);
     await mouse.down();
     try {
       await mouse.move(from.x + 6, from.y + 6, { steps: 3 });
       // Measured after the drag started: the source may have left a gap that moved the target.
       const end = await to();
-      await mouse.move(end.x, end.y, { steps: 12 });
+      if (this.#pacing.human) await this.#pacing.move(this.#page, end);
+      else await mouse.move(end.x, end.y, { steps: 12 });
       await sleep(60);
       await mouse.move(end.x + 1, end.y + 1);
     } finally {
@@ -1630,8 +1708,8 @@ export class WebComputer implements Computer {
       route: "pointer",
       mutating: false,
       run: async () => {
-        await this.#page.mouse.move(at.x, at.y);
-        await this.#page.mouse.wheel(dx, dy);
+        await this.#pacing.move(this.#page, at);
+        await this.#pacing.scroll(this.#page, dx, dy);
         // Wheel scrolling applies asynchronously (and smoothly); wait up to 1 s for the position to move.
         for (let waited = 0; waited < 1000; waited += 50) {
           await sleep(50);
@@ -1665,7 +1743,15 @@ export class WebComputer implements Computer {
       route: "keyboard",
       mutating: true,
       run: async () => {
-        await this.#page.keyboard.type(value);
+        if (
+          this.#pacing.human &&
+          secretName === undefined &&
+          this.#scope.redact(value) === value &&
+          before.success &&
+          !before.data.secret
+        )
+          await this.#pacing.type(value, (char) => this.#page.keyboard.type(char));
+        else await this.#page.keyboard.type(value, { delay: this.#pacing.typingDelay(value) });
       },
       judge: () => ({ effect: "unverifiable", evidence: [] }),
     }).then(async (r) => {

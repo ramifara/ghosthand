@@ -115,6 +115,61 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
 
   // ---- observation -------------------------------------------------------------------------------
 
+  it("paces secret and Unicode input without duplicates or leaked evidence, then clicks once", async () => {
+    const c = await open("login.html", { behavior: { inputPacing: "human" } });
+    await c.page.evaluate(() => {
+      const state = { clicks: 0, inputs: 0, moves: 0 };
+      document.addEventListener("click", () => {
+        state.clicks++;
+      });
+      document.addEventListener("input", () => {
+        state.inputs++;
+      });
+      document.addEventListener("mousemove", () => {
+        state.moves++;
+      });
+      Object.assign(window, { pacingTest: state });
+    });
+    let s = await observe(c);
+    const account = find(s, "Account name", "textbox");
+    expectConfirmed(await c.setValue(account.token, "Café 👋"));
+    expect(await c.page.locator("input[name=account]").inputValue()).toBe("Café 👋");
+    expect((await c.setValue(account.token, "again")).error?.kind).toBe("stale_token");
+    s = await observe(c);
+    const password = find(s, "Password", "textbox");
+    const filled = await c.fillCredential(password.token, "PASSWORD");
+    expectConfirmed(filled);
+    expect(JSON.stringify(filled)).not.toContain(PASSWORD);
+    expect(await c.page.locator("input[name=password]").inputValue()).toBe(PASSWORD);
+    s = await observe(c);
+    expect(JSON.stringify(s)).not.toContain(PASSWORD);
+    expectConfirmed(await c.press(find(s, "Show password", "checkbox").token));
+    const state = await c.page.evaluate(
+      () => Reflect.get(window, "pacingTest") as { clicks: number; inputs: number; moves: number },
+    );
+    expect(state.clicks).toBe(1);
+    expect(state.inputs).toBeGreaterThan(10);
+    expect(state.moves).toBeGreaterThan(5);
+  });
+
+  it("consumes the snapshot after paced typing changes a field and then times out", async () => {
+    const c = await open("login.html", { behavior: { inputPacing: "human" }, actionTimeoutMs: 100 });
+    await c.page.evaluate(() => {
+      const field = document.querySelector<HTMLInputElement>("input[name=account]");
+      field?.addEventListener("input", () => {
+        if (field.value.length > 0) {
+          Object.assign(window, { partiallyTyped: field.value });
+          field.remove();
+        }
+      });
+    });
+    const token = find(await observe(c), "Account name", "textbox").token;
+    const result = await c.setValue(token, "abcdef");
+    expect(result.error?.kind).toBe("timeout");
+    expect(await c.page.evaluate(() => Reflect.get(window, "partiallyTyped"))).toBe("a");
+    expect((await c.setValue(token, "abcdef")).error?.kind).toBe("stale_token");
+  });
+
   it("builds a schema-valid element table for the login page", async () => {
     const c = await open("login.html");
     const s = await observe(c);
@@ -565,30 +620,35 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expectConfirmed(await act(c.press(find(s, "Delete").token)));
   });
 
-  it("records a redacted Playwright trace", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ghosthand-trace-"));
-    try {
-      const c = await open("login.html");
-      expect((await c.startRecording(dir)).ok).toBe(true);
-      const s = await observe(c);
-      expectConfirmed(await act(c.setValue(find(s, "Password").token, { secretRef: "PASSWORD" })));
-      const stopped = await c.stopRecording();
-      if (!stopped.ok) throw new Error(stopped.error.message);
-      const trace = join(dir, "trace.zip");
-      expect(stopped.value.files).toEqual([trace]);
-      expect(existsSync(trace)).toBe(true);
-      // The fill was recorded, with the placeholder instead of the value; a second pass finds nothing.
-      const entries = readZipEntries(readFileSync(trace));
-      if (!entries.ok) throw new Error(entries.error);
-      const all = Buffer.concat(entries.value.map((e) => e.data)).toString("latin1");
-      expect(all).toContain("[input:PASSWORD]");
-      expect(all).not.toContain(PASSWORD);
-      const again = redactZip(trace, [["PASSWORD", PASSWORD]]);
-      expect(again.ok && again.value).toBe(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  it.each(["instant", "human"] as const)(
+    "records a redacted Playwright trace with %s input",
+    async (inputPacing) => {
+      const dir = mkdtempSync(join(tmpdir(), "ghosthand-trace-"));
+      try {
+        const c = await open("login.html", { behavior: { inputPacing } });
+        expect((await c.startRecording(dir)).ok).toBe(true);
+        const s = await observe(c);
+        expectConfirmed(await act(c.setValue(find(s, "Password").token, { secretRef: "PASSWORD" })));
+        const stopped = await c.stopRecording();
+        if (!stopped.ok) throw new Error(stopped.error.message);
+        const trace = join(dir, "trace.zip");
+        expect(stopped.value.files).toEqual([trace]);
+        expect(existsSync(trace)).toBe(true);
+        // The fill was recorded, with the placeholder instead of the value; a second pass finds nothing.
+        const entries = readZipEntries(readFileSync(trace));
+        if (!entries.ok) throw new Error(entries.error);
+        const all = Buffer.concat(entries.value.map((e) => e.data)).toString("latin1");
+        expect(all).toContain("[input:PASSWORD]");
+        expect(all).not.toContain(PASSWORD);
+        // Sensitive typing must not leave individual character actions that reconstruct the password.
+        expect(all).not.toMatch(/"text":"(?:[^"\\]|\\.)"/);
+        const again = redactZip(trace, [["PASSWORD", PASSWORD]]);
+        expect(again.ok && again.value).toBe(0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("reports doctor checks", async () => {
     const c = await open("login.html");

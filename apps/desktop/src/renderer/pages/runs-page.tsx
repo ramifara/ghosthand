@@ -3,6 +3,7 @@
 // Run history from the SQLite run index (shared with the CLI).
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
+import { ReuseTaskButton } from "../components/reuse-task-button.tsx";
 import { Badge, type BadgeTone } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Empty, Panel } from "../components/ui/panel.tsx";
@@ -18,7 +19,13 @@ const TONE: Record<string, BadgeTone> = {
   aborted: "neutral",
 };
 
-export function RunsPage({ onOpen }: { onOpen: (runId: string) => void }) {
+export function RunsPage({
+  onOpen,
+  onTaskReady,
+}: {
+  onOpen: (runId: string) => void;
+  onTaskReady: () => void;
+}) {
   const runs = useQuery({ queryKey: ["runs"], queryFn: () => call("runs.list", { limit: 200 }) });
   return (
     <div className="h-full p-3">
@@ -40,13 +47,21 @@ export function RunsPage({ onOpen }: { onOpen: (runId: string) => void }) {
           <table className="w-full border-collapse text-left">
             <thead className="sticky top-0 bg-panel">
               <tr className="border-b border-line">
-                {["Started", "Task", "Outcome", "Steps", "Wall", "Cost", "Jev / model calls", "Decision"].map(
-                  (h) => (
-                    <th key={h} scope="col" className="label px-3 py-2 font-normal">
-                      {h}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Started",
+                  "Task",
+                  "Outcome",
+                  "Steps",
+                  "Wall",
+                  "Cost",
+                  "Jev / model calls",
+                  "Decision",
+                  "Reuse",
+                ].map((h) => (
+                  <th key={h} scope="col" className="label px-3 py-2 font-normal">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -80,6 +95,9 @@ export function RunsPage({ onOpen }: { onOpen: (runId: string) => void }) {
                     {r.decisionCalls} / {r.modelCalls}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-xs text-muted">{r.decisionModel}</td>
+                  <td className="px-3 py-1.5">
+                    <ReuseTaskButton runId={r.id} onReady={onTaskReady} label="Use task" />
+                  </td>
                 </tr>
               ))}
             </tbody>

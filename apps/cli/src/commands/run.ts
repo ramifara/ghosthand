@@ -31,7 +31,10 @@ export async function runCommand(flags: RunFlags): Promise<number> {
   if (surface !== "web") return runDesktopCommand(flags, surface);
   if (!flags.task && !flags.goal) return fail('give a testbed task (--task <id>) or a goal ("...")', 2);
   if (!flags.task && !flags.url) return fail("--url is required with a free-text goal", 2);
-  const opened = await openRuntime({ ...(flags.config ? { configPath: flags.config } : {}) });
+  const opened = await openRuntime({
+    ...(flags.config ? { configPath: flags.config } : {}),
+    ...(flags.browserBehavior ? { overrides: { browser: { behavior: flags.browserBehavior } } } : {}),
+  });
   if (!opened.ok) return fail(opened.error.message);
   const rt: EngineRuntime = opened.value;
   for (const w of rt.warnings) process.stderr.write(`warn: ${w}\n`);

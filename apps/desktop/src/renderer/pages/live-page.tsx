@@ -4,6 +4,7 @@
 // resume and stop. Ctrl+Shift+Space toggles takeover here and, during a run, system-wide.
 import { Hand, Play, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { ReuseTaskButton } from "../components/reuse-task-button.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Kbd } from "../components/ui/kbd.tsx";
@@ -155,6 +156,7 @@ export function LivePage({
           ) : (
             <>
               <Button onClick={() => onOpenReplay(runId)}>Open replay</Button>
+              <ReuseTaskButton runId={runId} onReady={onNewTask} />
               <Button variant="primary" onClick={onNewTask}>
                 New task
               </Button>

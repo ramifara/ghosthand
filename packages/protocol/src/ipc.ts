@@ -9,6 +9,8 @@
 // - engine host → renderer: `EngineMessage` over a MessagePort (run events, screencast frames, approvals).
 // Secret values never appear in any renderer-facing shape; only names do.
 import { z } from "zod";
+import { BrowserBehavior } from "./browser-behavior.ts";
+import { BrowserNetwork } from "./browser-network.ts";
 import { RunEvent, RunOutcome } from "./events.ts";
 import { Rect } from "./geometry.ts";
 import { Budget, EffectClass } from "./task.ts";
@@ -76,6 +78,8 @@ export const Settings = z
     planner: PlannerChoice.default("auto"),
     writer: WriterChoice.default("auto"),
     showBrowser: z.boolean().default(true),
+    browserBehavior: BrowserBehavior.prefault({}),
+    browserNetwork: BrowserNetwork.prefault({}),
     /** Hidden developer setting: use the heuristic decision provider when no TypeSafe key is set. */
     devPlumbingMode: z.boolean().default(false),
     /** Feature flag for Sign in with ChatGPT (preview; see docs/adr/0008). */
@@ -215,12 +219,15 @@ export type ApprovalRequestView = z.infer<typeof ApprovalRequestView>;
 
 // ---- start a run -----------------------------------------------------------------------------------
 
+/** Desktop goal payload bound; independent of the selected model's context window. */
+export const MAX_TASK_GOAL_CHARS = 32_000;
+
 export const RunSource = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("testbed"), taskId: TaskId }).strict(),
   z
     .object({
       kind: z.literal("goal"),
-      goal: z.string().trim().min(1).max(4000),
+      goal: z.string().trim().min(1).max(MAX_TASK_GOAL_CHARS),
       startUrl: HttpUrl,
       allowOrigins: z.array(HttpUrl).max(20).default([]),
     })

@@ -3,8 +3,8 @@
 // Launches the chosen browser with a named GhostHand profile as a Playwright persistent context.
 
 import { existsSync } from "node:fs";
-import type { ComputerError, Result } from "@ghosthand/protocol";
-import { err, ok } from "@ghosthand/protocol";
+import type { BrowserBehaviorInput, ComputerError, Result } from "@ghosthand/protocol";
+import { BrowserBehavior, err, ok } from "@ghosthand/protocol";
 import type { BrowserContext } from "playwright-core";
 import { chromium } from "playwright-core";
 import type { BrowserChannelPreference, BrowserChoice } from "./choose-browser.ts";
@@ -26,6 +26,9 @@ export interface LaunchPersistentOptions {
   /** Launch this executable instead of a detected browser. */
   readonly executablePath?: string;
   readonly headless?: boolean;
+  readonly behavior?: BrowserBehaviorInput;
+  readonly proxy?: { readonly server: string; readonly username?: string; readonly password?: string };
+  readonly userAgent?: string;
   readonly viewport?: { readonly width: number; readonly height: number };
   readonly args?: readonly string[];
   /** Overrides the profile's recorded password store. */
@@ -121,6 +124,13 @@ export async function launchPersistent(
   }
 
   const passwordStore = options.passwordStore ?? profile.value.metadata?.passwordStore ?? "basic";
+  const parsed = BrowserBehavior.safeParse(options.behavior ?? {});
+  if (!parsed.success) return err({ kind: "launch_failed", message: parsed.error.message });
+  const behavior = parsed.data;
+  const ignoreDefaultArgs = [
+    ...(passwordStore === "os" ? ["--password-store=basic", "--use-mock-keychain"] : []),
+    ...(behavior.reduceAutomationMarkers ? ["--enable-automation"] : []),
+  ];
   const browser = choice.value;
   let context: BrowserContext;
   try {
@@ -130,12 +140,20 @@ export async function launchPersistent(
       headless: options.headless ?? false,
       // The WebComputer saves downloads (into the run folder or a temp dir) and reports them as evidence.
       acceptDownloads: true,
-      viewport: options.viewport ? { width: options.viewport.width, height: options.viewport.height } : null,
-      args: [...(options.args ?? [])],
+      ...(options.proxy ? { proxy: options.proxy } : {}),
+      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+      viewport:
+        !behavior.nativeWindow && options.viewport
+          ? { width: options.viewport.width, height: options.viewport.height }
+          : null,
+      ...(behavior.locale !== undefined ? { locale: behavior.locale } : {}),
+      ...(behavior.timezoneId !== undefined ? { timezoneId: behavior.timezoneId } : {}),
+      args: [
+        ...(options.args ?? []),
+        ...(behavior.reduceAutomationMarkers ? ["--disable-blink-features=AutomationControlled"] : []),
+      ],
       // Playwright forces a fake keyring by default; imported profiles need the real one to read cookies.
-      ...(passwordStore === "os"
-        ? { ignoreDefaultArgs: ["--password-store=basic", "--use-mock-keychain"] }
-        : {}),
+      ...(ignoreDefaultArgs.length > 0 ? { ignoreDefaultArgs } : {}),
       ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
     });
   } catch (error) {

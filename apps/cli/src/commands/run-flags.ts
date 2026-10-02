@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import type { DesktopLaunchOptions, PlannerChoice, WriterChoice } from "@ghosthand/engine";
+import type { BrowserBehaviorInput } from "@ghosthand/protocol";
 import type { ExtrasFlags } from "../run-extras.ts";
 
 export interface RunFlags {
@@ -18,6 +19,7 @@ export interface RunFlags {
   trace: boolean;
   json: boolean;
   config?: string;
+  browserBehavior?: BrowserBehaviorInput;
   planner: PlannerChoice;
   writer: WriterChoice;
   /** "web" (default) or a desktop surface. */

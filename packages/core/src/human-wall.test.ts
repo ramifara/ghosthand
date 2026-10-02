@@ -48,6 +48,42 @@ describe("detectHumanWall", () => {
     expect(detectHumanWall(snap("Enter the 6-digit code from your authenticator app"))).toBeUndefined();
     expect(detectHumanWall(snap("Check your email for a sign-in link"))).toBeUndefined();
   });
+  it("does not pause on vendor mentions, attribution links or frame names", () => {
+    for (const text of [
+      "Protected by reCAPTCHA",
+      "Cloudflare Turnstile documentation",
+      "Configure hCaptcha",
+      "Turnstile verification succeeded",
+    ]) {
+      const s = snap(text, ["Sign in"]);
+      s.elements = s.elements.map((e) => ({
+        ...e,
+        frame: "main > recaptcha",
+        href: "https://example.com/captcha",
+      }));
+      expect(detectHumanWall(s), text).toBeUndefined();
+    }
+    const linked = snap("", ["reCAPTCHA"]);
+    linked.elements = linked.elements.map((e) => ({ ...e, role: "link", roleClass: "link" }));
+    expect(detectHumanWall(linked)).toBeUndefined();
+  });
+  it("keeps active CAPTCHA controls and explicit challenge instructions blocked", () => {
+    expect(detectHumanWall(snap("", ["reCAPTCHA"]))?.kind).toBe("captcha");
+    expect(detectHumanWall(snap("Please solve this CAPTCHA"))?.kind).toBe("captcha");
+    expect(detectHumanWall(snap("", ["Confirm you are human"]))?.kind).toBe("human check");
+  });
+  it("continues after a person checks the verification checkbox", () => {
+    const s = snap("I'm not a robot", ["I'm not a robot"]);
+    s.elements = s.elements.map((e) => ({
+      ...e,
+      role: "checkbox",
+      roleClass: "checkbox",
+      states: ["checked"],
+    }));
+    expect(detectHumanWall(s)).toBeUndefined();
+    s.text += " Verify you are human before continuing";
+    expect(detectHumanWall(s)?.kind).toBe("human check");
+  });
 });
 
 class WallComputer extends FakeLoginComputer {

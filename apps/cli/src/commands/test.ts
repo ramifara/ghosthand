@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // `ghosthand test <spec.md>`: QA mode. Runs a Markdown spec, writes a scored HTML report and its JSON.
 import { openRuntime, parseVariantFlag, runQaSpecFile } from "@ghosthand/engine";
+import type { BrowserBehaviorInput } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
 
 export interface TestFlags {
@@ -15,6 +16,7 @@ export interface TestFlags {
   profile?: string;
   only?: string[];
   config?: string;
+  browserBehavior?: BrowserBehaviorInput;
   json: boolean;
 }
 
@@ -25,6 +27,7 @@ export async function testCommand(flags: TestFlags): Promise<number> {
   const opened = await openRuntime({
     ...(flags.config ? { configPath: flags.config } : {}),
     logLevel: "warn",
+    ...(flags.browserBehavior ? { overrides: { browser: { behavior: flags.browserBehavior } } } : {}),
   });
   if (!opened.ok) return fail(opened.error.message);
   const rt = opened.value;

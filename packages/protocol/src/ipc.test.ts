@@ -7,6 +7,7 @@ import {
   IPC_COMMAND_NAMES,
   IpcCommands,
   isIpcCommandName,
+  MAX_TASK_GOAL_CHARS,
   PushMessage,
   parseIpcRequest,
   Settings,
@@ -40,6 +41,13 @@ describe("parseIpcRequest", () => {
     const r = parseIpcRequest("runs.start", { source: { kind: "testbed", taskId: "l1-login" } });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.input).toMatchObject({ decision: "jev" });
+  });
+
+  it("accepts long goal briefs without truncating them and rejects oversized payloads", () => {
+    const source = { kind: "goal", goal: "x".repeat(MAX_TASK_GOAL_CHARS), startUrl: "https://example.com" };
+    const input = StartRunInput.parse({ source });
+    expect(input.source).toMatchObject({ goal: source.goal });
+    expect(parseIpcRequest("runs.start", { source: { ...source, goal: `${source.goal}x` } }).ok).toBe(false);
   });
 
   it("rejects non-http start URLs, bad task ids and path-like run ids", () => {

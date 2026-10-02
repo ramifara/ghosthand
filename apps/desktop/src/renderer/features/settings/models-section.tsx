@@ -4,12 +4,13 @@
 // with badges for what each model can do. Jev (decision) is fixed and served by TypeSafe.
 import type { ChatRoleName, ModelListItem, RoleBindingsInput } from "@ghosthand/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Field, Select } from "../../components/ui/field.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
 import { formatTokens } from "../../lib/format.ts";
+import { useUiStore } from "../../stores/ui-store.ts";
 
 const ROLES: Array<{ role: ChatRoleName; label: string; needs: string }> = [
   { role: "planner", label: "Planner", needs: "structured output · 64k context" },
@@ -110,13 +111,14 @@ export function ModelsSection() {
   const qc = useQueryClient();
   const models = useQuery({ queryKey: ["models"], queryFn: () => call("models.list", {}) });
   const roles = useQuery({ queryKey: ["roles"], queryFn: () => call("roles.get", {}) });
-  const [draft, setDraft] = useState<RoleBindingsInput>({});
-  useEffect(() => {
-    if (roles.data) setDraft(roles.data);
-  }, [roles.data]);
+  const cached = useUiStore((state) => state.forms.roleModels);
+  const draft: RoleBindingsInput = cached ?? roles.data ?? {};
   const save = useMutation({
     mutationFn: () => call("roles.set", draft),
-    onSuccess: (b) => qc.setQueryData(["roles"], b),
+    onSuccess: (b) => {
+      qc.setQueryData(["roles"], b);
+      useUiStore.getState().clearForm("roleModels");
+    },
   });
   const list = models.data ?? [];
   return (
@@ -134,10 +136,10 @@ export function ModelsSection() {
             models={list}
             value={draft[r.role]?.models ?? []}
             onChange={(m) =>
-              setDraft((d) => ({
-                ...d,
-                [r.role]: { ...(d[r.role] ?? {}), models: m },
-              }))
+              useUiStore.getState().setForm("roleModels", {
+                ...draft,
+                [r.role]: { ...(draft[r.role] ?? {}), models: m },
+              })
             }
           />
         ))}
@@ -145,6 +147,17 @@ export function ModelsSection() {
       <div className="flex items-center gap-3">
         <Button variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
           Save role models
+        </Button>
+        <Button
+          aria-label="Reset model fields"
+          variant="ghost"
+          disabled={save.isPending}
+          onClick={() => {
+            useUiStore.getState().clearForm("roleModels");
+            save.reset();
+          }}
+        >
+          Reset fields
         </Button>
         {save.isSuccess ? <span className="text-ok">Saved</span> : null}
         {save.error ? <span className="text-danger">{errorMessage(save.error)}</span> : null}

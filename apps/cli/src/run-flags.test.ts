@@ -3,9 +3,30 @@
 import { TaskSpec } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
 import { launchOrigins } from "./commands/run.ts";
-import { parse, runFlags } from "./main.ts";
+import { browserFlags, parse, runFlags } from "./main.ts";
 
 describe("ghosthand run --allow-origin", () => {
+  it("shares explicit browser overrides between run and QA without overriding config defaults", () => {
+    expect(browserFlags(parse(["test", "spec.md"]).values)).toEqual({});
+    const flags = [
+      "--human-input",
+      "--reduce-automation-markers",
+      "--native-window",
+      "--locale",
+      "de-DE",
+      "--timezone",
+      "Europe/Berlin",
+    ];
+    const run = runFlags(parse(["run", "--task", "l1-login", ...flags]));
+    expect(run.browserBehavior).toEqual({
+      inputPacing: "human",
+      reduceAutomationMarkers: true,
+      nativeWindow: true,
+      locale: "de-DE",
+      timezoneId: "Europe/Berlin",
+    });
+    expect(browserFlags(parse(["test", "spec.md", ...flags]).values)).toEqual(run.browserBehavior);
+  });
   it("keeps every --allow-origin flag", () => {
     const flags = runFlags(
       parse([
