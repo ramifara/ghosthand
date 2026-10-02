@@ -7,6 +7,14 @@
 
 Status: all plan phases (0–7) are built. Phase 1 acceptance is met with real Jev (L1–L3 90/90, median step 742 ms, $0.00034 per step); L4–L6 tasks that need no vision pass 105/105; desktop drivers run on Linux X11 and headless GNOME Wayland. Vision modes and the Windows driver still need live verification. Reports: [`docs/reports/`](docs/reports/). Plan: [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
 
+## Download the desktop app
+
+Get the newest installers from [GitHub Releases](https://github.com/ramifara/ghosthand/releases/latest): Linux x64 `.AppImage` or `.deb`, Windows x64 `.exe`, and macOS `.dmg` for Apple Silicon or Intel.
+
+After a PR merges into `main`, the release workflow waits for CI to pass, builds every installer, and publishes them together with checksums and release notes. Builds are unsigned, so macOS and Windows may ask you to allow the app in security settings. See [the release workflow](.github/workflows/release.yml) for manual and tagged releases.
+
+Automatic releases use the desktop package's major/minor version and add the workflow run number to its patch version. For example, package version `0.0.0` and run number `42` produce `v0.0.42`. PR builds do not publish releases. You can also run the workflow manually from `main` or push a `vMAJOR.MINOR.PATCH` tag to release that exact version. The repository version stays unchanged; Changesets can still bump it for a new release series.
+
 ## Setup
 
 Requirements: [Bun](https://bun.com) 1.3+, Node 24+, and an installed Chrome, Edge or Brave (Playwright's Chromium is downloaded only if none is found).

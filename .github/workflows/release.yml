@@ -1,24 +1,103 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Rami Fara and GhostHand contributors
-# Desktop release matrix: unsigned Linux (AppImage, deb), Windows (NSIS) and macOS (dmg) builds.
-# Runs on version tags (v*) and by hand (Actions → release → Run workflow). Artifacts are attached to the
-# workflow run; publishing to GitHub Releases and code signing come later.
+# Publish installers after main's CI passes. PRs build the same installers without publishing.
 name: release
 on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
   push:
     tags: ["v*"]
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
 jobs:
+  prepare:
+    # workflow_run also reports failed/cancelled CI and PR checks; only release a successful push.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.commit.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Build the commit CI checked, even if main has advanced since that run.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Record source commit
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Choose release version
+        id: version
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+
+          const { RELEASE_EVENT, RELEASE_REF, DEFAULT_BRANCH, GITHUB_RUN_NUMBER, GITHUB_OUTPUT } = process.env;
+          if (RELEASE_EVENT === 'workflow_dispatch' && RELEASE_REF !== `refs/heads/${DEFAULT_BRANCH}`) {
+            throw new Error('Manual releases must run from the default branch.');
+          }
+          const base = JSON.parse(readFileSync('apps/desktop/package.json', 'utf8')).version;
+          const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(base);
+          if (!parts) throw new Error('Desktop package version must be major.minor.patch.');
+          // A distinct, increasing patch version for each run; no bot commit or version-bump PR needed.
+          let version = `${parts[1]}.${parts[2]}.${Number(parts[3]) + Number(GITHUB_RUN_NUMBER)}`;
+          if (RELEASE_REF.startsWith('refs/tags/')) {
+            const tag = RELEASE_REF.slice('refs/tags/'.length);
+            if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
+              throw new Error('Release tags must use vMAJOR.MINOR.PATCH.');
+            }
+            version = tag.slice(1);
+          }
+          appendFileSync(GITHUB_OUTPUT, `version=${version}\ntag=v${version}\n`);
+          NODE
   desktop:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.11
@@ -26,16 +105,97 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
-      - run: bun run dist:desktop
+      - name: Install Debian packaging dependency
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libcrypt1
+      - name: Build desktop app
+        run: bun run --filter @ghosthand/desktop build
+      - name: Package installers
+        working-directory: apps/desktop
+        run: >-
+          bun run electron-builder --config electron-builder.yml --publish never
+          --${{ matrix.platform }} --${{ matrix.arch }}
+          -c.extraMetadata.version="$RELEASE_VERSION"
         env:
-          # Unsigned until certificates exist: never look for a signing identity.
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          # No publisher certificates yet; macOS uses the configured ad-hoc identity.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Verify macOS ad-hoc signature
+        # electron-builder deliberately skips all signing for PR builds.
+        if: runner.os == 'macOS' && github.event_name != 'pull_request'
+        working-directory: apps/desktop
+        run: codesign --verify --deep --strict release/mac*/GhostHand.app
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.os }}
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
           if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: [prepare, desktop]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: installers
+      - name: Verify downloads and create checksums
+        working-directory: installers
+        run: |
+          # Never publish a release missing an OS or Mac architecture.
+          test -s "GhostHand-${RELEASE_VERSION}-x86_64.AppImage"
+          test -s "GhostHand-${RELEASE_VERSION}-amd64.deb"
+          test -s "GhostHand-${RELEASE_VERSION}-setup-x64.exe"
+          test -s "GhostHand-${RELEASE_VERSION}-x64.dmg"
+          test -s "GhostHand-${RELEASE_VERSION}-arm64.dmg"
+          sha256sum -- *.AppImage *.deb *.exe *.dmg > SHA256SUMS.txt
+      - name: Write download instructions
+        run: |
+          cat > release-notes.md <<'EOF'
+          Download the installer for your computer from the assets below:
+
+          - Linux x64: `.AppImage` or `.deb`.
+          - Windows x64: `setup-x64.exe`.
+          - macOS Apple Silicon: `arm64.dmg`.
+          - macOS Intel: `x64.dmg`.
+
+          These builds are unsigned. macOS and Windows may require you to allow the app in security settings.
+          `SHA256SUMS.txt` contains the SHA-256 checksums for all installers.
+          EOF
+      - name: Publish GitHub Release
+        run: |
+          # Keep incomplete uploads in a draft. A re-run can finish that same draft safely.
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-is-draft.txt; then
+            tagged_commit=$(gh api "repos/${GH_REPO}/commits/${RELEASE_TAG}" --jq '.sha')
+            if [ "$tagged_commit" != "$RELEASE_COMMIT" ]; then
+              echo "Release $RELEASE_TAG belongs to a different commit; choose a new version."
+              exit 1
+            fi
+            if [ "$(cat release-is-draft.txt)" != "true" ]; then
+              echo "Release $RELEASE_TAG is already published."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" \
+              --title "GhostHand $RELEASE_VERSION" --draft \
+              --notes-file release-notes.md --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" installers/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          echo "Download: https://github.com/${GH_REPO}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
