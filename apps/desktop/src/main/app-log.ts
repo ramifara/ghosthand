@@ -9,17 +9,22 @@ import { join } from "node:path";
 
 export const LOG_FILE = "engine-host.log";
 export const PREVIOUS_LOG_FILE = "engine-host.prev.log";
+/** Headed Chromium chatters on stderr all day; past this the file stops growing (the console echo continues). */
+export const MAX_LOG_BYTES = 32 * 1024 * 1024;
 
 export class AppLog {
   readonly dir: string;
   readonly file: string;
   readonly #stream: WriteStream | undefined;
   readonly #echo: boolean;
+  readonly #maxBytes: number;
+  #bytes = 0;
 
-  constructor(dir: string, opts: { echo?: boolean } = {}) {
+  constructor(dir: string, opts: { echo?: boolean; maxBytes?: number } = {}) {
     this.dir = dir;
     this.file = join(dir, LOG_FILE);
     this.#echo = opts.echo ?? false;
+    this.#maxBytes = opts.maxBytes ?? MAX_LOG_BYTES;
     let stream: WriteStream | undefined;
     try {
       mkdirSync(dir, { recursive: true });
@@ -36,8 +41,11 @@ export class AppLog {
 
   /** Raw chunk from the host's stdout/stderr. */
   write(chunk: string | Uint8Array): void {
-    this.#stream?.write(chunk);
     if (this.#echo) process.stderr.write(chunk);
+    if (!this.#stream || this.#bytes > this.#maxBytes) return;
+    this.#bytes += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.byteLength;
+    this.#stream.write(chunk);
+    if (this.#bytes > this.#maxBytes) this.#stream.write("\n[log full: later output is not kept]\n");
   }
 
   /** A timestamped line from main. */

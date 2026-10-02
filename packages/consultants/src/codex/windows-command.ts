@@ -28,11 +28,18 @@ function envValue(env: WindowsCommandHost["env"], name: string): string | undefi
   return undefined;
 }
 
+/** PATH entries in order; Windows allows quoted entries for directories with spaces or semicolons. */
 function pathDirs(env: WindowsCommandHost["env"]): string[] {
-  return (envValue(env, "PATH") ?? "").split(win32.delimiter).filter((dir) => dir !== "");
+  return (envValue(env, "PATH") ?? "")
+    .split(win32.delimiter)
+    .map((dir) => dir.trim().replace(/^"(.*)"$/, "$1"))
+    .filter((dir) => dir !== "");
 }
 
-/** First `<dir>\<command><ext>` on PATH for the given extensions, in PATH order then extension order. */
+/**
+ * First `<dir>\<command><ext>` on PATH, walking PATH in order and trying the extensions per directory,
+ * which is how cmd.exe resolves a bare name (a shim early on PATH beats an .exe later on it).
+ */
 function findOnPath(command: string, exts: readonly string[], host: WindowsCommandHost): string | undefined {
   for (const dir of pathDirs(host.env)) {
     for (const ext of exts) {
@@ -57,17 +64,17 @@ export function shimScript(shimPath: string, shimText: string): string | undefin
 
 /**
  * Resolves `command` for a shell-less spawn on Windows. A name with a path separator or an extension is
- * taken as is. Otherwise: a native `.exe`/`.com` on PATH wins; an npm `.cmd` shim becomes
+ * taken as is. Otherwise the first match on PATH wins: a native `.exe`/`.com` runs directly; an npm `.cmd` shim becomes
  * `node <script>` when its script and a `node.exe` exist; anything else stays unresolved (spawn then
  * reports ENOENT as before).
  */
 export function resolveWindowsCommand(command: string, host: WindowsCommandHost): ResolvedCommand {
   const asIs: ResolvedCommand = { file: command, prefixArgs: [] };
   if (/[\\/]/.test(command) || win32.extname(command) !== "") return asIs;
-  const native = findOnPath(command, [".exe", ".com"], host);
-  if (native !== undefined) return { file: native, prefixArgs: [] };
-  const shim = findOnPath(command, [".cmd", ".bat"], host);
-  if (shim === undefined) return asIs;
+  const found = findOnPath(command, [".exe", ".com", ".cmd", ".bat"], host);
+  if (found === undefined) return asIs;
+  if (/\.(?:exe|com)$/i.test(found)) return { file: found, prefixArgs: [] };
+  const shim = found;
   const text = host.readText(shim);
   const script = text === undefined ? undefined : shimScript(shim, text);
   if (script === undefined || !host.isFile(script)) return asIs;

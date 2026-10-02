@@ -431,6 +431,11 @@ export class HostService {
       decision: decision.value,
       launch: async () => {
         const launched = await baseLaunch();
+        // The launcher cannot be aborted midway; a stop pressed while it ran closes the browser here.
+        if (launched.ok && controller.stopped) {
+          await launched.value.close().catch(() => {});
+          return { ok: false, error: { message: "stopped by the user before the browser was ready" } };
+        }
         if (launched.ok && isScreencastCapable(launched.value.computer))
           state.computer = launched.value.computer;
         return launched;
@@ -442,6 +447,7 @@ export class HostService {
         control: controller,
         // The run has an id as soon as its folder exists: the renderer can watch it (and stop it) while
         // the browser is still launching, and a slow launch can never leave a run main cannot address.
+        // (A stop during the launch takes effect as soon as the launcher returns; see `launch` above.)
         onRunId: (id) => {
           runId = id;
           state.info = { ...state.info, runId };

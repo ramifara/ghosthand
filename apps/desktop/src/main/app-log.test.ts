@@ -28,6 +28,18 @@ describe("AppLog", () => {
     expect(readFileSync(join(dir, LOG_FILE), "utf8")).toBe("second session\n");
   });
 
+  it("stops growing past its size cap and says so", async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), "gh-log-")), "logs");
+    const log = new AppLog(dir, { maxBytes: 20 });
+    log.write("0123456789");
+    log.write("0123456789-over");
+    log.write("dropped");
+    log.close();
+    await settle();
+    const text = readFileSync(join(dir, LOG_FILE), "utf8");
+    expect(text).toBe("01234567890123456789-over\n[log full: later output is not kept]\n");
+  });
+
   it("survives an unwritable folder", () => {
     // A regular file where the parent folder should be: mkdir fails with ENOTDIR.
     const blocker = join(mkdtempSync(join(tmpdir(), "gh-log-")), "not-a-dir");

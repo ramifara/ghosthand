@@ -25,12 +25,33 @@ describe("resolveWindowsCommand", () => {
     expect(resolveWindowsCommand("codex.cmd", h)).toEqual({ file: "codex.cmd", prefixArgs: [] });
   });
 
-  it("prefers a native .exe on PATH (case-insensitive Path variable)", () => {
-    const h = host([`${NPM}\\codex.cmd`, "C:\\Program Files\\nodejs\\codex.exe"]);
+  it("runs a native .exe found on PATH directly (case-insensitive Path variable)", () => {
+    const h = host(["C:\\Program Files\\nodejs\\codex.exe"]);
     expect(resolveWindowsCommand("codex", h)).toEqual({
       file: "C:\\Program Files\\nodejs\\codex.exe",
       prefixArgs: [],
     });
+  });
+
+  it("walks PATH in order like cmd.exe: a shim earlier on PATH beats an .exe later on it", () => {
+    const script = `${NPM}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+    const h = host([
+      `${NPM}\\codex.cmd`,
+      script,
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Program Files\\nodejs\\codex.exe",
+    ]);
+    expect(resolveWindowsCommand("codex", h)).toEqual({
+      file: "C:\\Program Files\\nodejs\\node.exe",
+      prefixArgs: [script],
+    });
+  });
+
+  it("accepts quoted PATH entries", () => {
+    const h = host(["C:\\Program Files\\nodejs\\codex.exe"], {
+      Path: `"C:\\Program Files\\nodejs";${NPM}`,
+    });
+    expect(resolveWindowsCommand("codex", h).file).toBe("C:\\Program Files\\nodejs\\codex.exe");
   });
 
   it("turns an npm .cmd shim into node plus the script it launches, without a shell", () => {

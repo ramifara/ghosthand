@@ -186,9 +186,10 @@ describe("ComposerPage", () => {
     await screen.findByLabelText("Goal");
     expect(screen.queryByRole("tab", { name: /Testbed task/ })).toBeNull();
     expect(screen.queryByRole("group", { name: "Testbed task" })).toBeNull();
-    // A draft that still points at the testbed starts as a goal.
+    // A draft that still points at the testbed (Run again on an old recording) says why it cannot run.
     act(() => useUiStore.getState().patchComposer({ source: "testbed", taskId: "l1-login" }));
     expect(screen.getByLabelText("Goal")).toBeTruthy();
+    expect(screen.getByText(/belongs to the testbed, which this app hides/)).toBeTruthy();
     expect(screen.getByText("Write a goal.")).toBeTruthy();
     cleanup();
     delete window.ghosthand;
@@ -196,14 +197,6 @@ describe("ComposerPage", () => {
     renderComposer();
     expect(await screen.findByRole("radio", { name: /l1-login/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Testbed task/ }).getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("shows the engine's reason when a start is refused", async () => {
-    installBridge({ jevKey: true, failStart: true });
-    renderComposer();
-    fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("The run did not start: Browser unavailable");
   });
 
   it("takes a goal with a start URL and shows the ChatGPT plan label", async () => {
@@ -265,7 +258,7 @@ describe("ComposerPage", () => {
     cleanup();
     useLiveStore.setState({ status: "ended" });
     renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear inputs" }));
     fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
     expect((screen.getByLabelText("Goal") as HTMLInputElement).value).toBe("Find pricing");
     expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
@@ -293,7 +286,7 @@ describe("ComposerPage", () => {
     cleanup();
     useLiveStore.setState({ status: "ended" });
     renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear inputs" }));
     fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
     expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(goal.trim());
     const oversized = "x".repeat(MAX_TASK_GOAL_CHARS + 1);
@@ -319,7 +312,7 @@ describe("ComposerPage", () => {
     renderComposer();
     fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
     fireEvent.click(screen.getByRole("button", { name: "Start run" }));
-    await screen.findByText(/Browser unavailable/);
+    expect((await screen.findByRole("alert")).textContent).toBe("The run did not start: Browser unavailable");
     expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
     expect(useUiStore.getState().composer.taskId).toBe("l1-login");
     expect(useUiStore.getState().recentTasks).toEqual([]);

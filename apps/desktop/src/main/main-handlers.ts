@@ -33,8 +33,8 @@ export interface MainHandlerDeps {
   host: Pick<EngineHostClient, "request">;
   chatgpt: ChatGptAuth;
   openExternal: (url: string) => Promise<void>;
-  /** Opens the logs folder in the file manager. */
-  openLogs: () => Promise<void>;
+  /** Opens the logs folder in the file manager; resolves with an error message when that fails. */
+  openLogs: () => Promise<string>;
   app: { version: string; platform: string; electron: string; packaged: boolean; logsDir: string };
   onRunStarted?: (runId: string) => void;
 }
@@ -93,8 +93,8 @@ export function createMainHandlers(deps: MainHandlerDeps): IpcHandlers {
     },
 
     "app.openLogs": async () => {
-      await deps.openLogs();
-      return ok(null);
+      const problem = await deps.openLogs();
+      return problem ? fail("unavailable", `${problem} (${deps.app.logsDir})`) : ok(null);
     },
 
     "runs.start": async (input) => {

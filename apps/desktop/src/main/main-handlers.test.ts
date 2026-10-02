@@ -26,6 +26,7 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
   const opened: string[] = [];
   const started: string[] = [];
   let logsOpened = 0;
+  let logsProblem = "";
   const chatgpt = {
     accessToken: async () => "plan-token",
     status: () => ({ enabled: true, signedIn: true, pending: false, scopes: [] }),
@@ -46,6 +47,7 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
     },
     openLogs: async () => {
       logsOpened++;
+      return logsProblem;
     },
     app: {
       version: "0.0.0",
@@ -56,7 +58,19 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
     },
     onRunStarted: (id) => started.push(id),
   });
-  return { handlers, settings, secrets, calls, opened, started, logsOpened: () => logsOpened, dir };
+  return {
+    handlers,
+    settings,
+    secrets,
+    calls,
+    opened,
+    started,
+    logsOpened: () => logsOpened,
+    failLogs: (message: string) => {
+      logsProblem = message;
+    },
+    dir,
+  };
 }
 
 describe("main handlers", () => {
@@ -125,6 +139,18 @@ describe("main handlers", () => {
     });
     expect(await handlers["app.openLogs"]({})).toEqual({ ok: true, value: null });
     expect(logsOpened()).toBe(1);
+  });
+
+  it("reports a logs folder that cannot be opened instead of pretending it was", async () => {
+    const { handlers, dir, failLogs } = setup(() => ({ ok: true, value: "/runs" }));
+    failLogs("No application is registered for folders");
+    expect(await handlers["app.openLogs"]({})).toEqual({
+      ok: false,
+      error: {
+        kind: "unavailable",
+        message: `No application is registered for folders (${join(dir, "logs")})`,
+      },
+    });
   });
 
   it("opens only allow-listed links", async () => {

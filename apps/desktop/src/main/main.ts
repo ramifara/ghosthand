@@ -134,9 +134,8 @@ async function main(): Promise<void> {
       host,
       chatgpt,
       openExternal,
-      openLogs: async () => {
-        await shell.openPath(log.dir);
-      },
+      // shell.openPath resolves with an error message (not a rejection) when nothing can open the folder.
+      openLogs: () => shell.openPath(log.dir),
       app: {
         version: app.getVersion(),
         platform: process.platform,
