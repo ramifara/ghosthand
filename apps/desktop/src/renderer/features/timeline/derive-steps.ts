@@ -63,6 +63,8 @@ export interface RunHeader {
   startUrl?: string;
   decisionModel?: string;
   surface?: string;
+  /** Planner and writer behind Jev ("Jev only; no writer: ..."). */
+  assistants?: string;
   subgoals: Array<{ id: string; goal: string; state?: string }>;
   end?: EventOf<"run.end">;
   startedAt?: number;
@@ -145,6 +147,7 @@ export function deriveRun(events: readonly RunEvent[]): { header: RunHeader; ste
         header.startUrl = e.task.startUrl;
         header.decisionModel = e.decisionModel;
         header.surface = e.surface;
+        if (e.assistants) header.assistants = e.assistants;
         header.startedAt = e.t;
         break;
       case "plan":

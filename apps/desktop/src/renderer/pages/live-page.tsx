@@ -63,6 +63,35 @@ export function RunSummary({
   );
 }
 
+/** Which assistants the run had, and why it stopped when it did not succeed. */
+export function RunNotes({
+  assistants,
+  outcome,
+  reason,
+}: {
+  assistants: string | undefined;
+  outcome: string | undefined;
+  reason: string | undefined;
+}) {
+  const failed = outcome !== undefined && outcome !== "success";
+  return (
+    <>
+      {assistants ? (
+        <p className="mt-1 text-xs text-muted">
+          <span className="label mr-1.5">assistants</span>
+          {assistants}
+        </p>
+      ) : null}
+      {reason ? (
+        <p className={`mt-1 text-xs ${failed ? "text-amber" : "text-muted"}`}>
+          {failed ? <span className="label mr-1.5">why it stopped</span> : null}
+          {reason}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function LivePage({
   onOpenReplay,
   onNewTask,
@@ -129,7 +158,11 @@ export function LivePage({
           <div className="mt-1.5">
             <RunSummary header={header} stepCount={steps.length} />
           </div>
-          {detail && status === "ended" ? <p className="mt-1 text-xs text-muted">{detail}</p> : null}
+          <RunNotes
+            assistants={header.assistants}
+            outcome={outcome}
+            reason={status === "ended" ? detail : undefined}
+          />
           {error ? <p className="mt-1 text-xs text-danger">{error}</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">

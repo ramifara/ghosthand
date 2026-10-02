@@ -132,6 +132,8 @@ export interface AgentRunOptions {
   planner?: Planner;
   /** Writer hand-off when Jev is unsure. */
   writer?: Writer;
+  /** What planner and writer this run has, recorded in run.start. */
+  assistants?: string;
   /** App map and recipes (mode A, learning). */
   knowledge?: KnowledgeOptions;
   /** Extra loop dependencies (vision assist, source-aware seeding, plan refinement). */
@@ -181,6 +183,7 @@ export async function runAgent(
     ...(gitSha() ? { gitSha: gitSha() } : {}),
     decisionModel: opts.decision.id,
     surface: launched.ok ? launched.value.surface : "none",
+    ...(opts.assistants ? { assistants: opts.assistants } : {}),
   });
   if (!launched.ok) {
     s.sink.emit({

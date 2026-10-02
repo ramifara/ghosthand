@@ -46,6 +46,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     gitSha: z.string().optional(),
     decisionModel: z.string(),
     surface: z.string(),
+    /** Planner and writer behind Jev, and why one is missing ("Jev only; no writer: ..."). */
+    assistants: z.string().optional(),
   }),
   z.object({ ...Base, type: z.literal("plan"), plan: Plan }),
   z.object({ ...Base, type: z.literal("subgoal.start"), subgoalId: z.string(), goal: z.string() }),

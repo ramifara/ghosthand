@@ -12,7 +12,7 @@ import { ScreencastView } from "../features/live/screencast-view.tsx";
 import { deriveRun } from "../features/timeline/derive-steps.ts";
 import { StepTimeline, TimingLegend } from "../features/timeline/step-timeline.tsx";
 import { call, errorMessage } from "../lib/bridge.ts";
-import { RunSummary } from "./live-page.tsx";
+import { RunNotes, RunSummary } from "./live-page.tsx";
 
 export function ReplayPage({ runId, onTaskReady }: { runId: string; onTaskReady: () => void }) {
   const log = useQuery({
@@ -74,6 +74,7 @@ export function ReplayPage({ runId, onTaskReady }: { runId: string; onTaskReady:
         <div className="mt-1.5">
           <RunSummary header={header} stepCount={steps.length} />
         </div>
+        <RunNotes assistants={header.assistants} outcome={header.end?.outcome} reason={header.end?.reason} />
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.35fr)_minmax(380px,1fr)] gap-3">
         <Panel title={current !== undefined ? `Screenshot · step ${current}` : "Screenshot"}>

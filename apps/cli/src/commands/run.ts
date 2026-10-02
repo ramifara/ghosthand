@@ -77,7 +77,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
   if (!decision.ok) return fail(decision.error.message);
 
   const assistants = await createAssistants(rt, { planner: flags.planner, writer: flags.writer });
-  if (!flags.json) process.stderr.write(`assistants: ${assistants.describe}\n`);
+  if (!flags.json) process.stderr.write(`assistants: ${assistants.summary}\n`);
   const extras = await setupRunExtras(rt, flags.extras);
   if (!extras.ok) return fail(extras.error);
   if (!flags.json) process.stderr.write(`knowledge: ${extras.value.describe}\n`);
@@ -87,6 +87,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
     ...(loop ? { loop } : {}),
     ...(assistants.planner ? { planner: assistants.planner } : {}),
     ...(assistants.writer ? { writer: assistants.writer } : {}),
+    assistants: assistants.summary,
     task,
     decision: decision.value,
     trace: flags.trace,

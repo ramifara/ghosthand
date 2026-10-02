@@ -13,7 +13,14 @@ Status: all plan phases (0–7) are built. Phase 1 acceptance is met with real J
 
 Get the newest installers from [GitHub Releases](https://github.com/ramifara/ghosthand/releases/latest): Linux x64 `.AppImage` or `.deb`, Windows x64 `.exe`, and macOS `.dmg` for Apple Silicon or Intel.
 
-After a PR merges into `main`, the release workflow waits for CI to pass, builds every installer, and publishes them together with checksums and release notes. Builds are unsigned, so macOS and Windows may ask you to allow the app in security settings. See [the release workflow](.github/workflows/release.yml) for manual and tagged releases.
+After a PR merges into `main`, the release workflow waits for CI to pass, builds every installer, and publishes them together with checksums and release notes. See [the release workflow](.github/workflows/release.yml) for manual and tagged releases.
+
+The builds are not signed with an Apple Developer ID or a Windows code-signing certificate, so the first launch needs one extra step:
+
+- **macOS**: Gatekeeper blocks the app once. Open **System Settings → Privacy & Security**, scroll to the "GhostHand was blocked" message and press **Open Anyway**; or right-click the app and choose **Open**; or run `xattr -dr com.apple.quarantine /Applications/GhostHand.app`. The app does not use the Keychain (an unsigned app would be asked for your password on every launch); API keys are encrypted with a key kept in `~/Library/Application Support/GhostHand/`.
+- **Windows**: SmartScreen shows "Windows protected your PC". Press **More info → Run anyway**.
+
+Keys entered in Setup → Providers are used by every run. On macOS and Linux the app also reads `~/.config/ghosthand/env`, and it finds the Codex and Claude CLIs on your login shell's PATH (Homebrew, npm, `~/.local/bin`), so a planner or writer that works in a terminal works in the app too.
 
 Automatic releases use the desktop package's major/minor version and add the workflow run number to its patch version. For example, package version `0.0.0` and run number `42` produce `v0.0.42`. PR builds do not publish releases. You can also run the workflow manually from `main` or push a `vMAJOR.MINOR.PATCH` tag to release that exact version. The repository version stays unchanged; Changesets can still bump it for a new release series.
 

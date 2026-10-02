@@ -27,6 +27,7 @@ import type {
 import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
 import { buildCandidates, DROP_HEAD, findByToken, isNamed, type Operation } from "./candidates.ts";
+import { consentRejectButton } from "./consent-banner.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
 import type { EventSink } from "./event-sink.ts";
@@ -56,6 +57,7 @@ import {
   WAIT,
 } from "./questions.ts";
 import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
+import { explainRefusal } from "./refusal-explain.ts";
 import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
@@ -81,7 +83,7 @@ export interface ApprovalRequest {
 }
 
 export interface LoopConfig {
-  gates: { operation: number; target: number; stuck: number };
+  gates: { operation: number; target: number; stuck: number; text: number; sureTarget: number };
   /** Per-step deadline for the decision call, ms. */
   decisionDeadlineMs: number;
   screenshots: boolean;
@@ -101,7 +103,7 @@ export interface LoopConfig {
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
-  gates: { operation: 0.65, target: 0.7, stuck: 0.85 },
+  gates: { operation: 0.65, target: 0.7, stuck: 0.85, text: 0.5, sureTarget: 0.9 },
   decisionDeadlineMs: 6000,
   screenshots: true,
   maxStateTokens: 20_000,
@@ -236,6 +238,17 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let checkAfterReplay = false;
   /** Set when a vision step was needed but could not run; appended to failure reasons. */
   let visionNeeded: string | undefined;
+  /** What kept steps from making progress since the last confirmed action, in words, oldest first. */
+  let problems: string[] = [];
+  /** Screens whose cookie banner the code already answered (once per screen, never retried). */
+  const consentAnswered = new Set<string>();
+  /** A generic stop reason with what actually went wrong (the first problem is usually the cause). */
+  const withProblem = (reason: string): string => {
+    if (problems.length === 0) return reason;
+    const shown = problems.slice(0, MAX_PROBLEMS_SHOWN);
+    const more = problems.length - shown.length;
+    return `${reason}: ${shown.join("; then ")}${more > 0 ? ` (+${more} more)` : ""}`;
+  };
   /** The page itself needs vision (unnamed targets, poor surface): a replan cannot help. */
   let visionBlocks = false;
   /** Mode of the previous step, for de-escalation events. */
@@ -599,7 +612,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       }
       if (subgoalSteps >= subgoal.maxSteps) {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
-        const reason = `subgoal ${subgoal.id} exceeded ${subgoal.maxSteps} steps`;
+        const reason = withProblem(`subgoal ${subgoal.id} exceeded ${subgoal.maxSteps} steps`);
         if (await replan(i, subgoal, reason, history)) {
           i--;
           continue subgoals;
@@ -664,6 +677,38 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
         return finish("stuck", `blocked by ${reason}`);
       }
+      // ADR 0014: a cookie banner the goal is not about is answered with its reject choice, without Jev.
+      const consent = consentAnswered.has(fingerprint.key)
+        ? undefined
+        : consentRejectButton(snapshot, `${task.instruction}\n${subgoal.goal}`);
+      if (consent) {
+        consentAnswered.add(fingerprint.key);
+        step = current;
+        subgoalSteps++;
+        budget.step();
+        const action: Action = { type: "press", token: consent.token };
+        emit({
+          type: "action",
+          step,
+          action,
+          target: fingerprintOf(consent),
+          effectClass: "advance",
+          mode: "A",
+        });
+        t = clock.now();
+        const result = await execute(deps.computer, action);
+        timing.actMs = clock.now() - t;
+        emit({ type: "effect", step, result });
+        history.push({
+          step,
+          text: `answered the cookie banner: pressed "${consent.name}" (${result.effect})`,
+        });
+        timings.push(timing);
+        await pendingShot;
+        emit({ type: "step.end", step, timing, mode: "A" });
+        modeCounts.A = (modeCounts.A ?? 0) + 1;
+        continue;
+      }
       stall.observe(screenSignature(snapshot));
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
       const oversized = needsNarrowing(snapshot, task, subgoal, current, history, cfg, deps);
@@ -720,6 +765,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         noneStreak,
         mode: { current: "B" },
         noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
+        noteProblem: (problem, append) => {
+          if (problem === undefined) problems = [];
+          else if (append && problems.length > 0) problems[problems.length - 1] += `; ${problem}`;
+          else if (problems.at(-1) !== problem) problems.push(problem);
+        },
       };
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
@@ -779,11 +829,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         if (speculative) await speculative.response;
         emit({ type: "escalate", step, from: "B", to: "H", reason: verdict.reason ?? "stalled" });
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
-        if (await replan(i, subgoal, verdict.reason ?? "stalled", history)) {
+        const why = withProblem(verdict.reason ?? "stalled");
+        if (await replan(i, subgoal, why, history)) {
           i--;
           continue subgoals;
         }
-        return finish("stuck", verdict.reason ?? "stalled");
+        return finish("stuck", why);
       }
 
       if (oversized) {
@@ -884,7 +935,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       if (refusals >= cfg.maxConsecutiveRefusals) {
         emit({ type: "escalate", step, from: "B", to: "H", reason: `${refusals} consecutive refusals` });
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
-        const reason = `${refusals} consecutive steps refused by gates`;
+        const reason = withProblem(`${refusals} consecutive steps refused by gates`);
         if (await replan(i, subgoal, reason, history)) {
           i--;
           continue subgoals;
@@ -991,6 +1042,8 @@ interface DecideContext {
   visionTried?: boolean;
   /** `blocking`: the page itself needs vision (not just "no target fits", which a replan may fix). */
   noteVisionNeeded: (why: string, missing: string, blocking?: boolean) => void;
+  /** Records why this step made no progress (undefined clears it); `append` adds to the current note. */
+  noteProblem: (problem: string | undefined, append?: boolean) => void;
 }
 
 function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
@@ -1212,6 +1265,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (!r.ok) {
     if (r.error.kind === "auth" || r.error.kind === "budget")
       return { kind: "end", outcome: "error", reason: `decision ${r.error.kind}: ${r.error.message}` };
+    ctx.noteProblem(`the Jev call failed (${r.error.kind}: ${r.error.message})`);
     return refuse();
   }
   const answers = r.value.answers;
@@ -1243,6 +1297,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (op === BLOCKED || op === undefined || !offered.includes(op as Operation)) {
     history.push({ step, text: `no action (${op ?? "abstain"})` });
     gate(ctx, "operation_confidence", false, `operation ${op ?? "abstain"}`);
+    ctx.noteProblem(
+      op === BLOCKED
+        ? "Jev found nothing on this page that moves the goal forward"
+        : `Jev did not choose a usable action (${op ?? "no answer"})`,
+    );
     // "Nothing to do" on a page that looks done is not a vision case.
     const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
     const viaVision =
@@ -1337,6 +1396,22 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     allowedEffects: subgoal.allowedEffects,
     snapshotFresh: true,
   });
+  // Jev often splits between two operations ("set_value 46% / press 27%") while the target of the top one is
+  // certain. For an action that only advances, that split is not worth a stuck run: the top operation runs.
+  // Commits still need a confident operation (or a human approval).
+  const opGate = gates.find((g) => g.gate === "operation_confidence");
+  if (
+    opGate &&
+    !opGate.passed &&
+    action &&
+    effect === "advance" &&
+    choiceConfidence(opAnswer) >= MIN_SPLIT_OPERATION &&
+    choiceConfidence(targetAnswer) >= cfg.gates.sureTarget &&
+    gates.every((g) => g === opGate || g.passed)
+  ) {
+    opGate.passed = true;
+    opGate.detail = `${opGate.detail ?? ""}; accepted: target ${choiceConfidence(targetAnswer).toFixed(2)}, advance only`;
+  }
   // A commit outside allowedEffects can still be approved by a human.
   const effectGate = gates.find((g) => g.gate === "effect_allowed");
   if (effectGate && forbiddenHit) effectGate.detail = `matches forbidden "${forbiddenHit}"`;
@@ -1362,6 +1437,30 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     // Uncertainty (not policy) failures go to the writer; effect and freshness refusals never do.
     const unsure = failed.length > 0 && failed.every((g) => UNSURE_GATES.has(g.gate));
     const needsText = operation === "set_value" && element !== undefined && !action;
+    ctx.noteProblem(
+      explainRefusal({
+        operation,
+        ...(element ? { element } : {}),
+        ...(targetAnswer ? { target: targetAnswer } : {}),
+        ...(opAnswer ? { opAnswer } : {}),
+        failed,
+        effect,
+        ...(forbiddenHit ? { forbiddenHit } : {}),
+        snapshot,
+        ...(deps.writer ? { writer: deps.writer.id } : {}),
+        ...(operation === "set_value" && answers.text
+          ? {
+              text: answers.text,
+              textLabels: Object.fromEntries(
+                buildTextOptions(textGoal(ctx), ctx.task.secrets, deps.secrets).map((o) => [
+                  o.key,
+                  o.kind === "literal" ? JSON.stringify(o.text) : `[input:${o.name}]`,
+                ]),
+              ),
+            }
+          : {}),
+      }),
+    );
     history.push({
       step,
       text: `refused ${operation} (${gates
@@ -1438,7 +1537,13 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const covered = result.error?.kind === "hit_test_failed";
   if ((result.effect === "suspected_noop" || result.effect === "refused") && !covered)
     ctx.triedNoEffect.add(key);
-  if (result.effect === "confirmed") ctx.handoffs.count = 0;
+  if (result.effect === "confirmed") {
+    ctx.handoffs.count = 0;
+    ctx.noteProblem(undefined);
+  } else if (result.effect === "suspected_noop" || result.effect === "refused")
+    ctx.noteProblem(
+      `the last action (${describe}) ${result.error ? `failed: ${result.error.kind}` : "changed nothing on the page"}`,
+    );
   history.push({
     step,
     text: `${describe} (${result.effect}${result.error ? `: ${result.error.kind}` : ""}${covered ? "; it was covered by something else, so it can be tried again once that is gone" : ""})`,
@@ -1467,6 +1572,12 @@ export function linkTo(snapshot: Snapshot, url: string): Element | undefined {
   const names = new Set(hits.map((e) => e.stableId));
   return names.size === 1 ? hits[0] : undefined;
 }
+
+/** The top operation of a split must still have this much probability to run on a sure target. */
+const MIN_SPLIT_OPERATION = 0.35;
+
+/** Distinct problems quoted in a stop reason. */
+const MAX_PROBLEMS_SHOWN = 3;
 
 /** Pixels per scroll step: most of a typical viewport, so consecutive views overlap a little. */
 export const SCROLL_STEP_PX = 600;
@@ -1594,7 +1705,11 @@ async function handOff(
       ? ctx.deps.secrets.redact(summarizeHint(r.value.hint))
       : `${r.error.kind}: ${r.error.message}`,
   });
-  if (!r.ok || r.value.hint.kind === "none") return undefined;
+  if (!r.ok) {
+    ctx.noteProblem(`the writer model (${writer.id}) failed: ${r.error.kind}: ${r.error.message}`, true);
+    return undefined;
+  }
+  if (r.value.hint.kind === "none") return undefined;
   const hint = r.value.hint;
   // Free text never carries a secret value: the registry redacts it, and secrets are offered by name anyway.
   const text = hint.kind === "text" ? ctx.deps.secrets.redact(hint.text) : undefined;
@@ -1625,7 +1740,8 @@ function pickText(
   ctx: DecideContext,
 ): { value: FieldValue; label: string } | undefined {
   if (answer?.type !== "choice" || answer.choice === NONE) return undefined;
-  if (choiceConfidence(answer) < ctx.cfg.gates.target) return undefined;
+  // Typing is replaceable: the chosen text only has to be more likely than every other option and "none".
+  if (choiceConfidence(answer) < ctx.cfg.gates.text) return undefined;
   const options: TextOption[] = buildTextOptions(textGoal(ctx), ctx.task.secrets, ctx.deps.secrets);
   const o = options.find((x) => x.key === answer.choice);
   if (!o) return undefined;

@@ -53,7 +53,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
     flags.decision === "heuristic"
       ? undefined
       : await createAssistants(rt, { planner: flags.planner ?? "auto", writer: flags.writer ?? "auto" });
-  if (assistants) process.stderr.write(`assistants: ${assistants.describe}\n`);
+  if (assistants) process.stderr.write(`assistants: ${assistants.summary}\n`);
   const extras = await setupRunExtras(rt, flags.extras);
   if (!extras.ok) return fail(extras.error);
   process.stderr.write(`knowledge: ${extras.value.describe}\n`);
