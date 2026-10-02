@@ -3,6 +3,8 @@
 
 # GhostHand™
 
+<img src="assets/brand/png/ghosthand-128.png" alt="GhostHand" width="96" height="96" />
+
 **GhostHand, a Jev CUA.** An open-source, general-purpose computer-use agent in TypeScript and Electron. Give it a task (or a QA spec) and a URL, and it does the work in a real browser. A fast decision model, TypeSafe Jev, makes each step's choice in roughly 0.2–0.5 s. Larger models are consulted only to plan, write text, give hints, judge visually or handle unknown UIs. Every session is recorded and can be replayed.
 
 Status: all plan phases (0–7) are built. Phase 1 acceptance is met with real Jev (L1–L3 90/90, median step 742 ms, $0.00034 per step); L4–L6 tasks that need no vision pass 105/105; desktop drivers run on Linux X11 and headless GNOME Wayland. Vision modes and the Windows driver still need live verification. Reports: [`docs/reports/`](docs/reports/). Plan: [`docs/plan/AGENT_PLAN.md`](docs/plan/AGENT_PLAN.md).
@@ -54,6 +56,21 @@ Web CUA and QA runs support optional automation-marker reduction, consistent bro
 - `packages/*`: the engine libraries (`@ghosthand/protocol`, `core`, `decision-typesafe`, `driver-playwright`, `recorder`, …).
 - `apps/cli`: the `ghosthand` command. `apps/testbed`: a deterministic web app the agent is measured against. `apps/desktop`: the Electron app (Phase 2).
 - `docs/`: architecture, ADRs, plan, research notes, phase reports. Contributors and coding agents start with [`AGENTS.md`](AGENTS.md).
+
+## App artwork
+
+The supplied ghost hand is preserved in [`assets/brand/source/ghosthand-original.png`](assets/brand/source/ghosthand-original.png). Use transparent PNG wherever the destination supports it. Opaque exports use a solid black background.
+
+| Destination | Assets |
+| --- | --- |
+| UI, documentation and Linux | `assets/brand/png/ghosthand-{size}.png`, at 16, 24, 32, 48, 64, 96, 128, 180, 192, 256, 512 and 1024 pixels |
+| Opaque square artwork | Matching sizes in `assets/brand/black/`, plus `ghosthand.jpg` at 1024 pixels |
+| Browser | `assets/brand/web/brand/`: transparent PNG favicons, black ICO fallback and black Apple touch icon |
+| Sharing | `assets/brand/social/ghosthand-1200x630.png` and `.jpg`, both on black |
+| Desktop packages | `apps/desktop/build/icon.png` for Linux, black `icon.ico` for Windows and black `icon.icns` for macOS |
+| Windows installer | Black 24-bit `installer-header.bmp` and `installer-sidebar.bmp` in `apps/desktop/build/` |
+
+The desktop and testbed builds copy the same browser assets, and their headers display transparent PNGs. Platform packaging uses the [electron-builder icon configuration](https://www.electron.build/v26/docs/features/icons-and-images/). The source is centered with padding for its glow; its proportions and colors are preserved. Rebuild the exports with `bun run brand:prepare` after installing ImageMagick 7. The generated exports are included in the repository, so normal builds and releases do not need ImageMagick.
 
 ## License
 

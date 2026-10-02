@@ -32,6 +32,7 @@ electronFuses:
   grantFileProtocolExtraPrivileges: false
   loadBrowserProcessSpecificV8Snapshot: false
 linux:
+  icon: build/icon.png
   target: [AppImage, deb]
   category: Development
   maintainer: GhostHand contributors <ghosthand@users.noreply.github.com>
@@ -39,12 +40,19 @@ linux:
 deb:
   depends: [libnss3, libgtk-3-0, libxss1, libasound2]
 win:
+  icon: build/icon.ico
   target: [nsis]
   artifactName: ${productName}-${version}-setup-${arch}.${ext}
 nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeader: build/installer-header.bmp
+  installerSidebar: build/installer-sidebar.bmp
+  uninstallerSidebar: build/installer-sidebar.bmp
   oneClick: false
   perMachine: false
 mac:
+  icon: build/icon.icns
   target: [dmg]
   category: public.app-category.developer-tools
   identity: null

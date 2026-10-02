@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // The one app window. Every security-relevant webPreference is set explicitly, even where it matches the
 // default, so a future Electron default change cannot weaken it.
+import { join } from "node:path";
 import { BrowserWindow, nativeTheme } from "electron";
 
 export interface WindowOptions {
@@ -19,6 +20,7 @@ export function createMainWindow(opts: WindowOptions): BrowserWindow {
     minHeight: 640,
     show: false,
     title: "GhostHand",
+    icon: join(import.meta.dirname, "../renderer/brand/ghosthand-512.png"),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111416" : "#f6f5f1",
     autoHideMenuBar: true,
     webPreferences: {
