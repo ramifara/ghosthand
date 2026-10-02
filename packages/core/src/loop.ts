@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // The mode-B step loop (plan §3.3): settle → observe → done_when → one Jev request → gates → act → record.
+
 import type {
   Action,
   ActionResult,
@@ -30,6 +31,7 @@ import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
 import type { EventSink } from "./event-sink.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
+import { detectHumanWall } from "./human-wall.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
 import { runModeA } from "./mode-a.ts";
@@ -152,6 +154,11 @@ export interface LoopDeps {
  */
 export interface RunControl {
   checkpoint(): Promise<number>;
+  /**
+   * Ask the person watching to take over (a CAPTCHA or identity check). Returns true when someone can,
+   * in which case the run is paused and the next `checkpoint()` waits for them to resume.
+   */
+  requestHuman?(reason: string): boolean;
 }
 
 export interface RunResult {
@@ -643,6 +650,20 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         screen: fingerprint.key,
         quality: snapshot.quality.score,
       });
+      // Human-verification walls are never solved by the agent: hand over, or stop at once.
+      const wall = detectHumanWall(snapshot);
+      if (wall) {
+        const reason = `human verification (${wall.kind}): ${wall.evidence}`;
+        if (deps.control?.requestHuman?.(reason)) {
+          emit({ type: "human", step: current, kind: "takeover", detail: `needed: ${reason}` });
+          const pausedMs = await deps.control.checkpoint();
+          if (pausedMs > 0) resumed(current, pausedMs);
+          continue;
+        }
+        emit({ type: "escalate", step: current, from: "B", to: "H", reason });
+        emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
+        return finish("stuck", `blocked by ${reason}`);
+      }
       stall.observe(screenSignature(snapshot));
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
       const oversized = needsNarrowing(snapshot, task, subgoal, current, history, cfg, deps);

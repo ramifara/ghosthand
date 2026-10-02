@@ -29,11 +29,15 @@ async function signInWithPassword(page: Page, password: string): Promise<void> {
 }
 
 /** Opens the dev mailbox from a "Check your email" screen and the newest mail with `subject`. */
+/** Mail is sent by the server after the request; poll the mailbox instead of assuming it is already there. */
 async function openMail(page: Page, subject: string) {
   await page.getByRole("link", { name: "Open the testbed mailbox" }).click();
   await expect(page.getByRole("heading", { name: "Testbed mailbox" })).toBeVisible();
   const mail = page.getByRole("article", { name: subject }).first();
-  await expect(mail).toBeVisible();
+  await expect(async () => {
+    if (!(await mail.isVisible())) await page.reload();
+    await expect(mail).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   return mail;
 }
 
@@ -61,7 +65,9 @@ test("l5-magic-link: request a link, open it from the mailbox, continue", async 
   await page.getByRole("link", { name: "Email me a sign-in link" }).click();
   await page.getByLabel("Email", { exact: true }).fill(ALICE_EMAIL);
   await page.getByRole("button", { name: "Email me a link" }).click();
-  await expect(page.getByRole("status").filter({ hasText: AUTH_MESSAGES.linkSent })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: AUTH_MESSAGES.linkSent })).toBeVisible({
+    timeout: 15_000,
+  });
 
   const mail = await openMail(page, AUTH_MAIL_SUBJECTS.magicLink);
   await mail.getByRole("link", { name: "Sign in to the testbed" }).click();
@@ -101,6 +107,8 @@ test("l5-password-reset: reset by mail, then sign in with the new password", asy
   await page.getByRole("link", { name: "Forgot password?" }).click();
   await page.getByLabel("Email", { exact: true }).fill(ALICE_EMAIL);
   await page.getByRole("button", { name: "Send reset link" }).click();
+  // Wait for the request to finish before leaving the page, or the mail may never be sent.
+  await expect(page.getByText(AUTH_MESSAGES.resetSent)).toBeVisible({ timeout: 15_000 });
   const mail = await openMail(page, AUTH_MAIL_SUBJECTS.passwordReset);
   await mail.getByRole("link", { name: "Choose a new password" }).click();
 

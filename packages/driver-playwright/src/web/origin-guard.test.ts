@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { describe, expect, it } from "vitest";
-import { OriginGuard, parseOriginPattern } from "./origin-guard.ts";
+import { OriginGuard, parseOriginPattern, siteOf } from "./origin-guard.ts";
 
 describe("parseOriginPattern", () => {
   it("parses origins, host:port and wildcards", () => {
@@ -68,5 +68,18 @@ describe("OriginGuard", () => {
     expect(open.check("chrome-error://chromewebdata/").allowed).toBe(true);
     const closed = new OriginGuard({ allow: ["https://app.test"] });
     expect(closed.check("chrome-error://chromewebdata/").allowed).toBe(false);
+  });
+});
+
+describe("siteOf", () => {
+  it("allows the start site's subdomains and redirects", () => {
+    expect(siteOf("https://facebook.com")).toBe("https://*.facebook.com");
+    expect(siteOf("https://www.google.com/x")).toBe("https://*.google.com");
+    expect(siteOf("https://shop.example.co.uk")).toBe("https://*.example.co.uk");
+    expect(siteOf("http://127.0.0.1:4400/login")).toBeUndefined();
+    expect(siteOf("http://localhost:3000")).toBeUndefined();
+    const g = new OriginGuard({ allow: ["https://facebook.com", siteOf("https://facebook.com") ?? ""] });
+    expect(g.check("https://www.facebook.com/").allowed).toBe(true);
+    expect(g.check("https://evil-facebook.com/").allowed).toBe(false);
   });
 });

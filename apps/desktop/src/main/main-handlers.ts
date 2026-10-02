@@ -3,6 +3,7 @@
 // What each renderer command does in main. Settings, secrets, ChatGPT sign-in and external links stay
 // in main; run, history, task, model and profile commands go to the engine host. Credentials are
 // attached here (main) and never travel back to the renderer.
+
 import {
   createModelCatalog,
   DEFAULT_ROLE_BINDINGS,
@@ -20,6 +21,7 @@ import {
 } from "@ghosthand/protocol";
 import type { ChatGptAuth } from "./chatgpt/chatgpt-auth.ts";
 import type { EngineHostClient } from "./engine-host-client.ts";
+import { envFileKeyNames } from "./env-file-names.ts";
 import { isAllowedExternalUrl } from "./external-links.ts";
 import type { IpcHandlers } from "./ipc-router.ts";
 import type { SecretStore } from "./secret-store.ts";
@@ -122,7 +124,10 @@ export function createMainHandlers(deps: MainHandlerDeps): IpcHandlers {
       return ok(next);
     },
 
-    "secrets.list": async () => ok(deps.secrets.status()),
+    "secrets.list": async () => {
+      const status = deps.secrets.status();
+      return ok({ ...status, names: [...new Set([...status.names, ...envFileKeyNames()])].sort() });
+    },
     "secrets.set": async ({ name, value }) => {
       const r = deps.secrets.set(name, value);
       return r.ok ? ok(deps.secrets.status()) : fail("unavailable", r.error.message);

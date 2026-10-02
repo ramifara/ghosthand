@@ -56,7 +56,7 @@ import {
   viewportMetrics,
 } from "./in-page/target-scripts.ts";
 import { NetworkTracker } from "./network-tracker.ts";
-import { OriginGuard } from "./origin-guard.ts";
+import { OriginGuard, siteOf } from "./origin-guard.ts";
 import { capElements, estimateSnapshotTokens, measureQuality } from "./rank-elements.ts";
 import { redactZip } from "./redact-zip.ts";
 import type { FrameListener, ScreencastHandle, ScreencastOptions } from "./screencast.ts";
@@ -291,7 +291,12 @@ export class WebComputer implements Computer {
       block: opts.blockOrigins ?? [],
       strictSubresources: opts.strictSubresources ?? false,
     });
-    if (opts.startUrl) this.#guard.allow(opts.startUrl);
+    if (opts.startUrl) {
+      this.#guard.allow(opts.startUrl);
+      // The start site's own subdomains and redirects (facebook.com → www.facebook.com) are part of the task.
+      const site = siteOf(opts.startUrl);
+      if (site) this.#guard.allow(site);
+    }
     this.#settle = { ...DEFAULT_SETTLE, ...opts.settle };
     this.#maxElements = opts.maxElements;
     this.#maxTokens = opts.maxTokens;

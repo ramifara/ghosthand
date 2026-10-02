@@ -134,7 +134,19 @@ export interface AgentRunOptions {
   knowledge?: KnowledgeOptions;
   /** Extra loop dependencies (vision assist, source-aware seeding, plan refinement). */
   loop?: AgentLoopExtras;
+  /**
+   * "unattended": no approval prompts (commits are allowed unless they match the task's forbidden list),
+   * and dead ends are worked around with the writer and more replans before the run gives up.
+   * Human-verification walls still go to the person watching, or end the run.
+   */
+  autonomy?: "supervised" | "unattended";
 }
+
+/** Loop settings for unattended runs: more room to recover on its own. */
+export const UNATTENDED_LOOP = { maxReplans: 4, maxConsecutiveRefusals: 5 } as const;
+
+/** Approver for unattended runs: commits are pre-approved; forbidden ones never reach here (code gate). */
+export const autoApprove = async (): Promise<boolean> => true;
 
 /** Optional loop dependencies the engine composes per run. */
 export type AgentLoopExtras = Pick<
@@ -213,7 +225,11 @@ export async function runAgent(
       decision: opts.decision,
       events: s.sink,
       secrets: rt.secrets,
-      config: { gates: rt.config.gates, ...opts.loop?.config },
+      config: {
+        gates: rt.config.gates,
+        ...(opts.autonomy === "unattended" ? UNATTENDED_LOOP : {}),
+        ...opts.loop?.config,
+      },
       ...(opts.loop?.vision ? { vision: opts.loop.vision } : {}),
       ...(opts.loop?.seedTargets ? { seedTargets: opts.loop.seedTargets } : {}),
       ...(opts.loop?.plannerContext ? { plannerContext: opts.loop.plannerContext } : {}),
@@ -222,7 +238,11 @@ export async function runAgent(
       ...(learning ? { onSnapshot: learning.onSnapshot } : {}),
       logger: rt.logger.child({ pkg: "core" }),
       ...(hooks.oracle ? { oracle: hooks.oracle } : {}),
-      ...(hooks.approve ? { approve: hooks.approve } : {}),
+      ...(opts.autonomy === "unattended"
+        ? { approve: autoApprove }
+        : hooks.approve
+          ? { approve: hooks.approve }
+          : {}),
       ...(opts.planner ? { planner: opts.planner } : {}),
       ...(opts.writer ? { writer: opts.writer } : {}),
       signal,
