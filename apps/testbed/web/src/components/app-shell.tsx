@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-import { Hand, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { api } from "../lib/api.ts";
 import { cn } from "../lib/cn.ts";
@@ -34,7 +34,15 @@ export function AppShell({ now }: { now: string }) {
       <header className="border-b border-border bg-panel">
         <div className="mx-auto flex h-11 max-w-5xl items-center gap-4 px-4">
           <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold whitespace-nowrap">
-            <Hand aria-hidden="true" className="size-4 text-accent" />
+            <img
+              src="/brand/ghosthand-32.png"
+              srcSet="/brand/ghosthand-32.png 1x, /brand/ghosthand-64.png 2x"
+              width={24}
+              height={24}
+              alt=""
+              aria-hidden="true"
+              className="shrink-0"
+            />
             GhostHand testbed
           </span>
           <nav aria-label="Main" className="flex items-center gap-1">

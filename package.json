@@ -51,6 +51,7 @@
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "format": "biome check --write .",
+    "brand:prepare": "node scripts/prepare-brand.ts",
     "test": "vitest run && bun run --filter @ghosthand/testbed-server test",
     "test:e2e": "bun run --filter @ghosthand/testbed-e2e test",
     "check": "bun run typecheck && bun run lint && bun run test",

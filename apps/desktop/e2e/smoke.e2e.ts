@@ -12,6 +12,17 @@ test("opens the composer and lists testbed tasks", async () => {
   const { app, page } = await launchApp();
   try {
     await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+    // Public brand assets must also load through the packaged app:// protocol.
+    const logo = page.locator('img[src="/brand/ghosthand-32.png"]');
+    await expect(logo).toBeVisible();
+    await expect
+      .poll(() => logo.evaluate((img) => (img as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const favicon = await page.evaluate(async () => {
+      const response = await fetch("/brand/favicon-32.png");
+      return { status: response.status, type: response.headers.get("content-type") };
+    });
+    expect(favicon).toEqual({ status: 200, type: "image/png" });
     const tasks = page.getByRole("group", { name: "Testbed task" }).getByRole("radio");
     await expect(tasks.first()).toBeVisible({ timeout: 30_000 });
     expect(await tasks.count()).toBeGreaterThanOrEqual(10);

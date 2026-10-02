@@ -102,7 +102,7 @@ const exempt = [
   /^docs\/(plan|research)\//,
   /^docs\/reports\/.*\.html$/,
   /^\.changeset\/.*\.md$/,
-  /\.(svg|png|ico|jpg|webp|zip)$/,
+  /\.(svg|png|ico|icns|bmp|jpg|webp|zip)$/,
   /^CLAUDE\.md$/,
 ];
 const tracked = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {

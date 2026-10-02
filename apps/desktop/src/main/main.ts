@@ -57,6 +57,7 @@ function openExternal(url: string): Promise<void> {
 
 async function main(): Promise<void> {
   await app.whenReady();
+  app.dock?.setIcon(join(here, "../renderer/brand/ghosthand-512.png"));
   const userData = app.getPath("userData");
   const settings = new SettingsStore(join(userData, "settings.json"));
   const persistWithoutKeyring = settings.get().persistWithoutKeyring;

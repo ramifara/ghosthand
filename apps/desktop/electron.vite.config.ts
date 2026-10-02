@@ -46,6 +46,7 @@ export default defineConfig({
   },
   renderer: {
     root: "src/renderer",
+    publicDir: resolve(import.meta.dirname, "../../assets/brand/web"),
     plugins: [react(), tailwindcss()],
     server: { host: "127.0.0.1", port: 5180, strictPort: false },
     build: {

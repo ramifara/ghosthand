@@ -52,8 +52,18 @@ function StatusStrip() {
   const hasJev = secrets.data?.names.includes("TYPESAFE_API_KEY") ?? false;
   return (
     <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line bg-panel px-4">
-      <span className="font-mono text-[13px] font-semibold tracking-tight">
-        ghost<span className="text-accent">hand</span>
+      <span className="flex items-center gap-2 font-mono text-[13px] font-semibold tracking-tight">
+        <img
+          src="/brand/ghosthand-32.png"
+          srcSet="/brand/ghosthand-32.png 1x, /brand/ghosthand-64.png 2x"
+          width={24}
+          height={24}
+          alt=""
+          aria-hidden="true"
+        />
+        <span>
+          ghost<span className="text-accent">hand</span>
+        </span>
       </span>
       <span className="text-line-strong">/</span>
       <span className="flex items-center gap-1.5 font-mono text-2xs text-muted">
