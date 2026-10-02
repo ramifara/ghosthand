@@ -2,12 +2,13 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Persistent browser profiles (one per project or account) and Chrome profile import.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId } from "react";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Field, Input } from "../../components/ui/field.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
 import { formatBytes } from "../../lib/format.ts";
+import { useUiStore } from "../../stores/ui-store.ts";
 
 export function ProfilesSection() {
   const qc = useQueryClient();
@@ -16,14 +17,16 @@ export function ProfilesSection() {
   const chromeId = useId();
   const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => call("profiles.list", {}) });
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => call("settings.get", {}) });
-  const [name, setName] = useState("");
-  const [importName, setImportName] = useState("");
-  const [chromeProfile, setChromeProfile] = useState("Default");
+  const cached = useUiStore((state) => state.forms.profiles);
+  const draft = cached ?? { name: "", importName: "", chromeProfile: "Default" };
+  const { name, importName, chromeProfile } = draft;
+  const patch = (value: Partial<typeof draft>) =>
+    useUiStore.getState().setForm("profiles", { ...draft, ...value });
   const refresh = () => void qc.invalidateQueries({ queryKey: ["profiles"] });
   const create = useMutation({
     mutationFn: () => call("profiles.create", { name }),
     onSuccess: () => {
-      setName("");
+      patch({ name: "" });
       refresh();
     },
   });
@@ -84,7 +87,7 @@ export function ProfilesSection() {
           <Input
             id={nameId}
             value={name}
-            onChange={(e) => setName(e.target.value.toLowerCase())}
+            onChange={(e) => patch({ name: e.target.value.toLowerCase() })}
             placeholder="acme-staging"
             className="font-mono"
           />
@@ -108,7 +111,7 @@ export function ProfilesSection() {
             <Input
               id={chromeId}
               value={chromeProfile}
-              onChange={(e) => setChromeProfile(e.target.value)}
+              onChange={(e) => patch({ chromeProfile: e.target.value })}
               className="font-mono"
             />
           </Field>
@@ -116,7 +119,7 @@ export function ProfilesSection() {
             <Input
               id={importNameId}
               value={importName}
-              onChange={(e) => setImportName(e.target.value.toLowerCase())}
+              onChange={(e) => patch({ importName: e.target.value.toLowerCase() })}
               className="font-mono"
             />
           </Field>
@@ -127,6 +130,17 @@ export function ProfilesSection() {
         {imp.error ? <p className="mt-2 text-danger">{errorMessage(imp.error)}</p> : null}
         {imp.isSuccess ? <p className="mt-2 text-ok">Imported “{imp.data.name}”.</p> : null}
       </section>
+      <Button
+        variant="ghost"
+        className="justify-self-start"
+        onClick={() => {
+          useUiStore.getState().clearForm("profiles");
+          create.reset();
+          imp.reset();
+        }}
+      >
+        Clear profile inputs
+      </Button>
     </div>
   );
 }

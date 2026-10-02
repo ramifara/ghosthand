@@ -44,8 +44,11 @@ export interface LaunchedApp {
   userData: string;
 }
 
-export async function launchApp(env: Record<string, string> = {}): Promise<LaunchedApp> {
-  const userData = mkdtempSync(join(tmpdir(), "ghosthand-e2e-"));
+export async function launchApp(
+  env: Record<string, string> = {},
+  options: { userData?: string } = {},
+): Promise<LaunchedApp> {
+  const userData = options.userData ?? mkdtempSync(join(tmpdir(), "ghosthand-e2e-"));
   const electronPath = (await import("electron")).default as unknown as string;
   const app = await _electron.launch({
     executablePath: electronPath,
@@ -53,6 +56,10 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
     env: {
       ...process.env,
       GHOSTHAND_USER_DATA: userData,
+      GHOSTHAND_RUNS_DIR: join(userData, "runs"),
+      // Never load the developer's credential file during smoke tests.
+      GHOSTHAND_ENV_FILE: join(userData, "missing-test-env"),
+      XDG_CONFIG_HOME: join(userData, "config"),
       GHOSTHAND_HIDE_WINDOW: process.env.GHOSTHAND_SHOW_WINDOW === "1" ? "0" : "1",
       ...env,
     } as Record<string, string>,

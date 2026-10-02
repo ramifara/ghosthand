@@ -3,26 +3,33 @@
 // Budgets and run defaults. Testbed tasks keep their own budgets; these apply to free-text goals.
 import type { Settings } from "@ghosthand/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 import { Button } from "../../components/ui/button.tsx";
 import { Field, Input } from "../../components/ui/field.tsx";
 import { SwitchField } from "../../components/ui/switch.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
+import { useUiStore } from "../../stores/ui-store.ts";
 
 export function RunDefaultsSection() {
   const qc = useQueryClient();
   const ids = { steps: useId(), seconds: useId(), usd: useId() };
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => call("settings.get", {}) });
-  const [budget, setBudget] = useState<Settings["budget"]>();
-  useEffect(() => {
-    if (settings.data) setBudget(settings.data.budget);
-  }, [settings.data]);
+  const cached = useUiStore((state) => state.forms.budget);
+  const stored = settings.data?.budget;
+  const budget = cached ?? {
+    steps: String(stored?.steps ?? 25),
+    seconds: String(stored?.seconds ?? 180),
+    usd: String(stored?.usd ?? 0.25),
+  };
+  const setBudget = (value: typeof budget) => useUiStore.getState().setForm("budget", value);
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => call("settings.set", patch),
-    onSuccess: (s) => qc.setQueryData(["settings"], s),
+    onSuccess: (s, patch) => {
+      qc.setQueryData(["settings"], s);
+      if (patch.budget) useUiStore.getState().clearForm("budget");
+    },
   });
   if (!settings.data || !budget) return null;
-  const num = (v: string) => (v === "" ? 0 : Number(v));
   return (
     <div className="grid max-w-2xl gap-6">
       <section aria-labelledby="budget-h">
@@ -36,7 +43,7 @@ export function RunDefaultsSection() {
               type="number"
               min={1}
               value={budget.steps}
-              onChange={(e) => setBudget({ ...budget, steps: num(e.target.value) })}
+              onChange={(e) => setBudget({ ...budget, steps: e.target.value })}
               className="num"
             />
           </Field>
@@ -46,7 +53,7 @@ export function RunDefaultsSection() {
               type="number"
               min={1}
               value={budget.seconds}
-              onChange={(e) => setBudget({ ...budget, seconds: num(e.target.value) })}
+              onChange={(e) => setBudget({ ...budget, seconds: e.target.value })}
               className="num"
             />
           </Field>
@@ -57,14 +64,37 @@ export function RunDefaultsSection() {
               min={0}
               step={0.01}
               value={budget.usd}
-              onChange={(e) => setBudget({ ...budget, usd: num(e.target.value) })}
+              onChange={(e) => setBudget({ ...budget, usd: e.target.value })}
               className="num"
             />
           </Field>
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <Button variant="primary" onClick={() => save.mutate({ budget })} disabled={save.isPending}>
+          <Button
+            variant="primary"
+            onClick={() =>
+              save.mutate({
+                budget: {
+                  steps: Number(budget.steps),
+                  seconds: Number(budget.seconds),
+                  usd: Number(budget.usd),
+                },
+              })
+            }
+            disabled={save.isPending}
+          >
             Save budget
+          </Button>
+          <Button
+            aria-label="Reset budget fields"
+            variant="ghost"
+            disabled={save.isPending}
+            onClick={() => {
+              useUiStore.getState().clearForm("budget");
+              save.reset();
+            }}
+          >
+            Reset fields
           </Button>
           {save.error ? <span className="text-danger">{errorMessage(save.error)}</span> : null}
         </div>

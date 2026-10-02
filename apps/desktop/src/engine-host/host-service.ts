@@ -259,6 +259,8 @@ export class HostService {
         browser: {
           profile: input.profile ?? settings.defaultProfile,
           headless: !(input.showBrowser ?? settings.showBrowser),
+          behavior: settings.browserBehavior,
+          network: settings.browserNetwork,
         },
       },
     });

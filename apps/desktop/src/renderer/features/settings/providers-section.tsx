@@ -9,6 +9,7 @@ import { Badge } from "../../components/ui/badge.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Field, Input } from "../../components/ui/field.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
+import { useUiStore } from "../../stores/ui-store.ts";
 import { ChatGptSection } from "./chatgpt-section.tsx";
 
 const PROVIDER_KEYS = [
@@ -97,7 +98,8 @@ function SecretRow({
 
 export function ProvidersSection() {
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => call("secrets.list", {}) });
-  const [customName, setCustomName] = useState("");
+  const customName = useUiStore((state) => state.forms.providerName) ?? "";
+  const setCustomName = (value: string) => useUiStore.getState().setForm("providerName", value);
   const customId = useId();
   const names = secrets.data?.names ?? [];
   const custom = names.filter((n) => !PROVIDER_KEYS.some((k) => k.name === n));

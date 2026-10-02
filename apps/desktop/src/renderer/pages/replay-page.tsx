@@ -4,6 +4,7 @@
 // and the reticle on the element it acted on. J/K or the arrow keys move between steps.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { ReuseTaskButton } from "../components/reuse-task-button.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Kbd } from "../components/ui/kbd.tsx";
 import { Empty, Panel } from "../components/ui/panel.tsx";
@@ -13,7 +14,7 @@ import { StepTimeline, TimingLegend } from "../features/timeline/step-timeline.t
 import { call, errorMessage } from "../lib/bridge.ts";
 import { RunSummary } from "./live-page.tsx";
 
-export function ReplayPage({ runId }: { runId: string }) {
+export function ReplayPage({ runId, onTaskReady }: { runId: string; onTaskReady: () => void }) {
   const log = useQuery({
     queryKey: ["runs", runId, "events"],
     queryFn: () => call("runs.events", { runId }),
@@ -64,6 +65,7 @@ export function ReplayPage({ runId }: { runId: string }) {
           {header.end ? (
             <Badge tone={header.end.outcome === "success" ? "ok" : "amber"}>{header.end.outcome}</Badge>
           ) : null}
+          <ReuseTaskButton runId={runId} onReady={onTaskReady} />
           <span className="ml-auto flex items-center gap-1 text-2xs text-muted">
             step <Kbd>J</Kbd> <Kbd>K</Kbd>
           </span>

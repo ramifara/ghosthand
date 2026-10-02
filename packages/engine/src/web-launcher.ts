@@ -30,6 +30,8 @@ export async function launchWeb(
     channel: b.channel,
     headless: opts.headless ?? b.headless,
     viewport: b.viewport,
+    behavior: b.behavior,
+    network: b.network,
     secrets: rt.secrets,
     startUrl: opts.startUrl,
     allowOrigins: opts.allowOrigins ?? [],

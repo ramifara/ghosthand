@@ -2,10 +2,16 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Task composer: a free-text goal with a start URL, or a testbed task; plus profile, planner, writer and
 // (in plumbing mode) the decision source. Starting a run switches to the live view.
-import type { PlannerChoice, StartRunInput, TaskListItem, WriterChoice } from "@ghosthand/protocol";
+import {
+  MAX_TASK_GOAL_CHARS,
+  type PlannerChoice,
+  type StartRunInput,
+  type TaskListItem,
+  type WriterChoice,
+} from "@ghosthand/protocol";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { FlaskConical, Play, Target } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { FlaskConical, Play, RotateCcw, Target } from "lucide-react";
+import { useId, useMemo } from "react";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Field, Input, Select, TextArea } from "../components/ui/field.tsx";
@@ -14,8 +20,7 @@ import { SwitchField } from "../components/ui/switch.tsx";
 import { call, errorMessage } from "../lib/bridge.ts";
 import { cn } from "../lib/cn.ts";
 import { useLiveStore } from "../stores/live-store.ts";
-
-type Source = "testbed" | "goal";
+import { useUiStore } from "../stores/ui-store.ts";
 
 function TaskPicker({
   tasks,
@@ -75,6 +80,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
     planner: useId(),
     writer: useId(),
     decision: useId(),
+    recent: useId(),
   };
   const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => call("tasks.list", {}) });
   const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => call("profiles.list", {}) });
@@ -83,16 +89,11 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => call("secrets.list", {}) });
   const liveStatus = useLiveStore((s) => s.status);
 
-  const [source, setSource] = useState<Source>("testbed");
-  const [taskId, setTaskId] = useState<string>();
-  const [goal, setGoal] = useState("");
-  const [startUrl, setStartUrl] = useState("https://");
-  const [profile, setProfile] = useState<string>();
-  const [planner, setPlanner] = useState<PlannerChoice>();
-  const [writer, setWriter] = useState<WriterChoice>();
-  const [decision, setDecision] = useState<"jev" | "heuristic">();
-  const [showBrowser, setShowBrowser] = useState<boolean>();
-  const [unattended, setUnattended] = useState(false);
+  const draft = useUiStore((state) => state.composer);
+  const recentTasks = useUiStore((state) => state.recentTasks);
+  const patch = useUiStore((state) => state.patchComposer);
+  const { source, taskId, goal, startUrl, profile, planner, writer, decision, showBrowser, unattended } =
+    draft;
 
   const s = settings.data;
   const hasJev = secrets.data?.names.includes("TYPESAFE_API_KEY") ?? false;
@@ -102,9 +103,13 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
 
   const start = useMutation({
     mutationFn: (input: StartRunInput) => call("runs.start", input),
-    onSuccess: (r) => {
-      useLiveStore.getState().reset();
-      useLiveStore.setState({ runId: r.runId, status: "running" });
+    onSuccess: (r, input) => {
+      useUiStore.getState().rememberRun(r.runId, input);
+      // The host can finish or pause a fast run before the start reply reaches the renderer.
+      if (useLiveStore.getState().runId !== r.runId) {
+        useLiveStore.getState().reset();
+        useLiveStore.setState({ runId: r.runId, status: "running" });
+      }
       onStarted(r.runId);
     },
   });
@@ -113,9 +118,11 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   const ready =
     !busy &&
     (source === "testbed"
-      ? taskId !== undefined
-      : goal.trim().length > 0 && /^https?:\/\/.+/.test(startUrl)) &&
-    (effectiveDecision === "heuristic" || hasJev);
+      ? selectedTask !== undefined
+      : goal.trim().length > 0 &&
+        goal.trim().length <= MAX_TASK_GOAL_CHARS &&
+        /^https?:\/\/.+/.test(startUrl)) &&
+    (effectiveDecision === "heuristic" ? plumbing : hasJev);
 
   const submit = () => {
     if (!ready) return;
@@ -123,13 +130,13 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
       source:
         source === "testbed"
           ? { kind: "testbed", taskId: taskId ?? "" }
-          : { kind: "goal", goal: goal.trim(), startUrl, allowOrigins: [] },
-      ...(profile ? { profile } : {}),
-      ...(planner ? { planner } : {}),
-      ...(writer ? { writer } : {}),
+          : { kind: "goal", goal: goal.trim(), startUrl, allowOrigins: draft.allowOrigins },
+      profile: profile ?? s?.defaultProfile ?? "default",
+      planner: planner ?? s?.planner ?? "auto",
+      writer: writer ?? s?.writer ?? "auto",
       decision: effectiveDecision,
-      ...(showBrowser !== undefined ? { showBrowser } : {}),
-      ...(unattended ? { unattended } : {}),
+      showBrowser: showBrowser ?? s?.showBrowser ?? true,
+      unattended,
     });
   };
 
@@ -143,6 +150,59 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
             submit();
           }}
         >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted">Your draft stays here when you change pages.</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                useUiStore.getState().clearComposer();
+                start.reset();
+              }}
+            >
+              <RotateCcw aria-hidden="true" />
+              Clear inputs
+            </Button>
+          </div>
+          {recentTasks.length > 0 ? (
+            <div className="grid gap-1.5">
+              <Field
+                label="Recent tasks"
+                htmlFor={ids.recent}
+                hint="Loads the original fields. Press Start run when ready."
+              >
+                <Select
+                  id={ids.recent}
+                  value=""
+                  onChange={(event) => {
+                    const task = recentTasks.find((item) => item.runId === event.target.value);
+                    if (task) {
+                      useUiStore.getState().loadTask(task.input);
+                      start.reset();
+                    }
+                  }}
+                >
+                  <option value="">Choose a previous task…</option>
+                  {recentTasks.map((task) => (
+                    <option key={task.runId} value={task.runId}>
+                      {task.input.source.kind === "testbed"
+                        ? task.input.source.taskId
+                        : task.input.source.goal.slice(0, 80)}{" "}
+                      · {new Date(task.startedAt).toLocaleString()}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="justify-self-start"
+                onClick={() => useUiStore.getState().clearRecentTasks()}
+              >
+                Clear recent tasks
+              </Button>
+            </div>
+          ) : null}
           <div
             role="tablist"
             aria-label="Task source"
@@ -159,7 +219,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
                 type="button"
                 role="tab"
                 aria-selected={source === key}
-                onClick={() => setSource(key)}
+                onClick={() => patch({ source: key })}
                 className={cn(
                   "flex items-center justify-center gap-1.5 rounded-[3px] py-1.5 text-xs font-medium text-muted [&_svg]:size-3.5",
                   source === key && "bg-accent-soft text-accent",
@@ -176,21 +236,27 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               <Field
                 label="Goal"
                 htmlFor={ids.goal}
-                hint="Say what done looks like. Secrets are referred to by name."
+                hint={`Say what done looks like. Secrets are referred to by name. ${goal.trim().length.toLocaleString()} / ${MAX_TASK_GOAL_CHARS.toLocaleString()} characters.`}
               >
                 <TextArea
                   id={ids.goal}
                   rows={4}
+                  aria-invalid={goal.trim().length > MAX_TASK_GOAL_CHARS}
                   value={goal}
-                  onChange={(e) => setGoal(e.target.value)}
+                  onChange={(e) => patch({ goal: e.target.value })}
                   placeholder="Change my display name to Ada and save the profile"
                 />
               </Field>
+              {goal.trim().length > MAX_TASK_GOAL_CHARS ? (
+                <p role="alert" className="text-danger">
+                  Shorten the goal to {MAX_TASK_GOAL_CHARS.toLocaleString()} characters before starting.
+                </p>
+              ) : null}
               <Field label="Start URL" htmlFor={ids.url}>
                 <Input
                   id={ids.url}
                   value={startUrl}
-                  onChange={(e) => setStartUrl(e.target.value)}
+                  onChange={(e) => patch({ startUrl: e.target.value })}
                   className="font-mono"
                 />
               </Field>
@@ -217,10 +283,13 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               <Select
                 id={ids.profile}
                 value={profile ?? s?.defaultProfile ?? "default"}
-                onChange={(e) => setProfile(e.target.value)}
+                onChange={(e) => patch({ profile: e.target.value })}
               >
                 {[
-                  ...new Set([s?.defaultProfile ?? "default", ...(profiles.data ?? []).map((p) => p.name)]),
+                  ...new Set([
+                    profile ?? s?.defaultProfile ?? "default",
+                    ...(profiles.data ?? []).map((p) => p.name),
+                  ]),
                 ].map((name) => (
                   <option key={name} value={name}>
                     {name}
@@ -232,19 +301,23 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               <Select
                 id={ids.decision}
                 value={effectiveDecision}
-                onChange={(e) => setDecision(e.target.value === "heuristic" ? "heuristic" : "jev")}
+                onChange={(e) => patch({ decision: e.target.value === "heuristic" ? "heuristic" : "jev" })}
               >
                 <option value="jev" disabled={!hasJev}>
                   Jev{hasJev ? "" : " (no key)"}
                 </option>
-                {plumbing ? <option value="heuristic">Heuristic (plumbing)</option> : null}
+                {plumbing || decision === "heuristic" ? (
+                  <option value="heuristic" disabled={!plumbing}>
+                    Heuristic (plumbing{plumbing ? "" : " off"})
+                  </option>
+                ) : null}
               </Select>
             </Field>
             <Field label="Planner" htmlFor={ids.planner}>
               <Select
                 id={ids.planner}
                 value={planner ?? s?.planner ?? "auto"}
-                onChange={(e) => setPlanner(e.target.value as PlannerChoice)}
+                onChange={(e) => patch({ planner: e.target.value as PlannerChoice })}
               >
                 <option value="auto">Auto</option>
                 <option value="codex">Codex</option>
@@ -256,7 +329,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               <Select
                 id={ids.writer}
                 value={writer ?? s?.writer ?? "auto"}
-                onChange={(e) => setWriter(e.target.value as WriterChoice)}
+                onChange={(e) => patch({ writer: e.target.value as WriterChoice })}
               >
                 <option value="auto">Auto</option>
                 <option value="models">Models layer</option>
@@ -269,13 +342,13 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
             label="Show the browser window"
             hint="Needed to take over by hand. The live view works either way."
             checked={showBrowser ?? s?.showBrowser ?? true}
-            onChange={setShowBrowser}
+            onChange={(showBrowser) => patch({ showBrowser })}
           />
           <SwitchField
             label="Run without handover"
             hint="No approval prompts and more retries and replans before giving up. Anything on the task's forbidden list is still refused; CAPTCHAs and phone checks pause for you."
             checked={unattended}
-            onChange={setUnattended}
+            onChange={(unattended) => patch({ unattended })}
           />
 
           {effectiveDecision === "heuristic" ? (
@@ -317,8 +390,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
             tasks={tasks.data ?? []}
             value={taskId}
             onChange={(id) => {
-              setSource("testbed");
-              setTaskId(id);
+              patch({ source: "testbed", taskId: id });
             }}
           />
         )}

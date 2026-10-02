@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { z } from "zod";
+import { BrowserBehavior } from "./browser-behavior.ts";
+import { BrowserNetwork } from "./browser-network.ts";
 import { Budget, DEFAULT_BUDGET } from "./task.ts";
 
 /** Carriers for Jev: TypeSafe direct, OpenRouter, Vercel AI Gateway. */
@@ -47,6 +49,8 @@ export const GhostHandConfig = z.object({
       channel: z.enum(["auto", "chrome", "msedge", "brave", "chromium"]).default("auto"),
       headless: z.boolean().default(false),
       profile: z.string().default("default"),
+      behavior: BrowserBehavior.prefault({}),
+      network: BrowserNetwork.prefault({}),
       viewport: z
         .object({ width: z.number().int(), height: z.number().int() })
         .default({ width: 1280, height: 860 }),

@@ -43,7 +43,13 @@ bun run ghosthand voice transcribe note.wav                        # local Moons
 bun run dev:desktop                                                # the Electron app
 ```
 
+The desktop task composer keeps its draft, selected task tab and run options across navigation and app restarts. **Recent tasks** loads any of the last 30 submissions with its original launch options. **Use task** in Runs and **Run again** in Live or Replay load a recorded task into the composer; press **Start run** to run it. Older recordings use current defaults for launch options they did not record.
+
+**Clear inputs** resets the task draft. **Clear recent tasks** removes the shortcut list without deleting run recordings. Setup remembers its selected tab and unsaved nonsecret fields; **Reset fields** restores saved settings, and **Clear profile inputs** empties the profile forms. Credential values and sign-in responses stay out of this draft cache. Desktop goals accept up to 32,000 characters, with a visible count and an error for longer drafts; pasted text is kept intact.
+
 ## Repository layout
+
+Web CUA and QA runs support optional automation-marker reduction, consistent browser settings, paced input, browser proxies and external FlareSolverr preparation. See [Web browser behavior](docs/browser-behavior.md) for desktop controls, CLI flags and configuration.
 
 - `packages/*`: the engine libraries (`@ghosthand/protocol`, `core`, `decision-typesafe`, `driver-playwright`, `recorder`, …).
 - `apps/cli`: the `ghosthand` command. `apps/testbed`: a deterministic web app the agent is measured against. `apps/desktop`: the Electron app (Phase 2).

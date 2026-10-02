@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 export * from "./action.ts";
+export * from "./browser-behavior.ts";
+export * from "./browser-network.ts";
 export * from "./config.ts";
 export * from "./consultant.ts";
 export * from "./decision.ts";

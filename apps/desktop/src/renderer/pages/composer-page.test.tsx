@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // @vitest-environment jsdom
-import type { GhostHandBridge, IpcCommandName } from "@ghosthand/protocol";
+import { type GhostHandBridge, type IpcCommandName, MAX_TASK_GOAL_CHARS } from "@ghosthand/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiveStore } from "../stores/live-store.ts";
+import { useUiStore } from "../stores/ui-store.ts";
 import { ComposerPage } from "./composer-page.tsx";
 
 // jsdom has no ResizeObserver; Radix Switch measures its thumb with one.
@@ -27,7 +28,15 @@ const SETTINGS = {
   roleBindings: {},
 };
 
-function installBridge(opts: { plumbing?: boolean; jevKey?: boolean; chatgpt?: boolean } = {}) {
+function installBridge(
+  opts: {
+    plumbing?: boolean;
+    jevKey?: boolean;
+    chatgpt?: boolean;
+    failStart?: boolean;
+    endBeforeReply?: boolean;
+  } = {},
+) {
   const calls: Array<{ command: IpcCommandName; input: unknown }> = [];
   const answers: Partial<Record<IpcCommandName, unknown>> = {
     "tasks.list": [
@@ -43,6 +52,16 @@ function installBridge(opts: { plumbing?: boolean; jevKey?: boolean; chatgpt?: b
   const bridge: GhostHandBridge = {
     invoke: vi.fn(async (command: IpcCommandName, input?: unknown) => {
       calls.push({ command, input });
+      if (command === "runs.start" && opts.failStart)
+        return { ok: false as const, error: { kind: "unavailable", message: "Browser unavailable" } };
+      if (command === "runs.start" && opts.endBeforeReply)
+        useLiveStore.getState().ingest({
+          kind: "status",
+          runId: "20261001-120000-abcdef",
+          status: "ended",
+          outcome: "error",
+          detail: "Browser failed immediately",
+        });
       return { ok: true as const, value: answers[command] ?? null };
     }) as GhostHandBridge["invoke"],
     onEngineMessage: () => () => {},
@@ -64,7 +83,10 @@ function renderComposer(onStarted = vi.fn()) {
 }
 
 describe("ComposerPage", () => {
-  beforeEach(() => useLiveStore.getState().reset());
+  beforeEach(() => {
+    useLiveStore.getState().reset();
+    useUiStore.getState().reset();
+  });
   afterEach(() => {
     cleanup();
     delete window.ghosthand;
@@ -85,6 +107,11 @@ describe("ComposerPage", () => {
     expect(calls.find((c) => c.command === "runs.start")?.input).toEqual({
       source: { kind: "testbed", taskId: "l1-login" },
       decision: "jev",
+      profile: "default",
+      planner: "auto",
+      writer: "auto",
+      showBrowser: true,
+      unattended: false,
     });
   });
 
@@ -117,5 +144,110 @@ describe("ComposerPage", () => {
     expect(calls.find((c) => c.command === "runs.start")?.input).toMatchObject({
       source: { kind: "goal", goal: "Find the pricing page", startUrl: "https://example.com" },
     });
+  });
+
+  it("keeps the goal, selected tabs and run options after leaving and returning, and clears inputs explicitly", async () => {
+    installBridge({ jevKey: true });
+    renderComposer();
+    await screen.findByRole("radio", { name: /l1-login/ });
+    fireEvent.click(screen.getByRole("tab", { name: /Goal on any site/ }));
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Find pricing" } });
+    fireEvent.change(screen.getByLabelText("Start URL"), { target: { value: "https://example.com" } });
+    fireEvent.change(screen.getByLabelText("Browser profile"), { target: { value: "work" } });
+    fireEvent.change(screen.getByLabelText("Planner"), { target: { value: "none" } });
+    fireEvent.click(screen.getByRole("switch", { name: /Run without handover/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Testbed task/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /l1-login/ }));
+    cleanup();
+    renderComposer();
+    expect(((await screen.findByRole("radio", { name: /l1-login/ })) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("tab", { name: /Testbed task/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: /Goal on any site/ }));
+    expect((screen.getByLabelText("Goal") as HTMLInputElement).value).toBe("Find pricing");
+    expect((screen.getByLabelText("Browser profile") as HTMLSelectElement).value).toBe("work");
+    expect((screen.getByLabelText("Planner") as HTMLSelectElement).value).toBe("none");
+    expect(screen.getByRole("switch", { name: /Run without handover/ }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    expect((screen.getByLabelText("Goal") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Start URL") as HTMLInputElement).value).toBe("https://");
+    expect((screen.getByLabelText("Planner") as HTMLSelectElement).value).toBe("auto");
+    expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("loads a recent submission without running it, then sends the same fields on Start run", async () => {
+    const calls = installBridge({ jevKey: true });
+    const onStarted = renderComposer();
+    await screen.findByRole("radio", { name: /l1-login/ });
+    fireEvent.click(screen.getByRole("tab", { name: /Goal on any site/ }));
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Find pricing" } });
+    fireEvent.change(screen.getByLabelText("Start URL"), { target: { value: "https://example.com" } });
+    fireEvent.change(screen.getByLabelText("Browser profile"), { target: { value: "work" } });
+    fireEvent.change(screen.getByLabelText("Planner"), { target: { value: "none" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    const first = calls.find((call) => call.command === "runs.start")?.input;
+    cleanup();
+    useLiveStore.setState({ status: "ended" });
+    renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
+    expect((screen.getByLabelText("Goal") as HTMLInputElement).value).toBe("Find pricing");
+    expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(2));
+    expect(calls.filter((call) => call.command === "runs.start")[1]?.input).toEqual(first);
+  });
+
+  it("submits and reloads a long goal intact, and keeps an oversized draft for editing", async () => {
+    const calls = installBridge({ jevKey: true });
+    const onStarted = renderComposer();
+    await screen.findByRole("radio", { name: /l1-login/ });
+    fireEvent.click(screen.getByRole("tab", { name: /Goal on any site/ }));
+    const goal = "A detailed task brief. ".repeat(300);
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: goal } });
+    fireEvent.change(screen.getByLabelText("Start URL"), { target: { value: "https://example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(calls.find((call) => call.command === "runs.start")?.input).toMatchObject({
+      source: { goal: goal.trim() },
+    });
+    cleanup();
+    useLiveStore.setState({ status: "ended" });
+    renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
+    expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(goal.trim());
+    const oversized = "x".repeat(MAX_TASK_GOAL_CHARS + 1);
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: oversized } });
+    expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(oversized);
+    expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain("Shorten the goal");
+  });
+
+  it("preserves a run that ended before the start reply, allowing an immediate rerun", async () => {
+    installBridge({ jevKey: true, endBeforeReply: true });
+    const onStarted = renderComposer();
+    fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(useLiveStore.getState().status).toBe("ended");
+    expect(useLiveStore.getState().detail).toBe("Browser failed immediately");
+    expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps the draft when startup fails and does not add an unstarted run to recent tasks", async () => {
+    const calls = installBridge({ jevKey: true, failStart: true });
+    renderComposer();
+    fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await screen.findByText("Browser unavailable");
+    expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
+    expect(useUiStore.getState().composer.taskId).toBe("l1-login");
+    expect(useUiStore.getState().recentTasks).toEqual([]);
   });
 });

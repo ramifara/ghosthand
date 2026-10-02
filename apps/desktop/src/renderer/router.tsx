@@ -25,12 +25,18 @@ function ComposerRoute() {
 
 function RunsRoute() {
   const navigate = useNavigate();
-  return <RunsPage onOpen={(runId) => void navigate({ to: "/runs/$runId", params: { runId } })} />;
+  return (
+    <RunsPage
+      onOpen={(runId) => void navigate({ to: "/runs/$runId", params: { runId } })}
+      onTaskReady={() => void navigate({ to: "/" })}
+    />
+  );
 }
 
 function ReplayRoute() {
   const { runId } = useParams({ from: "/runs/$runId" });
-  return <ReplayPage runId={runId} />;
+  const navigate = useNavigate();
+  return <ReplayPage runId={runId} onTaskReady={() => void navigate({ to: "/" })} />;
 }
 
 function LiveRoute() {

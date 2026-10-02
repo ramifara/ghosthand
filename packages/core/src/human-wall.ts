@@ -6,7 +6,10 @@
 import type { Snapshot } from "@ghosthand/protocol";
 
 const WALLS: Array<[string, RegExp]> = [
-  ["captcha", /\b(re)?captcha\b|hcaptcha|turnstile|arkose|funcaptcha/i],
+  [
+    "captcha",
+    /\b(?:complete|solve|finish|enter|answer)\s+(?:(?:the|this|a)\s+)?(?:re)?captcha\b|\b(?:reCAPTCHA|hCAPTCHA|Turnstile|Arkose|FunCaptcha)\s+(?:challenge|verification|required)\b(?!\s+(?:succeeded|passed|completed?|solved|successful))/i,
+  ],
   [
     "human check",
     /verify (that )?you('| a)?re (a )?human|are you a robot|i'?m not a robot|confirm you('| a)?re (a )?human|unusual traffic/i,
@@ -25,11 +28,15 @@ export interface HumanWall {
 }
 
 export function detectHumanWall(snapshot: Snapshot): HumanWall | undefined {
-  const texts = [
-    snapshot.title,
-    snapshot.text,
-    ...snapshot.elements.flatMap((e) => [e.name, e.frame, e.href ?? ""]),
-  ];
+  // Links and frame URLs mention vendors on normal pages too. Only visible instructions and
+  // actionable challenge controls count; an attribution footer must not stop a login or QA run.
+  const completed = snapshot.elements.filter((e) => e.role === "checkbox" && e.states.includes("checked"));
+  const controls = snapshot.elements.filter(
+    (e) => e.role !== "link" && !e.states.includes("disabled") && !completed.includes(e),
+  );
+  const withoutCompleted = (text: string) =>
+    completed.reduce((value, e) => (e.name ? value.replaceAll(e.name, "") : value), text);
+  const texts = [snapshot.title, withoutCompleted(snapshot.text), ...controls.map((e) => e.name)];
   for (const [kind, re] of WALLS) {
     for (const t of texts) {
       const m = re.exec(t);
@@ -43,5 +50,11 @@ export function detectHumanWall(snapshot: Snapshot): HumanWall | undefined {
         };
     }
   }
+  const captchaControl = controls.find(
+    (e) =>
+      ["checkbox", "button"].includes(e.role) &&
+      /^(?:reCAPTCHA|hCAPTCHA|CAPTCHA|Turnstile|Arkose|FunCaptcha)$/i.test(e.name.trim()),
+  );
+  if (captchaControl) return { kind: "captcha", evidence: captchaControl.name };
   return undefined;
 }
