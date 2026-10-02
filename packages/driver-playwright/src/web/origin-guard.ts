@@ -61,6 +61,28 @@ export function matchesPattern(p: OriginPattern, url: URL): boolean {
   return p.port === undefined || p.port === port;
 }
 
+/** Second-level labels under country TLDs that act as public suffixes (co.uk, com.au, ...). */
+const SECOND_LEVEL = new Set(["co", "com", "org", "net", "gov", "ac", "edu", "ne", "or", "go"]);
+
+/**
+ * Site-wide pattern for a start URL ("https://facebook.com" → "https://*.facebook.com"), so the site's own
+ * redirects (www., accounts., m.) stay allowed. IPs and single-label hosts (localhost) stay exact.
+ */
+export function siteOf(url: string): string | undefined {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const host = u.hostname.toLowerCase();
+  if (/^[\d.]+$/.test(host) || host.includes(":") || !host.includes(".")) return undefined;
+  const labels = host.split(".");
+  const n =
+    labels.length >= 3 && SECOND_LEVEL.has(labels.at(-2) ?? "") && (labels.at(-1) ?? "").length === 2 ? 3 : 2;
+  return `${u.protocol}//*.${labels.slice(-n).join(".")}`;
+}
+
 export type GuardDecision = { allowed: true } | { allowed: false; reason: "blocklist" | "not_allowlisted" };
 
 export interface OriginGuardOptions {
