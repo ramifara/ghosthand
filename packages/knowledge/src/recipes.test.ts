@@ -11,7 +11,7 @@ import {
   type ScriptedScreen,
   SecretsRegistry,
 } from "@ghosthand/core";
-import { RunEvent, type RunEventDraft, TaskSpec } from "@ghosthand/protocol";
+import { type Questions, RunEvent, type RunEventDraft, TaskSpec } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
 import { openKnowledge } from "./knowledge.ts";
 import { afterFailure, effectiveTrust, INITIAL_TRUST, usable } from "./trust.ts";
@@ -100,7 +100,7 @@ async function learnRun(limit: number) {
           ? {
               operation: choiceOf(q, "operation", "set_value"),
               set_value_target: choiceOf(q, "set_value_target", "f1"),
-              text: choiceOf(q, "text", "lit_1"),
+              text: choiceOf(q, "text", textKey(q, String(limit))),
             }
           : { operation: choiceOf(q, "operation", "press"), press_target: choiceOf(q, "press_target", "b1") };
     return {
@@ -119,6 +119,16 @@ async function learnRun(limit: number) {
     config: { screenshots: false },
   });
   return { r, events };
+}
+
+/** The text option that types `value` (option keys follow the goal's word order). */
+function textKey(q: Questions, value: string): string {
+  const t = q.text;
+  const hit =
+    t?.type === "choice"
+      ? Object.entries(t.criteria).find(([, d]) => d === `Type the text: ${JSON.stringify(value)}`)
+      : undefined;
+  return hit?.[0] ?? "none";
 }
 
 describe("recipes", () => {

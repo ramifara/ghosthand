@@ -18,7 +18,6 @@ import {
   type ModelClient,
   type VisionGrounder,
 } from "@ghosthand/models";
-import { envValue } from "./env-file.ts";
 import { type ModelsSetupOptions, setupModels } from "./model-providers.ts";
 import type { EngineRuntime } from "./runtime.ts";
 
@@ -33,15 +32,29 @@ export async function createModelsClient(
   rt: EngineRuntime,
   opts: ModelsSetupOptions = {},
 ): Promise<ModelClient | undefined> {
+  return (await modelsLayer(rt, opts))?.client;
+}
+
+/** The models-layer client and the roles it has models for. */
+async function modelsLayer(
+  rt: EngineRuntime,
+  opts: ModelsSetupOptions,
+): Promise<{ client: ModelClient; roles: Set<string> } | undefined> {
   const setup = await setupModels(rt, opts);
   for (const w of setup.warnings) rt.logger.warn({ pkg: "models" }, w);
   if (setup.keyed.length === 0 && setup.localProviders.length === 0) return undefined;
-  return createModelClient({
+  const client = createModelClient({
     catalog: setup.catalog,
     providers: setup.registry,
     bindings: setup.bindings,
     logger: rt.logger.child({ pkg: "models" }),
   });
+  const roles = new Set(
+    Object.entries(setup.bindings)
+      .filter(([, b]) => (b?.models.length ?? 0) > 0)
+      .map(([role]) => role),
+  );
+  return { client, roles };
 }
 
 /** The `vision_grounder` role over the models layer (native computer tools where available). */
@@ -59,6 +72,10 @@ export interface Assistants {
   /** Closes warm consultant sessions. */
   close(): Promise<void>;
   describe: string;
+  /** `describe` plus the warnings, for run.start and the CLI. */
+  summary: string;
+  /** Why a role the user asked for (or "auto") has nothing behind it, for the run log and the UI. */
+  warnings: string[];
 }
 
 export async function createAssistants(
@@ -66,8 +83,10 @@ export async function createAssistants(
   choice: { planner: PlannerChoice; writer: WriterChoice },
   opts: ModelsSetupOptions = {},
 ): Promise<Assistants> {
-  const models =
-    choice.planner === "none" && choice.writer === "none" ? undefined : await createModelsClient(rt, opts);
+  const layer =
+    choice.planner === "none" && choice.writer === "none" ? undefined : await modelsLayer(rt, opts);
+  const models = layer?.client;
+  const warnings: string[] = [];
   const closers: Array<() => Promise<void>> = [];
   const parts: string[] = [];
   const consultantPlanners: Planner[] = [];
@@ -107,10 +126,11 @@ export async function createAssistants(
     undefined,
   );
   if (planner) parts.push(`planner ${planner.id}`);
-  // Writer: the models layer when an OpenAI key is set, else the user's Codex login (slower, no API key).
-  const hasOpenAi = envValue("OPENAI_API_KEY", rt.envFile) !== undefined;
+  // Writer: the models layer when any provider (a key, the ChatGPT plan, a local server) serves the writer
+  // role, else the user's Codex login (slower, no API key).
+  const modelWriter = models !== undefined && layer?.roles.has("writer") === true;
   let writer: Writer | undefined;
-  if (models && (choice.writer === "models" || (choice.writer === "auto" && hasOpenAi))) {
+  if (modelWriter && (choice.writer === "models" || choice.writer === "auto")) {
     writer = createModelWriter(models);
   } else if (choice.writer === "codex" || choice.writer === "auto") {
     const consultant = createCodexConsultant();
@@ -120,8 +140,12 @@ export async function createAssistants(
       const w = createConsultantWriter(consultant, model === undefined ? {} : { model });
       closers.push(() => w.close());
       writer = w;
-    }
-  }
+    } else
+      warnings.push(
+        `no writer: no model provider serves the writer role and the Codex CLI is ${probe.installed ? "not signed in" : "not installed or not on PATH"}`,
+      );
+  } else if (choice.writer === "models")
+    warnings.push("no writer: no model provider is configured for the writer role (add a provider key)");
   if (writer) parts.push(`writer ${writer.id}`);
   return {
     ...(planner ? { planner } : {}),
@@ -130,5 +154,7 @@ export async function createAssistants(
       for (const c of closers) await c();
     },
     describe: parts.join(", ") || "Jev only",
+    summary: [parts.join(", ") || "Jev only", ...warnings].join("; "),
+    warnings,
   };
 }

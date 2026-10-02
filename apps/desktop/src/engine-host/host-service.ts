@@ -16,6 +16,7 @@ import {
   type EngineRuntime,
   envValue,
   openRuntime,
+  PROVIDER_KEY_ENV,
   prepareTestbedRun,
   runAgent,
   runDoctor,
@@ -85,7 +86,7 @@ export function invalidRequestResponse(data: unknown, issue?: string): HostRespo
 }
 
 /** Keys main may hand over that configure providers rather than being typed by the agent. */
-const PROVIDER_KEYS = new Set(["TYPESAFE_API_KEY", "OPENAI_API_KEY"]);
+const PROVIDER_KEYS = new Set(["TYPESAFE_API_KEY", ...Object.values(PROVIDER_KEY_ENV).flat()]);
 
 interface ActiveRunState {
   info: ActiveRun;
@@ -427,6 +428,7 @@ export class HostService {
       autonomy: input.unattended ? "unattended" : "supervised",
       ...(assistants.planner ? { planner: assistants.planner } : {}),
       ...(assistants.writer ? { writer: assistants.writer } : {}),
+      assistants: assistants.summary,
       task,
       decision: decision.value,
       launch: async () => {
@@ -537,15 +539,19 @@ export class HostService {
     if (!catalog.ok) return fail("engine", catalog.error.message);
     const rt = await this.#runtime();
     const secrets = credentials?.secrets ?? {};
-    const hasOpenAI =
-      Boolean(credentials?.chatgptAccessToken) ||
-      Boolean(secrets.OPENAI_API_KEY) ||
-      Boolean(rt && envValue("OPENAI_API_KEY", rt.envFile));
+    const keySet = (provider: string): boolean =>
+      (provider === "openai" && Boolean(credentials?.chatgptAccessToken)) ||
+      (PROVIDER_KEY_ENV[provider] ?? []).some(
+        (name) => Boolean(secrets[name]) || Boolean(rt && envValue(name, rt.envFile)),
+      );
     const items = catalog.value
       .list()
       .filter((m) => m.outputModalities.includes("text"))
       .map((m) =>
-        toModelListItem(m, m.provider === "openai" ? (hasOpenAI ? "set" : "missing") : "unsupported"),
+        toModelListItem(
+          m,
+          PROVIDER_KEY_ENV[m.provider] === undefined ? "unsupported" : keySet(m.provider) ? "set" : "missing",
+        ),
       )
       .sort((a, b) => a.provider.localeCompare(b.provider) || a.ref.localeCompare(b.ref));
     return done(items);

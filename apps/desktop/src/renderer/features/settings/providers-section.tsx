@@ -21,7 +21,22 @@ const PROVIDER_KEYS = [
   {
     name: "OPENAI_API_KEY",
     label: "OpenAI API key",
-    hint: "Planner, writer and judges through the models layer.",
+    hint: "Planner, writer, vision and judges through the models layer.",
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    label: "Anthropic API key",
+    hint: "Claude models for the planner, writer, vision and judges.",
+  },
+  {
+    name: "GOOGLE_GENERATIVE_AI_API_KEY",
+    label: "Google AI (Gemini) API key",
+    hint: "Gemini models for the planner, writer, vision and judges.",
+  },
+  {
+    name: "OPENROUTER_API_KEY",
+    label: "OpenRouter API key",
+    hint: "Many hosted models through one key (planner, writer, judges).",
   },
 ] as const;
 

@@ -42,6 +42,10 @@ export const GhostHandConfig = z.object({
       operation: z.number().min(0).max(1).default(0.65),
       target: z.number().min(0).max(1).default(0.7),
       stuck: z.number().min(0).max(1).default(0.85),
+      /** Text to type: the chosen literal must beat "none" by this much probability (set_value replaces). */
+      text: z.number().min(0).max(1).default(0.5),
+      /** A target this sure lets an advance action run when Jev splits between two operations. */
+      sureTarget: z.number().min(0).max(1).default(0.9),
     })
     .prefault({}),
   browser: z

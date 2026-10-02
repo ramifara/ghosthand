@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BASIC_TEXT_WARNING, type SafeStorageLike, SecretStore } from "./secret-store.ts";
+import { BASIC_TEXT_WARNING, LOCAL_KEY_WARNING, type SafeStorageLike, SecretStore } from "./secret-store.ts";
 
 function fakeSafeStorage(opts: { available?: boolean; backend?: string } = {}): SafeStorageLike {
   return {
@@ -94,5 +94,76 @@ describe("SecretStore", () => {
       },
     };
     expect(new SecretStore({ file, safeStorage: broken, platform: "win32" }).status().names).toEqual([]);
+  });
+});
+
+describe("SecretStore with a local key (ad-hoc signed macOS builds)", () => {
+  const dir = () => mkdtempSync(join(tmpdir(), "gh-localkey-"));
+
+  it("encrypts with its own key, never touches safeStorage, and reads back", () => {
+    const d = dir();
+    const file = join(d, "secrets.json");
+    const localKeyFile = join(d, "secret-key");
+    const untouched: SafeStorageLike = {
+      isEncryptionAvailable: () => {
+        throw new Error("safeStorage must not be used");
+      },
+      encryptString: () => {
+        throw new Error("safeStorage must not be used");
+      },
+      decryptString: () => {
+        throw new Error("safeStorage must not be used");
+      },
+    };
+    const s = new SecretStore({ file, safeStorage: untouched, platform: "darwin", localKeyFile });
+    expect(s.set("TYPESAFE_API_KEY", "ts-live-456").ok).toBe(true);
+    const raw = readFileSync(file, "utf8");
+    expect(raw).not.toContain("ts-live-456");
+    expect(raw).toContain('"backend":"local_key"');
+    expect(statSync(localKeyFile).mode & 0o777).toBe(0o600);
+    const again = new SecretStore({ file, safeStorage: untouched, platform: "darwin", localKeyFile });
+    expect(again.get("TYPESAFE_API_KEY")).toBe("ts-live-456");
+    expect(again.status()).toMatchObject({
+      backend: "local_key",
+      persistent: true,
+      warning: LOCAL_KEY_WARNING,
+    });
+  });
+
+  it("migrates a Keychain-encrypted file to the local key on first load", () => {
+    const d = dir();
+    const file = join(d, "secrets.json");
+    const keychain = fakeSafeStorage();
+    new SecretStore({ file, safeStorage: keychain, platform: "darwin" }).set("OPENAI_API_KEY", "sk-old");
+    expect(readFileSync(file, "utf8")).toContain('"backend":"safe_storage"');
+    const localKeyFile = join(d, "secret-key");
+    const s = new SecretStore({ file, safeStorage: keychain, platform: "darwin", localKeyFile });
+    expect(s.get("OPENAI_API_KEY")).toBe("sk-old");
+    expect(readFileSync(file, "utf8")).toContain('"backend":"local_key"');
+    // The migrated file no longer needs safeStorage.
+    const noKeychain = fakeSafeStorage({ available: false });
+    expect(
+      new SecretStore({ file, safeStorage: noKeychain, platform: "darwin", localKeyFile }).get(
+        "OPENAI_API_KEY",
+      ),
+    ).toBe("sk-old");
+  });
+
+  it("drops values whose key is gone instead of failing", () => {
+    const d = dir();
+    const file = join(d, "secrets.json");
+    const localKeyFile = join(d, "secret-key");
+    new SecretStore({ file, safeStorage: fakeSafeStorage(), platform: "darwin", localKeyFile }).set(
+      "A_KEY",
+      "1",
+    );
+    const other = join(d, "another-key");
+    const s = new SecretStore({
+      file,
+      safeStorage: fakeSafeStorage(),
+      platform: "darwin",
+      localKeyFile: other,
+    });
+    expect(s.has("A_KEY")).toBe(false);
   });
 });

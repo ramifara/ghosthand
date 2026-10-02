@@ -23,9 +23,11 @@ import {
 import { AppLog } from "./app-log.ts";
 import { handleAppProtocol, registerAppScheme } from "./app-protocol.ts";
 import { ChatGptAuth } from "./chatgpt/chatgpt-auth.ts";
+import { isAdHocSigned } from "./code-signature.ts";
 import { EngineHostClient } from "./engine-host-client.ts";
 import { isAllowedExternalUrl } from "./external-links.ts";
 import { createIpcRouter } from "./ipc-router.ts";
+import { fixGuiPath } from "./login-shell-path.ts";
 import { createMainHandlers } from "./main-handlers.ts";
 import { SecretStore } from "./secret-store.ts";
 import { hardenSession, hardenWebContents } from "./security.ts";
@@ -63,20 +65,24 @@ async function main(): Promise<void> {
   // In development the log is also echoed to the terminal; a packaged app only has the file.
   const log = new AppLog(join(userData, "logs"), { echo: !app.isPackaged });
   log.line(`GhostHand ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform}`);
+  // Before the engine host starts: it looks for the Codex and Claude CLIs on this PATH.
+  const added = await fixGuiPath().catch(() => 0);
+  if (added > 0) log.line(`PATH: added ${added} folders from the login shell and common install locations`);
   const settings = new SettingsStore(join(userData, "settings.json"));
   const persistWithoutKeyring = settings.get().persistWithoutKeyring;
-  const secrets = new SecretStore({
-    file: join(userData, "secrets.json"),
+  // An ad-hoc signed macOS app cannot hold a Keychain permission: the login password would be asked on
+  // every launch. Such builds keep their own key (see secret-store.ts); a Developer ID build uses the Keychain.
+  const adHoc =
+    app.isPackaged && (await isAdHocSigned(app.getPath("exe").replace(/\/Contents\/MacOS\/.*$/, "")));
+  if (adHoc) log.line("ad-hoc signed build: secrets use a local key instead of the Keychain");
+  const storeOptions = {
     safeStorage,
     platform: process.platform,
     persistWithoutKeyring,
-  });
-  const chatgptStore = new SecretStore({
-    file: join(userData, "chatgpt-auth.json"),
-    safeStorage,
-    platform: process.platform,
-    persistWithoutKeyring,
-  });
+    ...(adHoc ? { localKeyFile: join(userData, "secret-key") } : {}),
+  };
+  const secrets = new SecretStore({ file: join(userData, "secrets.json"), ...storeOptions });
+  const chatgptStore = new SecretStore({ file: join(userData, "chatgpt-auth.json"), ...storeOptions });
   const chatgpt = new ChatGptAuth({
     store: chatgptStore,
     hostIdFile: join(userData, "agent-host-id"),

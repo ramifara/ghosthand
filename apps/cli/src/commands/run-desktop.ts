@@ -60,10 +60,11 @@ export async function runDesktopCommand(flags: RunFlags, surface: DesktopSurface
   const decision = createDecisionProvider(rt, task.budget.usd);
   if (!decision.ok) return fail(decision.error.message);
   const assistants = await createAssistants(rt, { planner: flags.planner, writer: flags.writer });
-  if (!flags.json) process.stderr.write(`assistants: ${assistants.describe}\nsurface: ${surface}\n`);
+  if (!flags.json) process.stderr.write(`assistants: ${assistants.summary}\nsurface: ${surface}\n`);
   const report = await runAgent(rt, {
     ...(assistants.planner ? { planner: assistants.planner } : {}),
     ...(assistants.writer ? { writer: assistants.writer } : {}),
+    assistants: assistants.summary,
     task,
     decision: decision.value,
     trace: flags.trace,

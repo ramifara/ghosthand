@@ -175,7 +175,13 @@ jobs:
           - macOS Apple Silicon: `arm64.dmg`.
           - macOS Intel: `x64.dmg`.
 
-          These builds are unsigned. macOS and Windows may require you to allow the app in security settings.
+          These builds are not code-signed, so the first launch needs one extra step:
+
+          - macOS: Gatekeeper blocks the app once. System Settings → Privacy & Security → **Open Anyway**,
+            or right-click the app → Open, or `xattr -dr com.apple.quarantine /Applications/GhostHand.app`.
+            The app keeps its own encryption key for API keys and does not prompt for the Keychain.
+          - Windows: SmartScreen shows "Windows protected your PC" → **More info → Run anyway**.
+
           `SHA256SUMS.txt` contains the SHA-256 checksums for all installers.
           EOF
       - name: Publish GitHub Release
