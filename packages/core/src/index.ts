@@ -9,6 +9,7 @@ export * from "./effect-rules.ts";
 export * from "./event-sink.ts";
 export * from "./expectations.ts";
 export * from "./gates.ts";
+export * from "./human-wall.ts";
 export * from "./literals.ts";
 export * from "./logger.ts";
 export * from "./loop.ts";

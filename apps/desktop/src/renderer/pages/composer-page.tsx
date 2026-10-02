@@ -92,6 +92,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   const [writer, setWriter] = useState<WriterChoice>();
   const [decision, setDecision] = useState<"jev" | "heuristic">();
   const [showBrowser, setShowBrowser] = useState<boolean>();
+  const [unattended, setUnattended] = useState(false);
 
   const s = settings.data;
   const hasJev = secrets.data?.names.includes("TYPESAFE_API_KEY") ?? false;
@@ -128,6 +129,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
       ...(writer ? { writer } : {}),
       decision: effectiveDecision,
       ...(showBrowser !== undefined ? { showBrowser } : {}),
+      ...(unattended ? { unattended } : {}),
     });
   };
 
@@ -268,6 +270,12 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
             hint="Needed to take over by hand. The live view works either way."
             checked={showBrowser ?? s?.showBrowser ?? true}
             onChange={setShowBrowser}
+          />
+          <SwitchField
+            label="Run without handover"
+            hint="No approval prompts and more retries and replans before giving up. Anything on the task's forbidden list is still refused; CAPTCHAs and phone checks pause for you."
+            checked={unattended}
+            onChange={setUnattended}
           />
 
           {effectiveDecision === "heuristic" ? (

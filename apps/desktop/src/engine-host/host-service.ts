@@ -402,6 +402,7 @@ export class HostService {
     });
 
     state.finished = runAgent(rt, {
+      autonomy: input.unattended ? "unattended" : "supervised",
       ...(assistants.planner ? { planner: assistants.planner } : {}),
       ...(assistants.writer ? { writer: assistants.writer } : {}),
       task,

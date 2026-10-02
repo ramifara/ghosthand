@@ -6,6 +6,7 @@ import {
   createDecisionProvider,
   type EngineRuntime,
   isDesktopTask,
+  loadEnvFile,
   openRuntime,
   prepareTestbedRun,
   runAgent,
@@ -35,6 +36,19 @@ export async function runCommand(flags: RunFlags): Promise<number> {
   const rt: EngineRuntime = opened.value;
   for (const w of rt.warnings) process.stderr.write(`warn: ${w}\n`);
 
+  // Credentials for this run: registered as secrets, typed by the driver, shown to models as [input:NAME].
+  const credNames: string[] = [];
+  if (flags.creds) {
+    const creds = loadEnvFile(flags.creds);
+    if (!creds.ok) return fail(`--creds: ${creds.error.message}`);
+    if (creds.value.values.size === 0) return fail(`--creds: no KEY=value lines in ${flags.creds}`);
+    for (const [name, value] of creds.value.values) {
+      if (!value) continue;
+      rt.secrets.register(name, value);
+      credNames.push(name);
+    }
+  }
+
   let task: TaskSpec;
   let oracle: ((id: string) => Promise<boolean | undefined>) | undefined;
   let cookies: Parameters<typeof webLauncher>[1]["cookies"] = [];
@@ -42,7 +56,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
     const prepared = await prepareTestbedRun(flags.task);
     if (!prepared.ok) return fail(prepared.error.message);
     for (const [name, value] of Object.entries(prepared.value.secrets)) rt.secrets.register(name, value);
-    task = prepared.value.spec;
+    task = { ...prepared.value.spec, secrets: [...new Set([...prepared.value.spec.secrets, ...credNames])] };
     if (flags.url) task = { ...task, startUrl: new URL(new URL(task.startUrl).pathname, flags.url).href };
     oracle = prepared.value.oracle;
     cookies = prepared.value.cookies;
@@ -52,7 +66,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
       instruction: flags.goal,
       startUrl: flags.url,
       allowOrigins: flags.allowOrigins,
-      secrets: agentSecretNames(rt),
+      secrets: agentSecretNames(rt, credNames),
       budget: rt.config.budget,
     });
   }
@@ -73,6 +87,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
     task,
     decision: decision.value,
     trace: flags.trace,
+    autonomy: flags.unattended ? "unattended" : "supervised",
     launch: webLauncher(rt, {
       startUrl: task.startUrl,
       allowOrigins: launchOrigins(task, flags.allowOrigins),

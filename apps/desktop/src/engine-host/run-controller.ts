@@ -59,6 +59,14 @@ export class RunController implements RunControl {
     return this.abort.signal.aborted;
   }
 
+  /** core RunControl: a CAPTCHA or identity check needs the person watching; pause and say why. */
+  requestHuman(reason: string): boolean {
+    if (this.stopped) return false;
+    if (!this.#paused && !this.pause()) return false;
+    this.#events.status("paused", `needs you: ${reason}. Solve it in the browser, then resume.`);
+    return true;
+  }
+
   pause(): boolean {
     if (this.#paused || this.stopped) return false;
     let release!: () => void;

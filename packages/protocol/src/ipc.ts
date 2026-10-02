@@ -236,6 +236,8 @@ export const StartRunInput = z
     writer: WriterChoice.optional(),
     decision: DecisionChoice.default("jev"),
     showBrowser: z.boolean().optional(),
+    /** Run without handover: no approval prompts; human-verification walls still pause for takeover. */
+    unattended: z.boolean().optional(),
   })
   .strict();
 export type StartRunInput = z.infer<typeof StartRunInput>;

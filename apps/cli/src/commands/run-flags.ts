@@ -11,6 +11,10 @@ export interface RunFlags {
   allowOrigins: string[];
   headless: boolean;
   yes: boolean;
+  /** No approval prompts; recover from dead ends with the writer and replans (see runAgent autonomy). */
+  unattended: boolean;
+  /** KEY=value file with credentials for this run (demo accounts); the model only sees the names. */
+  creds?: string;
   trace: boolean;
   json: boolean;
   config?: string;

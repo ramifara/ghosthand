@@ -25,6 +25,7 @@ export const HELP = `ghosthand, a Jev CUA
 
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
+                [--unattended] [--creds <KEY=value file>]
                 [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
                 [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off]
   ghosthand run --surface x11|wayland|windows|macos (--task desktop-<id> | --app "<command>" "<goal>")
@@ -191,6 +192,8 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     allowOrigins: values["allow-origin"] ?? [],
     headless: values.headless ?? false,
     yes: values.yes ?? false,
+    unattended: values.unattended ?? false,
+    ...(values.creds ? { creds: values.creds } : {}),
     trace: !(values["no-trace"] ?? false),
     json: values.json ?? false,
     planner: (["codex", "claude", "models", "none"].includes(values.planner ?? "")
@@ -253,6 +256,8 @@ export function parse(argv: string[]) {
       config: { type: "string" },
       "no-trace": { type: "boolean" },
       "no-heal": { type: "boolean" },
+      unattended: { type: "boolean" },
+      creds: { type: "string" },
       suite: { type: "string" },
       planner: { type: "string" },
       provider: { type: "string" },
