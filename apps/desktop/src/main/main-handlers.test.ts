@@ -25,6 +25,7 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
   const calls: Array<{ command: HostCommandName; input: unknown; extras: RequestExtras }> = [];
   const opened: string[] = [];
   const started: string[] = [];
+  let logsOpened = 0;
   const chatgpt = {
     accessToken: async () => "plan-token",
     status: () => ({ enabled: true, signedIn: true, pending: false, scopes: [] }),
@@ -43,10 +44,19 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
     openExternal: async (url) => {
       opened.push(url);
     },
-    app: { version: "0.0.0", platform: "linux", electron: "43.7.7" },
+    openLogs: async () => {
+      logsOpened++;
+    },
+    app: {
+      version: "0.0.0",
+      platform: "linux",
+      electron: "43.7.7",
+      packaged: true,
+      logsDir: join(dir, "logs"),
+    },
     onRunStarted: (id) => started.push(id),
   });
-  return { handlers, settings, secrets, calls, opened, started };
+  return { handlers, settings, secrets, calls, opened, started, logsOpened: () => logsOpened, dir };
 }
 
 describe("main handlers", () => {
@@ -105,6 +115,16 @@ describe("main handlers", () => {
     const good = await handlers["roles.set"]({ writer: { models: ["openai/gpt-6-luna"] } });
     expect(good.ok).toBe(true);
     expect(settings.get().roleBindings.writer?.models).toEqual(["openai/gpt-6-luna"]);
+  });
+
+  it("reports the build kind and logs folder, and opens the logs folder on request", async () => {
+    const { handlers, dir, logsOpened } = setup(() => ({ ok: true, value: "/runs" }));
+    expect(await handlers["app.info"]({})).toMatchObject({
+      ok: true,
+      value: { packaged: true, logsDir: join(dir, "logs"), runsDir: "/runs" },
+    });
+    expect(await handlers["app.openLogs"]({})).toEqual({ ok: true, value: null });
+    expect(logsOpened()).toBe(1);
   });
 
   it("opens only allow-listed links", async () => {

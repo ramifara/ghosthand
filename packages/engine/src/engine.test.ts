@@ -101,14 +101,23 @@ describe("runAgent + replay (fake computer, recorded decisions)", () => {
     const { rt } = await runtime();
     const { launch, computers } = launcher(rt);
     const decision = new ScriptedDecisionProvider(recording);
+    const announced: string[] = [];
     const run = await runAgent(rt, {
       task,
       launch,
       decision,
-      hooks: { oracle: async () => computers.at(-1)?.loggedIn },
+      hooks: {
+        oracle: async () => computers.at(-1)?.loggedIn,
+        onRunId: (id) => announced.push(`id:${id}`),
+        onEvent: (e) => {
+          if (announced.length < 2) announced.push(`event:${e.type}`);
+        },
+      },
     });
     if (!run.ok) throw new Error(run.error);
     expect(run.value.outcome).toBe("success");
+    // The id is known before the first event, so a host can address the run while the browser launches.
+    expect(announced).toEqual([`id:${run.value.runId}`, "event:run.start"]);
     expect(run.value.oraclePass).toBe(true);
     const files = readdirSync(run.value.folder);
     for (const f of ["events.jsonl", "summary.json", "log.jsonl", "otel.jsonl"]) expect(files).toContain(f);

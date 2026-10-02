@@ -5,6 +5,7 @@ import { RunListItem } from "@ghosthand/protocol";
 import type { RunRecord } from "@ghosthand/recorder";
 import { describe, expect, it } from "vitest";
 import { FrameThrottle } from "./frame-throttle.ts";
+import { invalidRequestResponse } from "./host-service.ts";
 import { defaultChromeUserDataDir, toProfileItem, toRunListItem } from "./host-views.ts";
 import { createIpcErrorFromProfile, isScreencastCapable } from "./screencast-capable.ts";
 
@@ -94,5 +95,25 @@ describe("views", () => {
         stopScreencast: async () => {},
       } as typeof base),
     ).toBe(true);
+  });
+});
+
+describe("invalidRequestResponse", () => {
+  it("answers a malformed request that carries an id, so main does not wait for its timeout", () => {
+    const res = invalidRequestResponse(
+      { kind: "request", id: 7, command: "runs.start" },
+      "settings: invalid",
+    );
+    expect(res).toEqual({
+      kind: "response",
+      id: 7,
+      ok: false,
+      error: { kind: "invalid_input", message: "the engine host rejected the request (settings: invalid)" },
+    });
+  });
+
+  it("ignores messages without a request id", () => {
+    expect(invalidRequestResponse({ kind: "port" })).toBeUndefined();
+    expect(invalidRequestResponse("nonsense")).toBeUndefined();
   });
 });

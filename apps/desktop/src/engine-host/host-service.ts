@@ -40,6 +40,7 @@ import {
 } from "@ghosthand/protocol";
 import { readRun, screenshotName } from "@ghosthand/recorder";
 import { tasks } from "@ghosthand/testbed-kit";
+import { z } from "zod";
 import { FrameThrottle } from "./frame-throttle.ts";
 import {
   defaultChromeUserDataDir,
@@ -64,6 +65,24 @@ type Outcome = { ok: true; value: unknown } | { ok: false; error: IpcError };
 
 const fail = (kind: IpcError["kind"], message: string): Outcome => ({ ok: false, error: { kind, message } });
 const done = (value: unknown): Outcome => ({ ok: true, value });
+
+/**
+ * The reply for a message that is not a valid `HostRequest` but carries a request id: main's caller then
+ * fails at once instead of waiting for its timeout. Undefined when there is no id to answer.
+ */
+export function invalidRequestResponse(data: unknown, issue?: string): HostResponse | undefined {
+  const withId = z.object({ id: z.number().int().nonnegative() }).safeParse(data);
+  if (!withId.success) return undefined;
+  return {
+    kind: "response",
+    id: withId.data.id,
+    ok: false,
+    error: {
+      kind: "invalid_input",
+      message: `the engine host rejected the request${issue ? ` (${issue})` : ""}`,
+    },
+  };
+}
 
 /** Keys main may hand over that configure providers rather than being typed by the agent. */
 const PROVIDER_KEYS = new Set(["TYPESAFE_API_KEY", "OPENAI_API_KEY"]);
@@ -359,6 +378,7 @@ export class HostService {
     );
 
     let runId = "";
+    let announcedRunning = false;
     let resolveStarted!: (id: string | undefined) => void;
     const started = new Promise<string | undefined>((r) => {
       resolveStarted = r;
@@ -420,12 +440,26 @@ export class HostService {
         approve: controller.approve,
         signal: controller.abort.signal,
         control: controller,
+        // The run has an id as soon as its folder exists: the renderer can watch it (and stop it) while
+        // the browser is still launching, and a slow launch can never leave a run main cannot address.
+        onRunId: (id) => {
+          runId = id;
+          state.info = { ...state.info, runId };
+          this.#notify({ kind: "run.status", runId, status: "starting" });
+          this.#send({ kind: "status", runId, status: "starting", detail: "launching the browser" });
+          resolveStarted(runId);
+        },
         onEvent: (event) => {
-          if (!runId) {
+          if (!announcedRunning) {
+            announcedRunning = true;
             runId = event.runId;
-            state.info = { ...state.info, runId, status: "running" };
-            this.#notify({ kind: "run.status", runId, status: "running" });
-            this.#send({ kind: "status", runId, status: "running", detail: decision.label });
+            if (state.info.status === "starting") {
+              state.info = { ...state.info, runId, status: "running" };
+              this.#notify({ kind: "run.status", runId, status: "running" });
+              this.#send({ kind: "status", runId, status: "running", detail: decision.label });
+            } else {
+              state.info = { ...state.info, runId };
+            }
             resolveStarted(runId);
             void state.computer?.startScreencast((frame) => throttle.push(frame));
           }

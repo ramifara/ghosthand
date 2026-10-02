@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Task composer: a free-text goal with a start URL, or a testbed task; plus profile, planner, writer and
-// (in plumbing mode) the decision source. Starting a run switches to the live view.
+// (in plumbing mode) the decision source. Starting a run switches to the live view. Whatever still
+// blocks a start is listed next to the button, never left to a silently disabled control. An installed
+// app hides the testbed (its tasks need the dev testbed server) unless Setup → Developer turns it on.
 import {
   MAX_TASK_GOAL_CHARS,
   type PlannerChoice,
@@ -10,7 +12,7 @@ import {
   type WriterChoice,
 } from "@ghosthand/protocol";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { FlaskConical, Play, RotateCcw, Target } from "lucide-react";
+import { CircleAlert, FlaskConical, Play, RotateCcw, Target } from "lucide-react";
 import { useId, useMemo } from "react";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -87,16 +89,21 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => call("settings.get", {}) });
   const chatgpt = useQuery({ queryKey: ["chatgpt"], queryFn: () => call("chatgpt.status", {}) });
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => call("secrets.list", {}) });
+  const info = useQuery({ queryKey: ["app-info"], queryFn: () => call("app.info", {}) });
   const liveStatus = useLiveStore((s) => s.status);
+  const engine = useLiveStore((s) => s.engine);
 
   const draft = useUiStore((state) => state.composer);
   const recentTasks = useUiStore((state) => state.recentTasks);
   const patch = useUiStore((state) => state.patchComposer);
-  const { source, taskId, goal, startUrl, profile, planner, writer, decision, showBrowser, unattended } =
-    draft;
+  const { taskId, goal, startUrl, profile, planner, writer, decision, showBrowser, unattended } = draft;
 
   const s = settings.data;
+  // Until the app says which build this is, nothing testbed-related is drawn (no flash in a release).
+  const testbedShown = info.data !== undefined && (!info.data.packaged || (s?.devTestbed ?? false));
+  const source = testbedShown ? draft.source : "goal";
   const hasJev = secrets.data?.names.includes("TYPESAFE_API_KEY") ?? false;
+  const chatgptPlan = (chatgpt.data?.enabled && chatgpt.data.signedIn) ?? false;
   const plumbing = s?.devPlumbingMode ?? false;
   const effectiveDecision = decision ?? (hasJev ? "jev" : plumbing ? "heuristic" : "jev");
   const selectedTask = useMemo(() => tasks.data?.find((t) => t.id === taskId), [tasks.data, taskId]);
@@ -115,14 +122,36 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   });
 
   const busy = liveStatus !== undefined && liveStatus !== "ended";
-  const ready =
-    !busy &&
-    (source === "testbed"
-      ? selectedTask !== undefined
-      : goal.trim().length > 0 &&
-        goal.trim().length <= MAX_TASK_GOAL_CHARS &&
-        /^https?:\/\/.+/.test(startUrl)) &&
-    (effectiveDecision === "heuristic" ? plumbing : hasJev);
+  const goalLength = goal.trim().length;
+  // Everything that still blocks a start, in the order the user would fix it.
+  const blockers: string[] = [];
+  if (busy) blockers.push("A run is in progress. Stop it from the live view first.");
+  if (engine === "crashed")
+    blockers.push(
+      "The engine stopped and could not be restarted. Open the log in Setup → Developer, then restart GhostHand.",
+    );
+  if (source === "testbed") {
+    if (selectedTask === undefined) blockers.push("Pick a testbed task from the list.");
+  } else {
+    if (goalLength === 0) blockers.push("Write a goal.");
+    else if (goalLength > MAX_TASK_GOAL_CHARS)
+      blockers.push(`Shorten the goal to ${MAX_TASK_GOAL_CHARS.toLocaleString()} characters.`);
+    if (!/^https?:\/\/.+/.test(startUrl))
+      blockers.push("Enter a start URL that begins with http:// or https://.");
+  }
+  if (effectiveDecision === "heuristic") {
+    if (!plumbing)
+      blockers.push(
+        "Plumbing mode is off (Setup → Developer). Switch Decision to Jev, or turn plumbing mode on.",
+      );
+  } else if (!hasJev) {
+    blockers.push(
+      chatgptPlan
+        ? "Your ChatGPT plan covers planning and writing, not the step decisions. Add a TypeSafe key in Setup → Providers to run with Jev."
+        : "Add a TypeSafe key in Setup → Providers to run with Jev.",
+    );
+  }
+  const ready = blockers.length === 0;
 
   const submit = () => {
     if (!ready) return;
@@ -141,7 +170,12 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   };
 
   return (
-    <div className="grid h-full grid-cols-[minmax(340px,420px)_1fr] gap-3 p-3">
+    <div
+      className={cn(
+        "grid h-full gap-3 p-3",
+        testbedShown ? "grid-cols-[minmax(340px,420px)_1fr]" : "grid-cols-[minmax(340px,560px)]",
+      )}
+    >
       <Panel title="New task" bodyClassName="overflow-y-auto">
         <form
           className="flex flex-col gap-4 p-4"
@@ -203,33 +237,35 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               </Button>
             </div>
           ) : null}
-          <div
-            role="tablist"
-            aria-label="Task source"
-            className="grid grid-cols-2 rounded-[5px] border border-line-strong p-0.5"
-          >
-            {(
-              [
-                ["testbed", "Testbed task", <FlaskConical key="i" />],
-                ["goal", "Goal on any site", <Target key="i" />],
-              ] as const
-            ).map(([key, label, icon]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={source === key}
-                onClick={() => patch({ source: key })}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-[3px] py-1.5 text-xs font-medium text-muted [&_svg]:size-3.5",
-                  source === key && "bg-accent-soft text-accent",
-                )}
-              >
-                {icon}
-                {label}
-              </button>
-            ))}
-          </div>
+          {testbedShown ? (
+            <div
+              role="tablist"
+              aria-label="Task source"
+              className="grid grid-cols-2 rounded-[5px] border border-line-strong p-0.5"
+            >
+              {(
+                [
+                  ["testbed", "Testbed task", <FlaskConical key="i" />],
+                  ["goal", "Goal on any site", <Target key="i" />],
+                ] as const
+              ).map(([key, label, icon]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={source === key}
+                  onClick={() => patch({ source: key })}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-[3px] py-1.5 text-xs font-medium text-muted [&_svg]:size-3.5",
+                    source === key && "bg-accent-soft text-accent",
+                  )}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {source === "goal" ? (
             <>
@@ -357,17 +393,40 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
               judge the agent.
             </p>
           ) : null}
-          {!hasJev && !plumbing ? (
-            <p className="text-xs text-muted">Add a TypeSafe key in Setup → Providers to run with Jev.</p>
+          {blockers.length > 0 ? (
+            <div
+              role="status"
+              aria-label="Before you can start"
+              className="rounded-[5px] border border-line bg-panel-2 px-3 py-2 text-xs"
+            >
+              <p className="label mb-1">Before you can start</p>
+              <ul className="grid gap-1 text-muted">
+                {blockers.map((b) => (
+                  <li key={b} className="flex gap-1.5">
+                    <CircleAlert aria-hidden="true" className="mt-0.5 size-3 shrink-0 text-amber" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
-          {start.error ? <p className="text-danger">{errorMessage(start.error)}</p> : null}
-          {busy ? (
-            <p className="text-xs text-muted">A run is in progress. Stop it from the live view first.</p>
+          {start.error ? (
+            <p
+              role="alert"
+              className="rounded-[5px] border border-danger/40 bg-danger-soft px-3 py-2 text-danger"
+            >
+              The run did not start: {errorMessage(start.error)}
+            </p>
           ) : null}
 
           <div className="flex items-center justify-between gap-3">
-            {chatgpt.data?.enabled && chatgpt.data.signedIn ? (
-              <Badge tone="accent">Using ChatGPT plan</Badge>
+            {chatgptPlan ? (
+              <Badge
+                tone="accent"
+                title="Planner and writer calls use your ChatGPT plan. Jev still decides each step and needs the TypeSafe key."
+              >
+                Using ChatGPT plan
+              </Badge>
             ) : (
               <span />
             )}
@@ -379,22 +438,24 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
         </form>
       </Panel>
 
-      <Panel
-        title={`Testbed tasks${tasks.data ? ` · ${tasks.data.length}` : ""}`}
-        bodyClassName={cn("overflow-y-auto", source !== "testbed" && "opacity-50")}
-      >
-        {tasks.isError ? (
-          <p className="p-4 text-danger">{errorMessage(tasks.error)}</p>
-        ) : (
-          <TaskPicker
-            tasks={tasks.data ?? []}
-            value={taskId}
-            onChange={(id) => {
-              patch({ source: "testbed", taskId: id });
-            }}
-          />
-        )}
-      </Panel>
+      {testbedShown ? (
+        <Panel
+          title={`Testbed tasks${tasks.data ? ` · ${tasks.data.length}` : ""}`}
+          bodyClassName={cn("overflow-y-auto", source !== "testbed" && "opacity-50")}
+        >
+          {tasks.isError ? (
+            <p className="p-4 text-danger">{errorMessage(tasks.error)}</p>
+          ) : (
+            <TaskPicker
+              tasks={tasks.data ?? []}
+              value={taskId}
+              onChange={(id) => {
+                patch({ source: "testbed", taskId: id });
+              }}
+            />
+          )}
+        </Panel>
+      ) : null}
     </div>
   );
 }

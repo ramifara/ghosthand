@@ -82,6 +82,8 @@ export const Settings = z
     browserNetwork: BrowserNetwork.prefault({}),
     /** Hidden developer setting: use the heuristic decision provider when no TypeSafe key is set. */
     devPlumbingMode: z.boolean().default(false),
+    /** Developer setting: show testbed tasks in a packaged app (they need `bun run dev:testbed`). */
+    devTestbed: z.boolean().default(false),
     /** Feature flag for Sign in with ChatGPT (preview; see docs/adr/0008). */
     chatgptSignIn: z.boolean().default(false),
     /** Keep secrets on disk even when Linux has no keyring (safeStorage `basic_text`). */
@@ -184,8 +186,12 @@ export const AppInfo = z.object({
   version: z.string(),
   platform: z.string(),
   electron: z.string(),
+  /** True for an installed build; development runs show the testbed by default. */
+  packaged: z.boolean(),
   secrets: SecretsStatus,
   runsDir: z.string(),
+  /** Folder with the engine host log (main writes it; the user can open it from Setup → Developer). */
+  logsDir: z.string(),
 });
 export type AppInfo = z.infer<typeof AppInfo>;
 
@@ -257,6 +263,7 @@ const Nothing = z.null();
 
 export const IpcCommands = {
   "app.info": { input: Empty, output: AppInfo },
+  "app.openLogs": { input: Empty, output: Nothing },
   "runs.start": { input: StartRunInput, output: z.object({ runId: z.string() }) },
   "runs.stop": { input: RunRef, output: Nothing },
   "runs.approve": {
