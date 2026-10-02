@@ -3,7 +3,7 @@
 // Developer switches (plumbing mode, previews, keyring fallback) and the doctor.
 import type { Settings } from "@ghosthand/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stethoscope } from "lucide-react";
+import { FolderOpen, Stethoscope } from "lucide-react";
 import { Button } from "../../components/ui/button.tsx";
 import { SwitchField } from "../../components/ui/switch.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
@@ -22,6 +22,7 @@ export function DeveloperSection() {
     },
   });
   const doctor = useMutation({ mutationFn: () => call("doctor.run", {}) });
+  const openLogs = useMutation({ mutationFn: () => call("app.openLogs", {}) });
   const s = settings.data;
   if (!s) return null;
   return (
@@ -39,6 +40,14 @@ export function DeveloperSection() {
           checked={s.chatgptSignIn}
           onChange={(chatgptSignIn) => save.mutate({ chatgptSignIn })}
         />
+        {info.data?.packaged ? (
+          <SwitchField
+            label="Testbed tasks"
+            hint="Shows the testbed task list in the composer. Those tasks need the testbed from a source checkout (bun run dev:testbed) on 127.0.0.1:4400; an installed app hides them otherwise."
+            checked={s.devTestbed}
+            onChange={(devTestbed) => save.mutate({ devTestbed })}
+          />
+        ) : null}
         <SwitchField
           label="Persist secrets without a keyring"
           hint="Linux only: keeps secrets on disk when safeStorage falls back to basic_text. Anyone with your user account can read them."
@@ -72,6 +81,23 @@ export function DeveloperSection() {
           <p className="text-muted">Checks Node, keys, the browser, Codex and the runs folder.</p>
         )}
         {doctor.error ? <p className="text-danger">{errorMessage(doctor.error)}</p> : null}
+      </section>
+      <section aria-labelledby="logs-h" className="rounded-md border border-line p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 id="logs-h" className="label">
+            Logs
+          </h3>
+          <Button size="sm" onClick={() => openLogs.mutate()} disabled={openLogs.isPending}>
+            <FolderOpen aria-hidden="true" />
+            Open logs folder
+          </Button>
+        </div>
+        <p className="text-muted">
+          The engine host writes everything it reports to engine-host.log here. When a run will not start, try
+          again, then send that file along with what the composer said.
+        </p>
+        {info.data ? <p className="mt-1 font-mono text-2xs text-faint">{info.data.logsDir}</p> : null}
+        {openLogs.error ? <p className="text-danger">{errorMessage(openLogs.error)}</p> : null}
       </section>
       {info.data ? (
         <p className="font-mono text-2xs text-faint">

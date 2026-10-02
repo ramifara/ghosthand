@@ -3,7 +3,7 @@
 // @vitest-environment jsdom
 import { type GhostHandBridge, type IpcCommandName, MAX_TASK_GOAL_CHARS } from "@ghosthand/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiveStore } from "../stores/live-store.ts";
 import { useUiStore } from "../stores/ui-store.ts";
@@ -23,6 +23,7 @@ const SETTINGS = {
   writer: "auto",
   showBrowser: true,
   devPlumbingMode: false,
+  devTestbed: false,
   chatgptSignIn: false,
   persistWithoutKeyring: false,
   roleBindings: {},
@@ -35,6 +36,8 @@ function installBridge(
     chatgpt?: boolean;
     failStart?: boolean;
     endBeforeReply?: boolean;
+    packaged?: boolean;
+    devTestbed?: boolean;
   } = {},
 ) {
   const calls: Array<{ command: IpcCommandName; input: unknown }> = [];
@@ -44,7 +47,20 @@ function installBridge(
       { id: "l2-orders-edit-status", version: 1, level: 2, start: "/orders", instruction: "Cancel ord_1012" },
     ],
     "profiles.list": [{ name: "work", sizeBytes: 10 }],
-    "settings.get": { ...SETTINGS, devPlumbingMode: opts.plumbing ?? false },
+    "settings.get": {
+      ...SETTINGS,
+      devPlumbingMode: opts.plumbing ?? false,
+      devTestbed: opts.devTestbed ?? false,
+    },
+    "app.info": {
+      version: "0.0.0",
+      platform: "linux",
+      electron: "43.7.7",
+      packaged: opts.packaged ?? false,
+      secrets: { names: [], backend: "kwallet6", persistent: true },
+      runsDir: "/runs",
+      logsDir: "/logs",
+    },
     "chatgpt.status": { enabled: true, signedIn: opts.chatgpt ?? false, pending: false, scopes: [] },
     "secrets.list": { names: opts.jevKey ? ["TYPESAFE_API_KEY"] : [], backend: "kwallet6", persistent: true },
     "runs.start": { runId: "20261001-120000-abcdef" },
@@ -85,6 +101,7 @@ function renderComposer(onStarted = vi.fn()) {
 describe("ComposerPage", () => {
   beforeEach(() => {
     useLiveStore.getState().reset();
+    useLiveStore.getState().setEngine("ready");
     useUiStore.getState().reset();
   });
   afterEach(() => {
@@ -130,6 +147,56 @@ describe("ComposerPage", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
     expect(await screen.findByText(/Add a TypeSafe key/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("lists every blocker next to the button and clears them one by one", async () => {
+    installBridge({ chatgpt: true });
+    renderComposer();
+    await screen.findByRole("radio", { name: /l1-login/ });
+    fireEvent.click(screen.getByRole("tab", { name: /Goal on any site/ }));
+    const blockers = () =>
+      [...screen.getByRole("status", { name: "Before you can start" }).querySelectorAll("li")].map(
+        (li) => li.textContent,
+      );
+    await waitFor(() => expect(blockers()).toHaveLength(3));
+    expect(blockers()).toEqual([
+      "Write a goal.",
+      "Enter a start URL that begins with http:// or https://.",
+      // A signed-in ChatGPT plan is not a decision model: say so instead of a bare "no key".
+      "Your ChatGPT plan covers planning and writing, not the step decisions. Add a TypeSafe key in Setup → Providers to run with Jev.",
+    ]);
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Find pricing" } });
+    fireEvent.change(screen.getByLabelText("Start URL"), { target: { value: "https://example.com" } });
+    expect(blockers()).toEqual([
+      "Your ChatGPT plan covers planning and writing, not the step decisions. Add a TypeSafe key in Setup → Providers to run with Jev.",
+    ]);
+    expect((screen.getByRole("button", { name: "Start run" }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => useLiveStore.setState({ runId: "r1", status: "starting" }));
+    expect(blockers()[0]).toBe("A run is in progress. Stop it from the live view first.");
+    act(() => {
+      useLiveStore.setState({ status: "ended" });
+      useLiveStore.getState().setEngine("crashed");
+    });
+    expect(blockers()[0]).toMatch(/^The engine stopped/);
+  });
+
+  it("an installed app hides the testbed until the developer switch turns it on", async () => {
+    installBridge({ jevKey: true, packaged: true });
+    renderComposer();
+    await screen.findByLabelText("Goal");
+    expect(screen.queryByRole("tab", { name: /Testbed task/ })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Testbed task" })).toBeNull();
+    // A draft that still points at the testbed (Run again on an old recording) says why it cannot run.
+    act(() => useUiStore.getState().patchComposer({ source: "testbed", taskId: "l1-login" }));
+    expect(screen.getByLabelText("Goal")).toBeTruthy();
+    expect(screen.getByText(/belongs to the testbed, which this app hides/)).toBeTruthy();
+    expect(screen.getByText("Write a goal.")).toBeTruthy();
+    cleanup();
+    delete window.ghosthand;
+    installBridge({ jevKey: true, packaged: true, devTestbed: true });
+    renderComposer();
+    expect(await screen.findByRole("radio", { name: /l1-login/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Testbed task/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("takes a goal with a start URL and shows the ChatGPT plan label", async () => {
@@ -191,7 +258,7 @@ describe("ComposerPage", () => {
     cleanup();
     useLiveStore.setState({ status: "ended" });
     renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear inputs" }));
     fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
     expect((screen.getByLabelText("Goal") as HTMLInputElement).value).toBe("Find pricing");
     expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
@@ -219,7 +286,7 @@ describe("ComposerPage", () => {
     cleanup();
     useLiveStore.setState({ status: "ended" });
     renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "Clear inputs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear inputs" }));
     fireEvent.change(screen.getByLabelText("Recent tasks"), { target: { value: "20261001-120000-abcdef" } });
     expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(goal.trim());
     const oversized = "x".repeat(MAX_TASK_GOAL_CHARS + 1);
@@ -245,7 +312,7 @@ describe("ComposerPage", () => {
     renderComposer();
     fireEvent.click(await screen.findByRole("radio", { name: /l1-login/ }));
     fireEvent.click(screen.getByRole("button", { name: "Start run" }));
-    await screen.findByText("Browser unavailable");
+    expect((await screen.findByRole("alert")).textContent).toBe("The run did not start: Browser unavailable");
     expect(calls.filter((call) => call.command === "runs.start")).toHaveLength(1);
     expect(useUiStore.getState().composer.taskId).toBe("l1-login");
     expect(useUiStore.getState().recentTasks).toEqual([]);

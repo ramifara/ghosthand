@@ -41,6 +41,8 @@ export interface RunHooks {
   /** Grades the run; receives the agent's reported answer for answer tasks. */
   oracle?: (taskId: string, answer?: string) => Promise<boolean | undefined>;
   approve?: (req: ApprovalRequest) => Promise<boolean>;
+  /** The run folder exists; called before the browser launches and before the first event. */
+  onRunId?: (runId: string, folder: string) => void;
   onEvent?: (event: RunEvent) => void;
   signal?: AbortSignal;
   /** Takeover pause/resume (desktop). */
@@ -170,6 +172,7 @@ export async function runAgent(
   const session = openSession(rt, hooks);
   if (!session.ok) return session;
   const s = session.value;
+  hooks.onRunId?.(s.recorder.runId, s.recorder.paths.folder);
   const learning = opts.knowledge?.kb.session(opts.task.startUrl);
   const launched = await opts.launch();
   s.sink.emit({
@@ -329,6 +332,7 @@ export async function runReplay(
   const session = openSession(rt, hooks);
   if (!session.ok) return session;
   const s = session.value;
+  hooks.onRunId?.(s.recorder.runId, s.recorder.paths.folder);
   const launched = await opts.launch();
   s.sink.emit({
     type: "run.start",

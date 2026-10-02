@@ -55,6 +55,8 @@ bun run dev:desktop                                                # the Electro
 
 The desktop task composer keeps its draft, selected task tab and run options across navigation and app restarts. **Recent tasks** loads any of the last 30 submissions with its original launch options. **Use task** in Runs and **Run again** in Live or Replay load a recorded task into the composer; press **Start run** to run it. Older recordings use current defaults for launch options they did not record.
 
+An installed app shows only **Goal on any site**: the testbed tasks need the testbed server from a source checkout, so a release hides them until **Testbed tasks** is turned on under Setup → Developer. Whatever still blocks a start (no goal, no start URL, no TypeSafe key, a run in progress) is listed under the Start button; a signed-in ChatGPT plan covers planner and writer calls but not Jev, which always needs the TypeSafe key. The engine host's output goes to `engine-host.log` in the app's logs folder (**Open logs folder** under Setup → Developer): send that file when a run will not start.
+
 **Clear inputs** resets the task draft. **Clear recent tasks** removes the shortcut list without deleting run recordings. Setup remembers its selected tab and unsaved nonsecret fields; **Reset fields** restores saved settings, and **Clear profile inputs** empties the profile forms. Credential values and sign-in responses stay out of this draft cache. Desktop goals accept up to 32,000 characters, with a visible count and an error for longer drafts; pasted text is kept intact.
 
 ## Repository layout

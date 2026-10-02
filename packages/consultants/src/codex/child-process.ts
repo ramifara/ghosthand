@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // The slice of `node:child_process` the CLI consultants (Codex, Claude) use, so tests can inject a fake process.
 import { spawn as nodeSpawn } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import type { ConsultantError, Result } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
+import { resolveWindowsCommand, type WindowsCommandHost } from "./windows-command.ts";
 
 export interface ChildProcessLike {
   readonly stdin: Writable | null;
@@ -28,12 +30,36 @@ export interface SpawnOptions {
 
 export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcessLike;
 
-export const defaultSpawn: SpawnFn = (command, args, options) =>
-  nodeSpawn(command, args, {
+const windowsHost = (env: NodeJS.ProcessEnv): WindowsCommandHost => ({
+  env,
+  isFile(path) {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
+  readText(path) {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return undefined;
+    }
+  },
+});
+
+export const defaultSpawn: SpawnFn = (command, args, options) => {
+  // Windows finds `codex.exe` but not the `codex.cmd` shim npm installs; resolve it without a shell.
+  const resolved =
+    process.platform === "win32"
+      ? resolveWindowsCommand(command, windowsHost(options.env ?? process.env))
+      : { file: command, prefixArgs: [] };
+  return nodeSpawn(resolved.file, [...resolved.prefixArgs, ...args], {
     stdio: ["pipe", "pipe", "pipe"],
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.env === undefined ? {} : { env: options.env }),
   });
+};
 
 function errorCode(e: Error): string | undefined {
   const code: unknown = Reflect.get(e, "code");

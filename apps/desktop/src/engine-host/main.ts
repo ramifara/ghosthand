@@ -3,7 +3,7 @@
 // Engine host entry (Electron utilityProcess). Talks to main over `process.parentPort` and to the renderer
 // over the MessagePort main hands it. Playwright runs here and launches the user's browser.
 import { HostPortHandoff, HostRequest } from "@ghosthand/protocol";
-import { HostService, type PortLike } from "./host-service.ts";
+import { HostService, invalidRequestResponse, type PortLike } from "./host-service.ts";
 
 interface ParentPortEvent {
   data: unknown;
@@ -36,7 +36,15 @@ parentPort.on("message", (e) => {
     return;
   }
   const req = HostRequest.safeParse(e.data);
-  if (!req.success) return;
+  if (!req.success) {
+    const issue = req.error.issues[0];
+    const res = invalidRequestResponse(
+      e.data,
+      issue ? `${issue.path.join(".")}: ${issue.message}` : undefined,
+    );
+    if (res) parentPort.postMessage(res);
+    return;
+  }
   void service.handle(req.data).then((res) => parentPort.postMessage(res));
 });
 

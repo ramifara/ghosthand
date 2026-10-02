@@ -27,7 +27,8 @@ export function startEngineStream(queryClient: QueryClient, onHotkey: () => void
   // Re-attach to a run that was already going (window reload).
   void call("runs.active", {})
     .then((active) => {
-      if (active && active.status !== "ended") {
+      // A run without an id yet has no folder to watch or stop; its status message follows shortly.
+      if (active && active.status !== "ended" && active.runId) {
         useLiveStore.setState({ runId: active.runId, status: active.status });
       }
     })

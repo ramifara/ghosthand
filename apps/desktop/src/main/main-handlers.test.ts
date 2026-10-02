@@ -25,6 +25,8 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
   const calls: Array<{ command: HostCommandName; input: unknown; extras: RequestExtras }> = [];
   const opened: string[] = [];
   const started: string[] = [];
+  let logsOpened = 0;
+  let logsProblem = "";
   const chatgpt = {
     accessToken: async () => "plan-token",
     status: () => ({ enabled: true, signedIn: true, pending: false, scopes: [] }),
@@ -43,10 +45,32 @@ function setup(hostAnswer: (command: HostCommandName, input: unknown) => IpcResp
     openExternal: async (url) => {
       opened.push(url);
     },
-    app: { version: "0.0.0", platform: "linux", electron: "43.7.7" },
+    openLogs: async () => {
+      logsOpened++;
+      return logsProblem;
+    },
+    app: {
+      version: "0.0.0",
+      platform: "linux",
+      electron: "43.7.7",
+      packaged: true,
+      logsDir: join(dir, "logs"),
+    },
     onRunStarted: (id) => started.push(id),
   });
-  return { handlers, settings, secrets, calls, opened, started };
+  return {
+    handlers,
+    settings,
+    secrets,
+    calls,
+    opened,
+    started,
+    logsOpened: () => logsOpened,
+    failLogs: (message: string) => {
+      logsProblem = message;
+    },
+    dir,
+  };
 }
 
 describe("main handlers", () => {
@@ -105,6 +129,28 @@ describe("main handlers", () => {
     const good = await handlers["roles.set"]({ writer: { models: ["openai/gpt-6-luna"] } });
     expect(good.ok).toBe(true);
     expect(settings.get().roleBindings.writer?.models).toEqual(["openai/gpt-6-luna"]);
+  });
+
+  it("reports the build kind and logs folder, and opens the logs folder on request", async () => {
+    const { handlers, dir, logsOpened } = setup(() => ({ ok: true, value: "/runs" }));
+    expect(await handlers["app.info"]({})).toMatchObject({
+      ok: true,
+      value: { packaged: true, logsDir: join(dir, "logs"), runsDir: "/runs" },
+    });
+    expect(await handlers["app.openLogs"]({})).toEqual({ ok: true, value: null });
+    expect(logsOpened()).toBe(1);
+  });
+
+  it("reports a logs folder that cannot be opened instead of pretending it was", async () => {
+    const { handlers, dir, failLogs } = setup(() => ({ ok: true, value: "/runs" }));
+    failLogs("No application is registered for folders");
+    expect(await handlers["app.openLogs"]({})).toEqual({
+      ok: false,
+      error: {
+        kind: "unavailable",
+        message: `No application is registered for folders (${join(dir, "logs")})`,
+      },
+    });
   });
 
   it("opens only allow-listed links", async () => {

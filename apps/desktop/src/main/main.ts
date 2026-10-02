@@ -20,6 +20,7 @@ import {
   shell,
   utilityProcess,
 } from "electron";
+import { AppLog } from "./app-log.ts";
 import { handleAppProtocol, registerAppScheme } from "./app-protocol.ts";
 import { ChatGptAuth } from "./chatgpt/chatgpt-auth.ts";
 import { EngineHostClient } from "./engine-host-client.ts";
@@ -59,6 +60,9 @@ async function main(): Promise<void> {
   await app.whenReady();
   app.dock?.setIcon(join(here, "../renderer/brand/ghosthand-512.png"));
   const userData = app.getPath("userData");
+  // In development the log is also echoed to the terminal; a packaged app only has the file.
+  const log = new AppLog(join(userData, "logs"), { echo: !app.isPackaged });
+  log.line(`GhostHand ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform}`);
   const settings = new SettingsStore(join(userData, "settings.json"));
   const persistWithoutKeyring = settings.get().persistWithoutKeyring;
   const secrets = new SecretStore({
@@ -94,18 +98,24 @@ async function main(): Promise<void> {
   });
 
   const host = new EngineHostClient({
-    spawn: () =>
-      utilityProcess.fork(join(here, "engine-host.js"), [], {
+    spawn: () => {
+      const proc = utilityProcess.fork(join(here, "engine-host.js"), [], {
         serviceName: "ghosthand-engine",
-        stdio: "inherit",
+        stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, GHOSTHAND_APP_VERSION: app.getVersion() },
-      }),
+      });
+      proc.stdout?.on("data", (chunk: string | Uint8Array) => log.write(chunk));
+      proc.stderr?.on("data", (chunk: string | Uint8Array) => log.write(chunk));
+      log.line("engine host started");
+      return proc;
+    },
     onReady: () => {
+      log.line("engine host ready");
       push({ kind: "engine", state: "ready" });
       connectRenderer();
     },
     onExit: (code, willRestart) => {
-      console.warn(`engine host exited with code ${code}${willRestart ? "; restarting" : ""}`);
+      log.line(`engine host exited with code ${code}${willRestart ? "; restarting" : ""}`);
       hotkey.release();
       push({ kind: "engine", state: willRestart ? "restarting" : "crashed" });
     },
@@ -124,10 +134,18 @@ async function main(): Promise<void> {
       host,
       chatgpt,
       openExternal,
-      app: { version: app.getVersion(), platform: process.platform, electron: process.versions.electron },
+      // shell.openPath resolves with an error message (not a rejection) when nothing can open the folder.
+      openLogs: () => shell.openPath(log.dir),
+      app: {
+        version: app.getVersion(),
+        platform: process.platform,
+        electron: process.versions.electron,
+        packaged: app.isPackaged,
+        logsDir: log.dir,
+      },
       onRunStarted: () => hotkey.activate(),
     }),
-    onProblem: (p) => console.warn(`ipc ${p.command}: ${p.kind}: ${p.message}`),
+    onProblem: (p) => log.line(`ipc ${p.command}: ${p.kind}: ${p.message}`),
   });
   ipcMain.handle(IPC_INVOKE_CHANNEL, (event, command: unknown, input: unknown) => {
     const frame = event.senderFrame;
@@ -167,6 +185,7 @@ async function main(): Promise<void> {
   app.on("will-quit", () => {
     hotkey.release();
     host.stop();
+    log.close();
   });
   app.on("window-all-closed", () => app.quit());
 }
