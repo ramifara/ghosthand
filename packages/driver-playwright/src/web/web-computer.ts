@@ -595,6 +595,7 @@ export class WebComputer implements Computer {
       snapshotId: id,
       timeoutMs: this.#timeout,
       ...(scope?.region !== undefined ? { sectionText: scope.region } : {}),
+      ...(scope?.focus ? { focus: scope.focus } : {}),
     });
     if (!cap.ok) return cap;
     const c = cap.value;
@@ -617,7 +618,13 @@ export class WebComputer implements Computer {
         });
       }
     }
-    const capped = capElements(elements, text, scope?.maxElements ?? this.#maxElements, this.#maxTokens);
+    const capped = capElements(
+      elements,
+      text,
+      scope?.maxElements ?? this.#maxElements,
+      this.#maxTokens,
+      scope?.focus ?? [],
+    );
     const snapshot: Snapshot = {
       id,
       surface: "web",

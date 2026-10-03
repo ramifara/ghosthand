@@ -3,7 +3,7 @@
 // Caps the element table (dialog > main > nav > footer), applies the size guard and measures quality.
 // The core ranks candidates per question head; here we only decide what enters the snapshot, and keep
 // document order for what does.
-import { estimateTokens, renderElement } from "@ghosthand/core";
+import { estimateTokens, focusHits, renderElement } from "@ghosthand/core";
 import type { Element, Region, SurfaceQuality } from "@ghosthand/protocol";
 
 export const DEFAULT_MAX_ELEMENTS = 200;
@@ -34,13 +34,21 @@ const INTERACTIVE_ACTIONS = new Set([
 
 export const isInteractive = (el: Element): boolean => el.actions.some((a) => INTERACTIVE_ACTIONS.has(a));
 
-/** Lower is better: open dialogs first, then main content; offscreen and context-only rows last within a region. */
+/**
+ * Lower is better: open dialogs first, then main content; offscreen and context-only rows last within a
+ * region. A control on screen ranks at least like main content wherever it sits: a floating widget or
+ * overlay (region "other") is what the person sees, and must not lose to hundreds of offscreen links.
+ */
 export function rankScore(el: Element): number {
   let s = REGION_RANK[el.region] * 10;
   if (!isInteractive(el)) s += 3;
   if (el.states.includes("offscreen")) s += 2;
+  else if (isInteractive(el)) s = Math.min(s, VISIBLE_CONTROL_RANK);
   return s;
 }
+
+/** Just after main-region controls on screen (10) and before offscreen ones (12). */
+const VISIBLE_CONTROL_RANK = 11;
 
 export function estimateSnapshotTokens(elements: Element[], text: string): number {
   return estimateTokens(elements.map(renderElement)) + Math.ceil(Math.min(text.length, STATE_TEXT_CHARS) / 3);
@@ -54,16 +62,26 @@ export interface CapResult {
   omitted: number;
 }
 
-/** Keeps the best-ranked `maxElements` in document order; if still over `maxTokens`, trims further and flags it. */
+/**
+ * Keeps the best-ranked `maxElements` in document order; if still over `maxTokens`, trims further and flags
+ * it. Dialog elements come first, then elements naming more of the `focus` goal words, then `rankScore`.
+ */
 export function capElements(
   elements: Element[],
   text: string,
   maxElements = DEFAULT_MAX_ELEMENTS,
   maxTokens = DEFAULT_MAX_TOKENS,
+  focus: readonly string[] = [],
 ): CapResult {
   const ranked = elements
-    .map((el, i) => ({ el, i, s: rankScore(el) }))
-    .sort((a, b) => a.s - b.s || a.i - b.i);
+    .map((el, i) => ({
+      el,
+      i,
+      d: el.region === "dialog" ? 0 : 1,
+      h: focusHits(el, focus),
+      s: rankScore(el),
+    }))
+    .sort((a, b) => a.d - b.d || b.h - a.h || a.s - b.s || a.i - b.i);
   let keep = ranked.slice(0, maxElements);
   const inOrder = () => [...keep].sort((a, b) => a.i - b.i).map((x) => x.el);
   let kept = inOrder();

@@ -29,9 +29,80 @@ export interface StateInput {
   inputs: string[];
   /** Extra hint from the writer (Phase 1); evidence like everything else. */
   hint?: string;
+  /** Goal words: on a long page, text lines that contain them are kept after the opening excerpt. */
+  focus?: readonly string[];
+  /** Text lines that appeared since the previous observation (what the last action produced). */
+  newText?: readonly string[];
+}
+
+/** Characters of `new_text` in the state. */
+export const MAX_NEW_TEXT_CHARS = 600;
+
+/** New lines beyond this share of the page (or MIN_CHANGED_LINES) mean a different page, not a change. */
+const MAX_CHANGED_SHARE = 0.25;
+const MIN_CHANGED_LINES = 4;
+
+/**
+ * Lines of `text` that are not in `before` (trimmed, non-empty), in page order: what the last action
+ * produced on the same page ("Order ord_1042 restored."). Empty on the first observation and when most of
+ * the page is new (another page or a closed dialog), where listing it would only repeat the page.
+ */
+export function newTextLines(before: string | undefined, text: string): string[] {
+  if (before === undefined) return [];
+  const seen = new Set(before.split(/\n+/).map((l) => l.trim()));
+  const lines = text
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines) if (!seen.has(line) && !out.includes(line)) out.push(line);
+  const limit = Math.max(MIN_CHANGED_LINES, Math.floor(lines.length * MAX_CHANGED_SHARE));
+  return out.length > limit ? [] : out;
 }
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Shares of a long page's text budget: its start, and its end (where results of an action often appear). */
+const TEXT_HEAD_SHARE = 0.55;
+const TEXT_TAIL_SHARE = 0.2;
+const MAX_FOCUS_LINE_CHARS = 200;
+
+/**
+ * Page text within `max` characters. A long page keeps its start, then the lines naming the most goal
+ * words (in page order), then its end, joined with " … ". Without goal words and `tail`, it is clipped.
+ */
+export function pageTextExcerpt(
+  text: string,
+  max: number,
+  focus: readonly string[] = [],
+  opts: { tail?: boolean } = {},
+): string {
+  if (text.length <= max || (focus.length === 0 && !opts.tail)) return clip(text, max);
+  const head = text.slice(0, Math.floor(max * TEXT_HEAD_SHARE));
+  const tailChars = opts.tail ? Math.floor(max * TEXT_TAIL_SHARE) : 0;
+  const tail = tailChars > 0 ? text.slice(-tailChars) : "";
+  const middle = text.slice(head.length, text.length - tail.length);
+  const lines = middle
+    .split(/\n+/)
+    .map((l, i) => {
+      const line = l.trim();
+      const lower = line.toLowerCase();
+      return { line, i, hits: focus.filter((t) => lower.includes(t)).length };
+    })
+    .filter((x) => x.line.length > 0 && x.hits > 0)
+    .sort((a, b) => b.hits - a.hits || a.i - b.i);
+  const picked: typeof lines = [];
+  let budget = max - head.length - tail.length - 4;
+  for (const x of lines) {
+    const cost = Math.min(x.line.length, MAX_FOCUS_LINE_CHARS) + 3;
+    if (cost > budget) continue;
+    picked.push(x);
+    budget -= cost;
+  }
+  picked.sort((a, b) => a.i - b.i);
+  const focused = picked.map((x) => ` ${clip(x.line, MAX_FOCUS_LINE_CHARS)} …`).join("");
+  return `${head}…${focused}${tail ? ` ${tail}` : ""}`;
+}
 
 function pagePath(url: string | undefined): string | undefined {
   if (!url) return undefined;
@@ -90,7 +161,10 @@ export function buildState(input: StateInput, registry?: SecretsRegistry): Recor
     task,
     page,
     elements: elements.map(renderElement),
-    texts: clip(snapshot.text, MAX_PAGE_TEXT_CHARS),
+    texts: pageTextExcerpt(snapshot.text, MAX_PAGE_TEXT_CHARS, input.focus),
+    ...(input.newText && input.newText.length > 0
+      ? { new_text: clip(input.newText.join(" | "), MAX_NEW_TEXT_CHARS) }
+      : {}),
     inputs: input.inputs.map((name) => `[input:${name}]`),
     history: input.history.slice(-HISTORY_WINDOW).map((h) => `${h.step}. ${h.text}`),
   };

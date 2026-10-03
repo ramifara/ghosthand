@@ -12,10 +12,14 @@ import type {
 } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
 
-/** Conservative characters-per-token ratio; no tokenizer or count endpoint is published. */
-export const CHARS_PER_TOKEN = 3;
+/**
+ * Conservative characters-per-token ratio; no tokenizer or count endpoint is published. JSON states and
+ * questions measured 2.04 (a Bing results page, 2026-10-03: 30.0k characters, 14.7k input tokens); with 3
+ * an oversized page passed the preflight and was rejected by the server.
+ */
+export const CHARS_PER_TOKEN = 2;
 
-/** Estimated tokens for a state, question or any JSON value (serialized length / 3, rounded up). */
+/** Estimated tokens for a state, question or any JSON value (serialized length / 2, rounded up). */
 export function estimateTokens(value: Entry | Question): number {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return Math.ceil(text.length / CHARS_PER_TOKEN);

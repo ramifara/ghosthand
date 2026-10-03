@@ -31,6 +31,7 @@ import { consentRejectButton } from "./consent-banner.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
 import type { EventSink } from "./event-sink.ts";
+import { focusTerms } from "./focus-terms.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { detectHumanWall } from "./human-wall.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
@@ -58,10 +59,17 @@ import {
 } from "./questions.ts";
 import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
 import { explainRefusal } from "./refusal-explain.ts";
+import { FIT_PER_HEAD, fitRequest, jevTokens, requestLimits, SHRINK_FACTOR } from "./request-fit.ts";
 import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
-import { buildNarrowState, buildState, estimateTokens, type HistoryEntry } from "./state-builder.ts";
+import {
+  buildNarrowState,
+  buildState,
+  estimateTokens,
+  type HistoryEntry,
+  newTextLines,
+} from "./state-builder.ts";
 import {
   D1_FAILURES_FOR_D2,
   MAX_D2_STEPS,
@@ -240,6 +248,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let visionNeeded: string | undefined;
   /** What kept steps from making progress since the last confirmed action, in words, oldest first. */
   let problems: string[] = [];
+  /** Shrinks for the rest of the run when the decision model answers `too_large`. */
+  const requestScale = { value: 1 };
   /** Screens whose cookie banner the code already answered (once per screen, never retried). */
   const consentAnswered = new Set<string>();
   /** A generic stop reason with what actually went wrong (the first problem is usually the cause). */
@@ -593,6 +603,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const handoffs = { count: 0 };
     const acted = { count: 0 };
     const extraTexts: string[] = [];
+    /** Goal words the driver and the candidate ranking keep first on a large page. */
+    const subgoalFocus = focusTerms(subgoal.goal, task.instruction);
+    /** Page text at the previous observation, to show what the last action produced (`new_text`). */
+    let previousText: string | undefined;
     // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
     const d1Failures = new Map<string, number>();
     let driving: { remaining: number } | undefined;
@@ -630,10 +644,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
 
       // observe
       t = clock.now();
-      const observed = await deps.computer.observe();
+      const observed = await deps.computer.observe({ focus: subgoalFocus });
       if (!observed.ok)
         return finish("error", `observe failed: ${observed.error.kind}: ${observed.error.message}`);
       const snapshot = observed.value;
+      const newText = newTextLines(previousText, snapshot.text);
+      previousText = snapshot.text;
       const fingerprint = screenFingerprint(snapshot);
       deps.onSnapshot?.(snapshot, fingerprint, current);
       let screenshot: string | undefined;
@@ -719,17 +735,26 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       const checkModel =
         hasDeterministicPredicates(subgoal.doneWhen) || lastGoalDone >= 0.5 || checkAfterReplay;
       checkAfterReplay = false;
-      const verifyState = buildState(
-        {
-          instruction: task.instruction,
-          goal: subgoal.goal,
-          step: current,
-          phase: "verify",
-          snapshot,
-          history,
-          inputs: task.secrets,
-        },
-        deps.secrets,
+      const verifyState = fitVerifyState(
+        (elements) =>
+          buildState(
+            {
+              instruction: task.instruction,
+              goal: subgoal.goal,
+              step: current,
+              phase: "verify",
+              snapshot,
+              elements,
+              history,
+              inputs: task.secrets,
+              focus: subgoalFocus,
+              newText,
+            },
+            deps.secrets,
+          ),
+        snapshot.elements,
+        requestLimits(deps.decision.capabilities, requestScale.value).statePlusLongest -
+          VERIFY_QUESTION_RESERVE,
       );
       const ctx: DecideContext = {
         deps,
@@ -765,6 +790,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         noneStreak,
         mode: { current: "B" },
         noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
+        newText,
+        requestScale,
         noteProblem: (problem, append) => {
           if (problem === undefined) problems = [];
           else if (append && problems.length > 0) problems[problems.length - 1] += `; ${problem}`;
@@ -1042,6 +1069,10 @@ interface DecideContext {
   visionTried?: boolean;
   /** `blocking`: the page itself needs vision (not just "no target fits", which a replan may fix). */
   noteVisionNeeded: (why: string, missing: string, blocking?: boolean) => void;
+  /** Share of the decision model's context limits requests may use; shrinks after a `too_large` answer. */
+  requestScale: { value: number };
+  /** Text lines that appeared since the previous observation (what the last action produced). */
+  newText: string[];
   /** Records why this step made no progress (undefined clears it); `append` adds to the current note. */
   noteProblem: (problem: string | undefined, append?: boolean) => void;
 }
@@ -1184,53 +1215,66 @@ interface PreparedAct {
 }
 
 function prepareAct(ctx: DecideContext): PreparedAct {
-  const { deps, cfg, task, subgoal, snapshot, step, history } = ctx;
+  const { deps, task, subgoal, snapshot, step, history } = ctx;
   const triedHere = new Set(
     [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
   );
   const seeds = [...subgoal.seedTargets, ...(deps.seedTargets?.(subgoal, snapshot) ?? [])];
-  const candidates = buildCandidates(snapshot, { seedTargets: seeds, triedHere });
   const textOptions = buildTextOptions(textGoal(ctx), task.secrets, deps.secrets);
-  const { questions, offered } = buildActQuestions({ candidates, textOptions, forbidden: task.forbidden });
-
-  // Elements shown in state: everything offered in any head (deduplicated), plus non-actionable context.
-  const offeredTokens = new Set(offered.flatMap((op) => candidates[op].map((e) => e.token)));
-  let elements = snapshot.elements.filter(
-    (e) => offeredTokens.has(e.token) || e.roleClass === "heading" || e.roleClass === "text",
-  );
-  let state = buildState(
-    {
-      instruction: task.instruction,
-      goal: subgoal.goal,
-      step,
-      phase: "act",
-      snapshot,
-      elements,
-      history,
-      inputs: task.secrets,
-      ...(ctx.hint ? { hint: ctx.hint } : {}),
+  const focus = focusTerms(subgoal.goal, task.instruction, ...(ctx.hint ? [ctx.hint] : []));
+  // The largest request within the decision model's limits: each round offers fewer candidates per head
+  // and drops page context the heads do not need (headings and text first, then headings).
+  const fitted = fitRequest(
+    (round) => {
+      const maxPerHead = Math.max(
+        FIT_PER_HEAD.min,
+        Math.floor(FIT_PER_HEAD.start * FIT_PER_HEAD.factor ** round),
+      );
+      const candidates = buildCandidates(snapshot, {
+        seedTargets: seeds,
+        triedHere,
+        maxPerHead,
+        focusTerms: focus,
+      });
+      const { questions, offered } = buildActQuestions({
+        candidates,
+        textOptions,
+        forbidden: task.forbidden,
+      });
+      // Elements shown in state: everything offered in any head (deduplicated), plus context while it fits.
+      const offeredTokens = new Set(offered.flatMap((op) => candidates[op].map((e) => e.token)));
+      const elements = snapshot.elements.filter(
+        (e) =>
+          offeredTokens.has(e.token) ||
+          (round === 0 && (e.roleClass === "heading" || e.roleClass === "text")) ||
+          (round === 1 && e.roleClass === "heading"),
+      );
+      const state = buildState(
+        {
+          instruction: task.instruction,
+          goal: subgoal.goal,
+          step,
+          phase: "act",
+          snapshot,
+          elements,
+          history,
+          inputs: task.secrets,
+          focus,
+          newText: ctx.newText,
+          ...(ctx.hint ? { hint: ctx.hint } : {}),
+        },
+        deps.secrets,
+      );
+      return { questions, offered, state, maxPerHead };
     },
-    deps.secrets,
+    requestLimits(deps.decision.capabilities, ctx.requestScale.value),
   );
-  // Size guard: narrow to the highest-ranked elements (real region narrowing lands in P1-06).
-  while (estimateTokens(state) > cfg.maxStateTokens && elements.length > 20) {
-    elements = elements.slice(0, Math.floor(elements.length * 0.7));
-    state = buildState(
-      {
-        instruction: task.instruction,
-        goal: subgoal.goal,
-        step,
-        phase: "act",
-        snapshot,
-        elements,
-        history,
-        inputs: task.secrets,
-        ...(ctx.hint ? { hint: ctx.hint } : {}),
-      },
-      deps.secrets,
+  if (fitted.round > 0)
+    ctx.log.debug(
+      { step, round: fitted.round, perHead: fitted.maxPerHead, tokens: fitted.size },
+      "act request cut down to fit the decision model's context",
     );
-  }
-  return { questions, offered, state };
+  return { questions: fitted.questions, offered: fitted.offered, state: fitted.state };
 }
 
 type AskResult = Awaited<ReturnType<typeof ask>>;
@@ -1254,9 +1298,19 @@ function startAct(ctx: DecideContext): SpeculativeAct {
 async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): Promise<DecideOutcome> {
   const { deps, cfg, subgoal, snapshot, step, history, clock } = ctx;
   let t = clock.now();
-  const pending = speculative ?? startAct(ctx);
+  let pending = speculative ?? startAct(ctx);
+  let r = await pending.response;
+  // Over the model's context: cut the request down further (for the rest of the run too) and ask again.
+  for (let shrink = 0; !r.ok && r.error.kind === "too_large" && shrink < MAX_TOO_LARGE_RETRIES; shrink++) {
+    ctx.requestScale.value *= SHRINK_FACTOR;
+    ctx.log.info(
+      { step, scale: ctx.requestScale.value, error: r.error.message },
+      "decision request too large; asking again with a smaller page table",
+    );
+    pending = startAct(ctx);
+    r = await pending.response;
+  }
   const { offered } = pending.prepared;
-  const r = await pending.response;
   ctx.timing.decideMs = clock.now() - t;
   if (deps.signal?.aborted) {
     const [outcome, reason] = abortOutcome(deps.signal);
@@ -1573,11 +1627,36 @@ export function linkTo(snapshot: Snapshot, url: string): Element | undefined {
   return names.size === 1 ? hits[0] : undefined;
 }
 
+/** Smaller re-asks after a `too_large` answer, per step. */
+const MAX_TOO_LARGE_RETRIES = 2;
+
+/** Room kept for the done_when question when the verify state is fitted. */
+const VERIFY_QUESTION_RESERVE = 2000;
+
 /** The top operation of a split must still have this much probability to run on a sure target. */
 const MIN_SPLIT_OPERATION = 0.35;
 
 /** Distinct problems quoted in a stop reason. */
 const MAX_PROBLEMS_SHOWN = 3;
+
+/**
+ * The verify state within `limit` tokens: on a large page it keeps dialogs, headings, text and status
+ * elements first (what done_when checks read), then the rest in document order.
+ */
+export function fitVerifyState(build: (elements: Element[]) => Entry, all: Element[], limit: number): Entry {
+  let state = build(all);
+  if (jevTokens(state) <= limit) return state;
+  const first = (e: Element) =>
+    e.region === "dialog" || e.roleClass === "heading" || e.roleClass === "text" || e.role === "status";
+  const ranked = [...all.filter(first), ...all.filter((e) => !first(e))];
+  let keep = ranked.length;
+  while (jevTokens(state) > limit && keep > 20) {
+    keep = Math.floor(keep * 0.7);
+    const kept = new Set(ranked.slice(0, keep));
+    state = build(all.filter((e) => kept.has(e)));
+  }
+  return state;
+}
 
 /** Pixels per scroll step: most of a typical viewport, so consecutive views overlap a little. */
 export const SCROLL_STEP_PX = 600;

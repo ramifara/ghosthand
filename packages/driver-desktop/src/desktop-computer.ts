@@ -280,6 +280,7 @@ export class DesktopComputer implements Computer {
       table.text,
       scope?.maxElements ?? this.#maxElements,
       this.#maxTokens,
+      scope?.focus ?? [],
     );
     const byToken = new Map<string, Element>();
     for (const el of capped.elements) byToken.set(el.token, el);

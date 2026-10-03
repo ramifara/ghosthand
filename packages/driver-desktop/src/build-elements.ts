@@ -4,7 +4,7 @@
 // row/group context, regions, risk and stable ids. Tokens are valid for one snapshot only.
 import { createHash } from "node:crypto";
 import type { SecretsRegistry } from "@ghosthand/core";
-import { estimateTokens, renderElement, riskFromName, secretPlaceholder } from "@ghosthand/core";
+import { estimateTokens, focusHits, renderElement, riskFromName, secretPlaceholder } from "@ghosthand/core";
 import type {
   BoundsTrust,
   DesktopPlatform,
@@ -422,21 +422,27 @@ export interface CapResult {
   omitted: number;
 }
 
-/** Keeps the best-ranked `maxElements` (open dialogs first) in tree order, then trims to the token guard. */
+/**
+ * Keeps the best-ranked `maxElements` in tree order, then trims to the token guard: open dialogs first, then
+ * elements naming more of the `focus` goal words, then region, interactivity and visibility.
+ */
 export function capElements(
   elements: Element[],
   text: string,
   maxElements = DEFAULT_MAX_ELEMENTS,
   maxTokens = DEFAULT_MAX_TOKENS,
+  focus: readonly string[] = [],
 ): CapResult {
   const ranked = elements
     .map((el, i) => ({
       el,
       i,
+      d: el.region === "dialog" ? 0 : 1,
+      h: focusHits(el, focus),
       s:
         REGION_RANK[el.region] * 10 + (isInteractive(el) ? 0 : 3) + (el.states.includes("offscreen") ? 2 : 0),
     }))
-    .sort((a, b) => a.s - b.s || a.i - b.i);
+    .sort((a, b) => a.d - b.d || b.h - a.h || a.s - b.s || a.i - b.i);
   let keep = ranked.slice(0, maxElements);
   const inOrder = () => [...keep].sort((a, b) => a.i - b.i).map((x) => x.el);
   let kept = inOrder();

@@ -8,6 +8,7 @@ export * from "./done-when.ts";
 export * from "./effect-rules.ts";
 export * from "./event-sink.ts";
 export * from "./expectations.ts";
+export * from "./focus-terms.ts";
 export * from "./gates.ts";
 export * from "./human-wall.ts";
 export * from "./literals.ts";

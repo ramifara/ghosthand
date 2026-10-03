@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // One observation: AI aria snapshot (all frames) → flat nodes → one engine call per frame for DOM facts →
 // elements with redacted values. Ranking, capping and snapshot ids are the caller's business.
+import { pageTextExcerpt } from "@ghosthand/core";
 import type { ComputerError, Element, Rect, Region, RegionSummary, Result } from "@ghosthand/protocol";
 import { err, ok } from "@ghosthand/protocol";
 import type { Frame, Page } from "playwright-core";
@@ -57,6 +58,8 @@ export interface CaptureInput {
   timeoutMs: number;
   /** Region id whose readable text should be returned (scoped observation). */
   sectionText?: string;
+  /** Goal words: a long page keeps its start, the lines naming them, and its end (pageTextExcerpt). */
+  focus?: readonly string[];
   now?: () => number;
 }
 
@@ -275,7 +278,7 @@ export async function captureSnapshot(input: CaptureInput): Promise<Result<Captu
     viewport,
     page: main,
     elements,
-    text: scope.redact(tree.text).slice(0, MAX_TEXT_CHARS),
+    text: pageTextExcerpt(scope.redact(tree.text), MAX_TEXT_CHARS, input.focus ?? [], { tail: true }),
     refs,
     ancestors,
     secretTokens,
