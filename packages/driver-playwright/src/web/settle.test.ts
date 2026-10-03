@@ -59,6 +59,13 @@ describe("waitForSettle", () => {
     expect(r.reason).toMatch(/^idle \(document still/);
   });
 
+  it("stops waiting for a DOM that never stops mutating once the network is quiet", async () => {
+    const r = await waitForSettle(fakePage({ netEndsAt: 0, domEndsAt: 60_000 }), DEFAULT_SETTLE);
+    expect(r.waitedMs).toBeGreaterThanOrEqual(DEFAULT_SETTLE.domToleranceMs);
+    expect(r.waitedMs).toBeLessThan(DEFAULT_SETTLE.domToleranceMs + 100);
+    expect(r.reason).toMatch(/^idle \(network quiet; DOM left mutating\)/);
+  });
+
   it("returns at the cap with what was still busy", async () => {
     const r = await waitForSettle(fakePage({ netEndsAt: 60_000, domEndsAt: 60_000 }), DEFAULT_SETTLE);
     expect(r.waitedMs).toBe(5000);

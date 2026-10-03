@@ -637,8 +637,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const triedNoEffect = new Set<string>();
     const coveredTries = new Map<string, number>();
     /** Advance navigations taken in this subgoal (where from, which link), newest last; dead ends go back. */
-    const trail: Array<{ fromUrl: string; key: string }> = [];
-    let pendingAdvance: { fromUrl: string; key: string } | undefined;
+    const trail: Array<{ fromUrl: string; key: string; choices: number }> = [];
+    let pendingAdvance: { fromUrl: string; key: string; choices: number } | undefined;
     const backtracks = { count: 0 };
     let subgoalSteps = 0;
     let refusals = 0;
@@ -854,8 +854,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         coveredTries,
         trail,
         backtracks,
-        noteAdvance: (fromUrl, key) => {
-          pendingAdvance = { fromUrl, key };
+        noteAdvance: (fromUrl, key, choices) => {
+          pendingAdvance = { fromUrl, key, choices };
         },
         noteProblem: (problem, append) => {
           if (problem === undefined) problems = [];
@@ -1184,11 +1184,11 @@ interface DecideContext {
   shortlist?: Set<string>;
   /** A shortlist was already asked for this step (no second one; a `none` falls back to the full table). */
   shortlistTried?: boolean;
-  /** Advance navigations in this subgoal, newest last. */
-  trail: Array<{ fromUrl: string; key: string }>;
+  /** Advance navigations in this subgoal, newest last, with how many candidates the page offered. */
+  trail: Array<{ fromUrl: string; key: string; choices: number }>;
   backtracks: { count: number };
   /** Records an advance action that may navigate (checked at the next observe). */
-  noteAdvance: (fromUrl: string, key: string) => void;
+  noteAdvance: (fromUrl: string, key: string, choices: number) => void;
   /** The whole page, kept when the step was narrowed to a region; a dead end there re-asks on it once. */
   fullSnapshot?: Snapshot;
   /** The re-ask on the whole page already happened this step. */
@@ -1768,7 +1768,12 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (result.effect === "confirmed") {
     ctx.handoffs.count = 0;
     ctx.noteProblem(undefined);
-    if (effect === "advance" && snapshot.url) ctx.noteAdvance(snapshot.url, key);
+    if (effect === "advance" && snapshot.url)
+      ctx.noteAdvance(
+        snapshot.url,
+        key,
+        elementOptionCount(pending.prepared.questions[targetHead(operation)]),
+      );
   } else if (result.effect === "suspected_noop" || result.effect === "refused")
     ctx.noteProblem(
       `the last action (${describe}) ${result.error ? `failed: ${result.error.kind}` : "changed nothing on the page"}`,
@@ -1963,6 +1968,9 @@ async function backtrack(ctx: DecideContext, why: string): Promise<DecideOutcome
   const last = ctx.trail.at(-1);
   if (!last || ctx.backtracks.count >= MAX_BACKTRACKS) return undefined;
   if (!ctx.snapshot.url || ctx.snapshot.url === last.fromUrl) return undefined;
+  // Only a real choice point is worth returning to: a lobby with one "Start" button (a game's round start,
+  // a login page) was not a wrong turn, and going back there would restart or lose the round.
+  if (last.choices < MIN_CANDIDATES_FOR_SHORTLIST) return undefined;
   ctx.trail.pop();
   ctx.backtracks.count++;
   ctx.triedNoEffect.add(last.key);
