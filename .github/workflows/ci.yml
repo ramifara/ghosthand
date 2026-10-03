@@ -1,16 +1,53 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Rami Fara and GhostHand contributors
+# CI budget (ADR 0018): Linux runs on every push and PR; the macOS and Windows desktop-host jobs (10x and
+# 2x the Linux minute price) run only when their sources changed, or on demand. Every job has a timeout.
 name: ci
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      hosts:
+        description: Also build and smoke the macOS and Windows desktop hosts
+        type: boolean
+        default: false
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    # Which expensive jobs this change needs: a diff against the PR base (or the previous main commit).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.diff.outputs.macos }}
+      windows: ${{ steps.diff.outputs.windows }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.hosts }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"; echo "windows=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            # No usable base (first push, force push): be safe and run everything once.
+            echo "macos=true" >> "$GITHUB_OUTPUT"; echo "windows=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+          echo "$changed" | sed 's/^/changed: /'
+          hit() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+          echo "macos=$(hit '^(packages/driver-desktop/hosts/macos/|scripts/desktop-host-smoke\.ts|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
+          echo "windows=$(hit '^(packages/driver-desktop/hosts/windows/|scripts/desktop-host-smoke\.ts|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -19,6 +56,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run check
         env:
@@ -28,6 +70,7 @@ jobs:
       - run: bun run secrets:check
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -36,6 +79,13 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/ms-playwright
+          key: e2e-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: e2e-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
@@ -52,6 +102,7 @@ jobs:
   desktop-x11:
     # Linux X11 sandbox: builds the container image (Xvfb, xfwm4, AT-SPI, GTK testbed) and drives it live.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -60,6 +111,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - name: Sandbox tests (container)
         run: bunx vitest run --project @ghosthand/driver-desktop
@@ -69,8 +125,12 @@ jobs:
           node scripts/desktop-host-smoke.ts --host docker --app "python3 /opt/ghosthand/testbed/desktop-testbed.py" --strict -- run --rm -i --network none ghosthand-x11:ci
   desktop-windows:
     # Windows UIA host: built here; the smoke drives Notepad on the runner's desktop and is best effort
-    # (hosted runners may lack an interactive desktop or ship a packaged Notepad).
+    # (hosted runners may lack an interactive desktop or ship a packaged Notepad). Windows minutes cost
+    # twice Linux ones: only when the host or the smoke changed.
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v4
@@ -88,8 +148,12 @@ jobs:
         run: node scripts/desktop-host-smoke.ts --host packages/driver-desktop/hosts/windows/GhostHand.UiaHost/bin/publish/GhostHand.UiaHost.exe --app notepad.exe --strict
   desktop-macos:
     # macOS AX host: built here; hosted runners cannot grant Accessibility permission, so the TextEdit
-    # smoke is best effort and normally reports "not trusted".
+    # smoke is best effort and normally reports "not trusted". macOS minutes cost ten times Linux ones:
+    # only when the host or the smoke changed.
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

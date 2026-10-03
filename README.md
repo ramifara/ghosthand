@@ -13,7 +13,7 @@ Status: all plan phases (0–7) are built. Phase 1 acceptance is met with real J
 
 Get the newest installers from [GitHub Releases](https://github.com/ramifara/ghosthand/releases/latest): Linux x64 `.AppImage` or `.deb`, Windows x64 `.exe`, and macOS `.dmg` for Apple Silicon or Intel.
 
-After a PR merges into `main`, the release workflow waits for CI to pass, builds every installer, and publishes them together with checksums and release notes. See [the release workflow](.github/workflows/release.yml) for manual and tagged releases.
+Releases are built on demand (ADR 0018): push a `vMAJOR.MINOR.PATCH` tag, or run the release workflow from `main` in the Actions tab (its version is the desktop package's major/minor plus the run number). CI on pull requests runs on Linux only; the macOS and Windows desktop-host jobs run when their sources change or when the workflow is started by hand with "hosts" ticked. macOS runner minutes cost ten times Linux ones, so this keeps the free Actions quota for the month.
 
 The builds are not signed with an Apple Developer ID or a Windows code-signing certificate, so the first launch needs one extra step:
 
@@ -21,8 +21,6 @@ The builds are not signed with an Apple Developer ID or a Windows code-signing c
 - **Windows**: SmartScreen shows "Windows protected your PC". Press **More info → Run anyway**.
 
 Keys entered in Setup → Providers are used by every run. On macOS and Linux the app also reads `~/.config/ghosthand/env`, and it finds the Codex and Claude CLIs on your login shell's PATH (Homebrew, npm, `~/.local/bin`), so a planner or writer that works in a terminal works in the app too.
-
-Automatic releases use the desktop package's major/minor version and add the workflow run number to its patch version. For example, package version `0.0.0` and run number `42` produce `v0.0.42`. PR builds do not publish releases. You can also run the workflow manually from `main` or push a `vMAJOR.MINOR.PATCH` tag to release that exact version. The repository version stays unchanged; Changesets can still bump it for a new release series.
 
 ## Setup
 
