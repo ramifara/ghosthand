@@ -640,6 +640,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const trail: Array<{ fromUrl: string; key: string; choices: number }> = [];
     let pendingAdvance: { fromUrl: string; key: string; choices: number } | undefined;
     const backtracks = { count: 0 };
+    /** Consecutive steps on which the writer reported the goal reached and nothing left to do. */
+    const writerDone = { count: 0 };
     let subgoalSteps = 0;
     let refusals = 0;
     let lastGoalDone = 0;
@@ -854,6 +856,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         coveredTries,
         trail,
         backtracks,
+        writerDone,
         noteAdvance: (fromUrl, key, choices) => {
           pendingAdvance = { fromUrl, key, choices };
         },
@@ -866,7 +869,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
       const speculative =
-        cfg.speculate && !oversized && checkModel && subgoal.doneWhen.all.some((p) => p.kind === "model")
+        cfg.speculate &&
+        // With guidance "every" the writer shortlists before Jev is asked; a speculative plain ask would skip it.
+        cfg.guidance !== "every" &&
+        !oversized &&
+        checkModel &&
+        subgoal.doneWhen.all.some((p) => p.kind === "model")
           ? startAct(ctx)
           : undefined;
       const done = await evaluateDoneWhen(
@@ -1052,6 +1060,20 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
         return answerAndFinish(outcome.reason);
       }
+      if (outcome.kind === "end" && outcome.outcome === "success") {
+        emit({
+          type: "verify",
+          step,
+          state: "satisfied",
+          decidedBy: "writer",
+          predicates: subgoal.doneWhen.all.map((predicate) => ({ predicate, state: "satisfied" as const })),
+        });
+        history.push({ step, text: outcome.reason });
+        emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "satisfied", steps: subgoalSteps });
+        if (pendingRefine)
+          closeRefine(i, pendingRefine.settled ? "stale" : "not ready when the subgoal ended");
+        break;
+      }
       if (outcome.kind === "end") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
         if (outcome.outcome === "stuck" && (await replan(i, subgoal, outcome.reason, history))) {
@@ -1187,6 +1209,8 @@ interface DecideContext {
   /** Advance navigations in this subgoal, newest last, with how many candidates the page offered. */
   trail: Array<{ fromUrl: string; key: string; choices: number }>;
   backtracks: { count: number };
+  /** Consecutive steps on which the writer reported the goal reached and nothing left to do. */
+  writerDone: { count: number };
   /** Records an advance action that may navigate (checked at the next observe). */
   noteAdvance: (fromUrl: string, key: string, choices: number) => void;
   /** The whole page, kept when the step was narrowed to a region; a dead end there re-asks on it once. */
@@ -1435,7 +1459,21 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       // is the signal the model done_when check waits for; the next step runs it.
       const note = ctx.history.at(-1)?.text ?? "";
       const looksDone = /\b(complet|won|finish|done|succe|achiev|reached|submitted|saved)/i.test(note);
+      ctx.writerDone.count = looksDone ? ctx.writerDone.count + 1 : 0;
       ctx.onGoalDone(looksDone ? 0.9 : 0.5);
+      // Evidence of completion is often on a page that has already moved on (a win screen, a "saved"
+      // toast), where a page-based check sees nothing. When the subgoal has no deterministic check and
+      // the writer reports the goal reached twice in a row, the writer decides (ADR 0017).
+      if (
+        ctx.writerDone.count >= 2 &&
+        subgoal.doneWhen.all.length > 0 &&
+        subgoal.doneWhen.all.every((p) => p.kind === "model")
+      )
+        return {
+          kind: "end",
+          outcome: "success",
+          reason: `the writer reports the goal reached: ${note.replace(/^writer: nothing here to pick/, "").trim() || "nothing left to do"}`,
+        };
       history.push({
         step,
         text: looksDone
@@ -1816,6 +1854,33 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   )
     ctx.triedNoEffect.add(key);
   if (pageMoved) {
+    // The same control may still be there under a new token: find it by stable id and act once more.
+    const again = await deps.computer.observe({ focus: focusTerms(subgoal.goal, ctx.task.instruction) });
+    const same = again.ok ? again.value.elements.find((e) => e.stableId === element.stableId) : undefined;
+    const retargeted = same && "token" in action ? { ...action, token: same.token } : undefined;
+    if (same && retargeted) {
+      deps.events.emit({
+        type: "action",
+        step,
+        action: retargeted,
+        target: fingerprintOf(same),
+        effectClass: effect,
+        mode: "B",
+      });
+      const retry = await execute(deps.computer, retargeted);
+      deps.events.emit({ type: "effect", step, result: retry });
+      history.push({ step, text: `the page changed; ${describe} again on the new page (${retry.effect})` });
+      if (retry.effect === "confirmed") {
+        ctx.noteProblem(undefined);
+        if (effect === "advance" && again.ok && again.value.url)
+          ctx.noteAdvance(
+            again.value.url,
+            key,
+            elementOptionCount(pending.prepared.questions[targetHead(operation)]),
+          );
+      }
+      return { kind: "continue" };
+    }
     history.push({ step, text: `the page changed before ${describe} could run; observing again` });
     return { kind: "continue" };
   }

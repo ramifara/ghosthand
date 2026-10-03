@@ -143,7 +143,7 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("verify"),
     step: z.number().int(),
     state: VerifyState,
-    decidedBy: z.enum(["deterministic", "oracle", "decision", "vision", "none"]),
+    decidedBy: z.enum(["deterministic", "oracle", "decision", "vision", "writer", "none"]),
     predicates: z.array(z.object({ predicate: Predicate, state: VerifyState })),
   }),
   z.object({
