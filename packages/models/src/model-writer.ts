@@ -24,10 +24,11 @@ export const WriterDraft = z.object({
 });
 export type WriterDraft = z.infer<typeof WriterDraft>;
 
+// Strict JSON schemas (OpenAI) require every property; optional ones are nullable, never absent.
 export const ShortlistDraft = z.object({
   picks: z.array(z.string().min(1).max(40)).max(MAX_SHORTLIST),
-  text: z.string().max(600).optional(),
-  note: z.string().max(300).optional(),
+  text: z.string().max(600).nullable(),
+  note: z.string().max(300).nullable(),
 });
 
 /** Keeps only ids that exist in the candidate lines (`id — ...`), in the model's order. */
