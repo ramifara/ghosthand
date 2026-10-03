@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { parseArgs } from "node:util";
 import type { PlannerChoice, WriterChoice } from "@ghosthand/engine";
 import type { BrowserBehaviorInput } from "@ghosthand/protocol";
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Rami Fara and GhostHand contributors
+import { Guidance } from "@ghosthand/protocol";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
@@ -22,13 +23,19 @@ import { testCommand } from "./commands/test.ts";
 import { voiceCommand } from "./commands/voice.ts";
 import { fail, out } from "./io.ts";
 
+/** `--guidance off|stuck|unsure|every` (ADR 0017) as a spreadable option; anything else leaves the default. */
+function guidanceSpread(value: string | undefined): { guidance: Guidance } | Record<string, never> {
+  const parsed = Guidance.safeParse(value);
+  return parsed.success ? { guidance: parsed.data } : {};
+}
+
 export const HELP = `ghosthand, a Jev CUA
 
 Usage:
   ghosthand run --url <url> (--task <id> | "<goal>") [--profile <name>] [--allow-origin <origin>]... [--headless]
                 [--unattended] [--creds <KEY=value file>]
                 [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
-                [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off]
+                [--guidance off|stuck|unsure|every] [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off]
   ghosthand run --surface x11|wayland|windows|macos (--task desktop-<id> | --app "<command>" "<goal>")
                 [--runtime auto|docker|podman|host] [--vnc-port <port>] [--network] [--allow-host-desktop] [--yes]
   ghosthand replay <runId> [--headless]
@@ -131,6 +138,7 @@ export async function main(argv: string[]): Promise<number> {
         writer: (["models", "codex", "none"].includes(values.writer ?? "")
           ? values.writer
           : "auto") as WriterChoice,
+        ...guidanceSpread(values.guidance),
         // Evals keep runs independent: recipes and learning only when asked (ADR 0011).
         extras: extrasFlags(values, "off"),
         ...(values["start-path"] ? { startPath: values["start-path"] } : {}),
@@ -210,6 +218,7 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
     writer: (["models", "codex", "none"].includes(values.writer ?? "")
       ? values.writer
       : "auto") as WriterChoice,
+    ...guidanceSpread(values.guidance),
     ...(values.surface ? { surface: surfaceFlag(values.surface) } : {}),
     ...(values.app ? { app: values.app } : {}),
     ...(values.runtime ? { runtime: runtimeFlag(values.runtime) } : {}),
@@ -277,6 +286,7 @@ export function parse(argv: string[]) {
       role: { type: "string" },
       all: { type: "boolean" },
       writer: { type: "string" },
+      guidance: { type: "string" },
       n: { type: "string" },
       only: { type: "string" },
       decision: { type: "string" },

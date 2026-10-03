@@ -14,6 +14,7 @@ import {
 import type {
   Computer,
   DecisionProvider,
+  Guidance,
   RunEvent,
   RunEventDraft,
   RunOutcome,
@@ -134,6 +135,8 @@ export interface AgentRunOptions {
   writer?: Writer;
   /** What planner and writer this run has, recorded in run.start. */
   assistants?: string;
+  /** How often the writer is called (ADR 0017). Default "unsure". */
+  guidance?: Guidance;
   /** App map and recipes (mode A, learning). */
   knowledge?: KnowledgeOptions;
   /** Extra loop dependencies (vision assist, source-aware seeding, plan refinement). */
@@ -233,6 +236,7 @@ export async function runAgent(
       secrets: rt.secrets,
       config: {
         gates: rt.config.gates,
+        ...(opts.guidance ? { guidance: opts.guidance } : {}),
         ...(opts.autonomy === "unattended" ? UNATTENDED_LOOP : {}),
         ...opts.loop?.config,
       },

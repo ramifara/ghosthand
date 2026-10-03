@@ -88,6 +88,7 @@ export async function runCommand(flags: RunFlags): Promise<number> {
     ...(assistants.planner ? { planner: assistants.planner } : {}),
     ...(assistants.writer ? { writer: assistants.writer } : {}),
     assistants: assistants.summary,
+    ...(flags.guidance ? { guidance: flags.guidance } : {}),
     task,
     decision: decision.value,
     trace: flags.trace,

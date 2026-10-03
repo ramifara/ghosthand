@@ -5,6 +5,7 @@
 // blocks a start is listed next to the button, never left to a silently disabled control. An installed
 // app hides the testbed (its tasks need the dev testbed server) unless Setup → Developer turns it on.
 import {
+  type Guidance,
   MAX_TASK_GOAL_CHARS,
   type PlannerChoice,
   type StartRunInput,
@@ -81,6 +82,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
     profile: useId(),
     planner: useId(),
     writer: useId(),
+    guidance: useId(),
     decision: useId(),
     recent: useId(),
   };
@@ -96,7 +98,8 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
   const draft = useUiStore((state) => state.composer);
   const recentTasks = useUiStore((state) => state.recentTasks);
   const patch = useUiStore((state) => state.patchComposer);
-  const { taskId, goal, startUrl, profile, planner, writer, decision, showBrowser, unattended } = draft;
+  const { taskId, goal, startUrl, profile, planner, writer, guidance, decision, showBrowser, unattended } =
+    draft;
 
   const s = settings.data;
   // The build kind decides the layout; the form waits for it so neither build flashes the other's layout.
@@ -169,6 +172,7 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
       profile: profile ?? s?.defaultProfile ?? "default",
       planner: planner ?? s?.planner ?? "auto",
       writer: writer ?? s?.writer ?? "auto",
+      guidance: guidance ?? s?.guidance ?? "unsure",
       decision: effectiveDecision,
       showBrowser: showBrowser ?? s?.showBrowser ?? true,
       unattended,
@@ -379,6 +383,22 @@ export function ComposerPage({ onStarted }: { onStarted: (runId: string) => void
                   <option value="auto">Auto</option>
                   <option value="models">Models layer</option>
                   <option value="none">None</option>
+                </Select>
+              </Field>
+              <Field
+                label="Guidance"
+                htmlFor={ids.guidance}
+                hint="How often the writer helps: it shortlists the page's controls and Jev picks among them."
+              >
+                <Select
+                  id={ids.guidance}
+                  value={guidance ?? s?.guidance ?? "unsure"}
+                  onChange={(e) => patch({ guidance: e.target.value as Guidance })}
+                >
+                  <option value="every">Every step</option>
+                  <option value="unsure">When Jev is unsure</option>
+                  <option value="stuck">Only when stuck</option>
+                  <option value="off">Off</option>
                 </Select>
               </Field>
             </div>

@@ -4,6 +4,7 @@
 import {
   BrowserBehavior,
   DecisionChoice,
+  Guidance,
   PlannerChoice,
   StartRunInput,
   WriterChoice,
@@ -33,6 +34,7 @@ export const ComposerDraft = z.object({
   profile: z.string().optional(),
   planner: PlannerChoice.optional(),
   writer: WriterChoice.optional(),
+  guidance: Guidance.optional(),
   decision: DecisionChoice.optional(),
   showBrowser: z.boolean().optional(),
   unattended: z.boolean().default(false),

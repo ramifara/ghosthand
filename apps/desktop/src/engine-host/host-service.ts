@@ -429,6 +429,7 @@ export class HostService {
       ...(assistants.planner ? { planner: assistants.planner } : {}),
       ...(assistants.writer ? { writer: assistants.writer } : {}),
       assistants: assistants.summary,
+      guidance: input.guidance ?? settings.guidance,
       task,
       decision: decision.value,
       launch: async () => {
