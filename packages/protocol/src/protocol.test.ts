@@ -118,7 +118,7 @@ describe("RunEvent", () => {
 describe("TaskSpec and config defaults", () => {
   it("fills defaults", () => {
     const t = TaskSpec.parse({ id: "adhoc", instruction: "Sign in", startUrl: "http://127.0.0.1:4400" });
-    expect(t.budget.steps).toBe(25);
+    expect(t.budget.steps).toBe(60);
     expect(t.mode).toBe("do");
     const c = GhostHandConfig.parse({});
     expect(c.decision.provider).toBe("typesafe");

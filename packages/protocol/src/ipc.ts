@@ -82,7 +82,7 @@ export type Guidance = z.infer<typeof Guidance>;
 export const Settings = z
   .object({
     defaultProfile: ProfileName.default("default"),
-    budget: Budget.default({ steps: 25, seconds: 180, usd: 0.25 }),
+    budget: Budget.default({ steps: 60, seconds: 600, usd: 0.5 }),
     planner: PlannerChoice.default("auto"),
     writer: WriterChoice.default("auto"),
     guidance: Guidance.default("unsure"),

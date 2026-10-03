@@ -23,7 +23,7 @@ describe("defineTask", () => {
     const task = defineTask(base);
     expect(task.setup.variant).toEqual({ testids: "off", a11y: "good" });
     expect(task.setup.seeds).toEqual([]);
-    expect(task.budget).toEqual({ steps: 25, seconds: 180, usd: 0.25 });
+    expect(task.budget).toEqual({ steps: 60, seconds: 600, usd: 0.5 });
     expect(task.doneWhen).toEqual({ all: [{ kind: "oracle", taskId: "l1-example" }], none: [] });
     expect(Object.isFrozen(task)).toBe(true);
   });

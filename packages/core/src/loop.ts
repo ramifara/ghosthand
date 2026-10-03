@@ -1427,7 +1427,24 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     deps.writer?.shortlist
   ) {
     const picks = await shortlistFor(ctx, "every step");
-    if (picks) return decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true });
+    if (picks && picks.length > 0) return decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true });
+    // The writer looked at the whole table and found nothing to do yet (a page still loading, a round
+    // between states): let the page move on instead of refusing; the stall detector ends a page that never does.
+    if (picks && picks.length === 0) {
+      // The writer's note often says why: "the round was completed and won", "the form was submitted". That
+      // is the signal the model done_when check waits for; the next step runs it.
+      const note = ctx.history.at(-1)?.text ?? "";
+      const looksDone = /\b(complet|won|finish|done|succe|achiev|reached|submitted|saved)/i.test(note);
+      ctx.onGoalDone(looksDone ? 0.9 : 0.5);
+      history.push({
+        step,
+        text: looksDone
+          ? "the writer says the goal looks reached; checking"
+          : "waited for the page (the writer saw nothing to do yet)",
+      });
+      if (!looksDone) await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+      return { kind: "continue" };
+    }
   }
   let t = clock.now();
   let pending = speculative ?? startAct(ctx);
@@ -1786,15 +1803,22 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   deps.events.emit({ type: "effect", step, result });
   // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
   // in the table at its rank, and the history says why it did not work.
+  // The page moved on while we acted (a timer, a redirect): nothing is learned about the target.
+  const pageMoved = result.error?.kind === "stale_token";
   // A covered target may be free next time (an overlay closed), but one that stays covered is a dead end.
   const covered = result.error?.kind === "hit_test_failed";
   const coveredTimes = covered ? (ctx.coveredTries.get(key) ?? 0) + 1 : 0;
   if (covered) ctx.coveredTries.set(key, coveredTimes);
   if (
     (result.effect === "suspected_noop" || result.effect === "refused") &&
+    !pageMoved &&
     (!covered || coveredTimes >= MAX_COVERED_TRIES)
   )
     ctx.triedNoEffect.add(key);
+  if (pageMoved) {
+    history.push({ step, text: `the page changed before ${describe} could run; observing again` });
+    return { kind: "continue" };
+  }
   if (result.effect === "confirmed") {
     ctx.handoffs.count = 0;
     ctx.noteProblem(undefined);
@@ -1890,6 +1914,7 @@ function restrictToShortlist(candidates: CandidateTable, shortlist: Set<string>)
  * answer was not decisive) and returns their tokens; undefined when there is no writer, too few candidates,
  * a shortlist was already asked, or the writer returned nothing usable.
  */
+/** `[]` means the writer looked and found nothing worth picking (its note is in the history). */
 async function shortlistFor(ctx: DecideContext, why: string): Promise<string[] | undefined> {
   const writer = ctx.deps.writer;
   if (!writer?.shortlist || ctx.shortlistTried) return undefined;
@@ -1969,7 +1994,11 @@ async function shortlistFor(ctx: DecideContext, why: string): Promise<string[] |
   }
   const text = r.value.shortlist.text ? deps.secrets.redact(r.value.shortlist.text) : undefined;
   if (text && !text.includes("[input:")) ctx.extraTexts.push(text);
-  if (picks.length === 0) return undefined;
+  if (picks.length === 0) {
+    const note = r.value.shortlist.note ? deps.secrets.redact(r.value.shortlist.note).slice(0, 160) : "";
+    ctx.history.push({ step: ctx.step, text: `writer: nothing here to pick${note ? ` (${note})` : ""}` });
+    return [];
+  }
   const names = picks.map((p) => ordered.find((e) => e.token === p)?.name ?? p).slice(0, 5);
   ctx.history.push({
     step: ctx.step,
@@ -1989,7 +2018,9 @@ async function guide(ctx: DecideContext, why: string): Promise<DecideOutcome | u
     return decideAndAct({ ...full, shortlistTried: true });
   }
   const picks = await shortlistFor(ctx, why);
-  return picks ? decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true }) : undefined;
+  return picks && picks.length > 0
+    ? decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true })
+    : undefined;
 }
 
 /**
