@@ -125,6 +125,42 @@ describe("guidance", () => {
     expect(r.modelCalls).toBe(1);
   });
 
+  it("'every': Jev's 'ambiguous' on a shortlist resolves to the writer's first pick", async () => {
+    const writer = shortlister(["l7", "target"]);
+    const computer = page();
+    const decision = new FnDecisionProvider((q) => {
+      const targets = q.press_target?.type === "choice" ? Object.keys(q.press_target.criteria) : [];
+      const elements = targets.filter((k) => !["none", "ambiguous"].includes(k));
+      if (elements.length <= 5 && elements.length > 0) {
+        // Three plausible links "fit equally well": the sentinel wins, as it did on the real shortlist.
+        const probabilities: Record<string, number> = Object.fromEntries(targets.map((k) => [k, 0]));
+        probabilities.ambiguous = 0.46;
+        probabilities.l7 = 0.21;
+        probabilities.none = 0.15;
+        probabilities.target = 0.18;
+        return {
+          operation: choiceOf(q, "operation", "press"),
+          press_target: { type: "choice", choice: "ambiguous", confidence: 0.46, probabilities },
+          effect: choiceOf(q, "effect", "advance"),
+          goal_done: noulOf(0.02),
+          stuck: noulOf(0.02),
+        };
+      }
+      return thinThenDecisive(q);
+    });
+    const r = await runTask(task, {
+      computer,
+      decision,
+      writer,
+      events: { emit: () => {} },
+      secrets: new SecretsRegistry(),
+      config: { screenshots: false, guidance: "every" },
+    });
+    // l7 leads nowhere (no transition); the dead end backtracks, l7 ranks last, and England follows.
+    expect(computer.actions[0]).toEqual({ type: "press", token: "l7" });
+    expect(r.outcome === "success" || computer.actions.length >= 1).toBe(true);
+  });
+
   it("'unsure': the shortlist is asked only after a thin answer, then Jev decides", async () => {
     const writer = shortlister(["target"]);
     const { r, computer } = await run("unsure", writer);

@@ -1180,8 +1180,8 @@ interface DecideContext {
   deadRegions: Set<string>;
   /** Hit-test failures per action key in this subgoal (a target that stays covered is given up). */
   coveredTries: Map<string, number>;
-  /** Tokens the writer shortlisted for this step; the act questions offer only these (ADR 0017). */
-  shortlist?: Set<string>;
+  /** Tokens the writer shortlisted for this step, best first; the act questions offer only these (ADR 0017). */
+  shortlist?: string[];
   /** A shortlist was already asked for this step (no second one; a `none` falls back to the full table). */
   shortlistTried?: boolean;
   /** Advance navigations in this subgoal, newest last, with how many candidates the page offered. */
@@ -1356,7 +1356,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         maxPerHead,
         focusTerms: focus,
       });
-      if (ctx.shortlist) restrictToShortlist(candidates, ctx.shortlist);
+      if (ctx.shortlist) restrictToShortlist(candidates, new Set(ctx.shortlist));
       const { questions, offered } = buildActQuestions({
         candidates,
         textOptions,
@@ -1507,7 +1507,26 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const operation = op as Operation;
   if (operation === "scroll") return scrollStep(ctx, answers);
   const targetAnswer = answers[targetHead(operation)];
-  const targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
+  let targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
+  // On a shortlisted ask the writer already ranked the few picks; Jev confirms or vetoes. "Ambiguous" (three
+  // plausible links fit "equally well" by construction) or a thin spread resolves to the writer's first pick;
+  // only a clear "none" (>= 0.5) is a veto.
+  const shortlistPick =
+    ctx.shortlist &&
+    (targetToken === undefined ||
+      targetToken === NONE ||
+      targetToken === AMBIGUOUS ||
+      !ctx.shortlist.includes(targetToken)) &&
+    sentinelP(targetAnswer, NONE) < 0.5
+      ? ctx.shortlist.find((p) => findByToken(snapshot, p) !== undefined)
+      : undefined;
+  if (shortlistPick) {
+    targetToken = shortlistPick;
+    history.push({
+      step,
+      text: "Jev was torn between the shortlisted options; taking the writer's first pick",
+    });
+  }
   const element =
     targetToken && targetToken !== NONE && targetToken !== AMBIGUOUS
       ? findByToken(snapshot, targetToken)
@@ -1591,6 +1610,17 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   // A page with many good links spreads a calibrated answer thin ("Economy 0.52, none 0.41"). An advance
   // action is undone with Back, so it runs when its target clearly beats every other element (ADR 0016).
   const targetGate = gates.find((g) => g.gate === "target_confidence");
+  if (
+    targetGate &&
+    !targetGate.passed &&
+    action &&
+    element &&
+    effect === "advance" &&
+    ctx.shortlist?.includes(element.token)
+  ) {
+    targetGate.passed = true;
+    targetGate.detail = `${targetGate.detail ?? ""}; accepted: shortlisted by the writer`;
+  }
   if (targetGate && !targetGate.passed && action && element && effect === "advance") {
     const top = choiceConfidence(targetAnswer);
     const runnerUp = runnerUpElement(targetAnswer, element.token);
@@ -1828,7 +1858,9 @@ async function retryUnnarrowed(ctx: DecideContext, why: string): Promise<DecideO
     focus: focusTerms(ctx.subgoal.goal, ctx.task.instruction),
     reuseCapture: true,
   });
-  return decideAndAct({ ...ctx, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
+  // Shortlist tokens belong to the narrowed snapshot; on the whole page they would filter everything out.
+  const { shortlist: _shortlist, ...rest } = ctx;
+  return decideAndAct({ ...rest, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
 }
 
 /** Advance navigations undone per subgoal when the page they led to was a dead end. */
@@ -1858,7 +1890,7 @@ function restrictToShortlist(candidates: CandidateTable, shortlist: Set<string>)
  * answer was not decisive) and returns their tokens; undefined when there is no writer, too few candidates,
  * a shortlist was already asked, or the writer returned nothing usable.
  */
-async function shortlistFor(ctx: DecideContext, why: string): Promise<Set<string> | undefined> {
+async function shortlistFor(ctx: DecideContext, why: string): Promise<string[] | undefined> {
   const writer = ctx.deps.writer;
   if (!writer?.shortlist || ctx.shortlistTried) return undefined;
   const { snapshot, deps } = ctx;
@@ -1943,7 +1975,7 @@ async function shortlistFor(ctx: DecideContext, why: string): Promise<Set<string
     step: ctx.step,
     text: `writer shortlist: ${names.map((n) => JSON.stringify(n)).join(", ")}`,
   });
-  return new Set(picks);
+  return picks;
 }
 
 /**
