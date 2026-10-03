@@ -13,7 +13,9 @@ const blocked: DecisionProvider = {
   capabilities: { maxOptions: 255, maxLevels: 10, contextTokens: 64000, zdr: true },
   async ask(_s, questions) {
     const answers: Record<string, Answer> = {};
-    for (const k of Object.keys(questions)) answers[k] = { type: "abstain", reason: "unused" };
+    // Nouls (goal_done, model predicates) read "yes": the fake sees every goal as reached.
+    for (const [k, q] of Object.entries(questions))
+      answers[k] = q.type === "noul" ? { type: "noul", p: 0.9 } : { type: "abstain", reason: "unused" };
     answers.operation = {
       type: "choice",
       choice: "blocked",

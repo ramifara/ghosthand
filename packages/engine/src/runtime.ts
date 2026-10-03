@@ -21,9 +21,12 @@ import {
   type Result,
 } from "@ghosthand/protocol";
 import { defaultRunsDir, openRunIndex, type RunIndex } from "@ghosthand/recorder";
+import { z } from "zod";
 import { loadConfig } from "./config-loader.ts";
 import { createLogger } from "./create-logger.ts";
 import { type EnvFile, envValue, loadEnvFile } from "./env-file.ts";
+
+const LogLevel = z.enum(["debug", "info", "warn", "error", "silent"]);
 
 /** Env-file keys that are configuration, not secrets for the agent to type. */
 const NON_AGENT_KEYS = new Set([
@@ -64,7 +67,7 @@ export interface OpenRuntimeOptions {
   configPath?: string;
   overrides?: GhostHandConfigInput;
   envFilePath?: string;
-  logLevel?: "debug" | "info" | "warn" | "error" | "silent";
+  logLevel?: z.infer<typeof LogLevel>;
 }
 
 export async function openRuntime(
@@ -83,7 +86,12 @@ export async function openRuntime(
 
   const secrets = new SecretsRegistry();
   for (const [k, v] of env.value.values) secrets.register(k, v);
-  const logger = createLogger({ secrets, level: opts.logLevel ?? "warn" });
+  // GHOSTHAND_LOG_LEVEL=debug shows driver and loop timings without a code change.
+  const envLevel = LogLevel.safeParse(process.env.GHOSTHAND_LOG_LEVEL);
+  const logger = createLogger({
+    secrets,
+    level: envLevel.success ? envLevel.data : (opts.logLevel ?? "warn"),
+  });
   const runsDir = cfg.value.runsDir ?? defaultRunsDir();
   const index = openRunIndex(runsDir);
   if (!index.ok) return err({ kind: "io", message: index.error.message, path: runsDir });

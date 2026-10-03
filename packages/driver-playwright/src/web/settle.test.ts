@@ -37,7 +37,10 @@ function fakePage(opts: {
 
 describe("waitForSettle", () => {
   it("waits for network quiet (500 ms) and DOM quiet (250 ms)", async () => {
-    const r = await waitForSettle(fakePage({ netEndsAt: 1000, domEndsAt: 1200 }), DEFAULT_SETTLE);
+    const r = await waitForSettle(fakePage({ netEndsAt: 1000, domEndsAt: 1200 }), {
+      ...DEFAULT_SETTLE,
+      networkToleranceMs: 60_000,
+    });
     expect(r.reason).toBe("idle");
     expect(r.waitedMs).toBeGreaterThanOrEqual(1500);
     expect(r.waitedMs).toBeLessThan(1600);
@@ -49,10 +52,25 @@ describe("waitForSettle", () => {
     expect(r.waitedMs).toBeGreaterThanOrEqual(2000);
   });
 
-  it("returns at the cap with what was still busy", async () => {
+  it("stops waiting for a network that never goes quiet once the document is still", async () => {
     const r = await waitForSettle(fakePage({ netEndsAt: 60_000, domEndsAt: 0 }), DEFAULT_SETTLE);
+    expect(r.waitedMs).toBeGreaterThanOrEqual(DEFAULT_SETTLE.networkToleranceMs);
+    expect(r.waitedMs).toBeLessThan(DEFAULT_SETTLE.networkToleranceMs + 100);
+    expect(r.reason).toMatch(/^idle \(document still/);
+  });
+
+  it("returns at the cap with what was still busy", async () => {
+    const r = await waitForSettle(fakePage({ netEndsAt: 60_000, domEndsAt: 60_000 }), DEFAULT_SETTLE);
     expect(r.waitedMs).toBe(5000);
     expect(r.reason).toMatch(/^cap: network busy/);
+  });
+
+  it("tolerates the network only once the DOM has been still for its quiet window", async () => {
+    // The DOM stops changing at 2500 ms; the network stays busy until 3000 ms.
+    const r = await waitForSettle(fakePage({ netEndsAt: 3000, domEndsAt: 2500 }), DEFAULT_SETTLE);
+    expect(r.reason).toMatch(/^idle/);
+    expect(r.waitedMs).toBeGreaterThanOrEqual(2750);
+    expect(r.waitedMs).toBeLessThan(2850);
   });
 
   it("treats an unavailable document as busy", async () => {

@@ -80,6 +80,11 @@ export interface PlannerCallOptions {
 
 export interface Planner {
   readonly id: string;
+  /**
+   * A call takes many seconds (a CLI consultant: 10-25 s measured). The loop then plans on demand, when
+   * Jev first gets stuck, instead of before the first action, and skips speculative refinement (ADR 0016).
+   */
+  readonly slow?: boolean;
   plan(input: PlanInput, opts?: PlannerCallOptions): Promise<Result<PlanOutput, PlannerError>>;
   replan(input: ReplanInput, opts?: PlannerCallOptions): Promise<Result<PlanOutput, PlannerError>>;
   /** Optional: refine the subgoals after the current one (speculation v1). */
@@ -94,6 +99,11 @@ export const MAX_SUBGOALS = 12;
 /** A replan replaces the tail of a plan, so it may be shorter than a fresh plan. */
 export const MIN_REPLAN_SUBGOALS = 1;
 export const DEFAULT_MAX_STEPS = 15;
+/**
+ * Planners hand out 2-3 steps for "click the link X", and one refused or no-op step then forces a replan
+ * (10-20 s with a CLI planner). Every subgoal gets at least this many steps.
+ */
+export const MIN_SUBGOAL_STEPS = 5;
 export const MAX_STEPS_CAP = 25;
 const MAX_SEED_TARGETS = 8;
 
@@ -229,7 +239,7 @@ export function toPlan(draft: PlanDraft, opts: ToPlanOptions = {}): Result<Plan,
       goal,
       doneWhen: compileDoneWhen(checks),
       allowedEffects: allowedEffects.length > 0 ? [...new Set(allowedEffects)] : ["advance"],
-      maxSteps: Math.min(cap, Math.max(1, steps)),
+      maxSteps: Math.min(cap, Math.max(MIN_SUBGOAL_STEPS, steps)),
       seedTargets: [...new Set(d.seed_targets.map(clean).filter((t) => t !== ""))].slice(0, MAX_SEED_TARGETS),
     });
   }
@@ -451,6 +461,7 @@ const FALLBACK_ON: ReadonlySet<PlannerErrorKind> = new Set(["unavailable", "time
 /** Tries `primary`; on `unavailable` or `timeout` (and no caller abort) tries `secondary`. */
 export class FallbackPlanner implements Planner {
   readonly id: string;
+  readonly slow: boolean;
   readonly #primary: Planner;
   readonly #secondary: Planner;
 
@@ -458,6 +469,7 @@ export class FallbackPlanner implements Planner {
     this.#primary = primary;
     this.#secondary = secondary;
     this.id = `${primary.id}>${secondary.id}`;
+    this.slow = primary.slow === true;
   }
 
   plan(input: PlanInput, opts: PlannerCallOptions = {}): Promise<Result<PlanOutput, PlannerError>> {

@@ -26,12 +26,28 @@ const RISK_EFFECT: Record<ElementRisk, EffectClass> = {
 
 const EFFECT_ORDER: Record<EffectClass, number> = { advance: 0, commit: 1, forbidden: 2 };
 
+export interface EffectOptions {
+  /**
+   * A link to another origin is a commit (it leaves the task's sites). Off for a goal on any site, where
+   * following links across sites is the task (ADR 0016); the name rules (pay, send, …) still apply.
+   */
+  crossOriginLinksCommit?: boolean;
+}
+
+const isHttpLink = (el: Element): boolean =>
+  el.href !== undefined && /^https?:/i.test(el.href) && !/^(?:javascript|mailto|tel):/i.test(el.href);
+
 /** The stricter of the code-derived effect and the model's effect wins. */
 export function combineEffect(
   element: Element | undefined,
   modelEffect: EffectClass | undefined,
+  opts: EffectOptions = {},
 ): EffectClass {
-  const code = element ? RISK_EFFECT[element.risk] : "advance";
+  const risk =
+    element?.risk === "external" && opts.crossOriginLinksCommit === false && isHttpLink(element)
+      ? "navigates"
+      : element?.risk;
+  const code = element && risk ? RISK_EFFECT[risk] : "advance";
   const model = modelEffect ?? "advance";
   return EFFECT_ORDER[model] > EFFECT_ORDER[code] ? model : code;
 }

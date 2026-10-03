@@ -43,7 +43,7 @@ import type {
 import { z } from "zod";
 import type { PageObservation, TargetObservation } from "./action-effects.ts";
 import { assess, pageEvidence, targetEvidence, weakEvidence } from "./action-effects.ts";
-import type { CaptureTimings } from "./capture-snapshot.ts";
+import type { Captured, CaptureTimings } from "./capture-snapshot.ts";
 import { captureSnapshot } from "./capture-snapshot.ts";
 import { registerGhosthandEngine, runEngine } from "./engine-client.ts";
 import { HitTestResult, PageState, TargetProbe as TargetProbeSchema } from "./in-page/page-types.ts";
@@ -255,6 +255,26 @@ export async function createWebComputer(
   return ok(computer);
 }
 
+/** An aria snapshot of a large page takes a second or more: observe never inherits a short action timeout. */
+const OBSERVE_MIN_TIMEOUT_MS = 5000;
+
+/** A full capture this recent (and not invalidated by an action) serves a scoped observe. */
+const CAPTURE_REUSE_MS = 10_000;
+
+/** The capture with every token's snapshot id suffix `from` replaced by `to` (tokens are `${ref}${id}`). */
+function retokenCapture(c: Captured, from: string, to: string): Captured {
+  if (from === to || from === "") return c;
+  const re = new RegExp(`${from}$`);
+  const swap = (token: string) => token.replace(re, to);
+  return {
+    ...c,
+    elements: c.elements.map((e) => ({ ...e, token: swap(e.token) })),
+    refs: new Map([...c.refs].map(([token, ref]) => [swap(token), ref])),
+    sections: new Map([...c.sections].map(([token, region]) => [swap(token), region])),
+    secretTokens: new Set([...c.secretTokens].map(swap)),
+  };
+}
+
 export class WebComputer implements Computer {
   readonly #context: BrowserContext;
   #page: Page;
@@ -271,6 +291,8 @@ export class WebComputer implements Computer {
   #seq = 0;
   #captureSeq = 0;
   #latest: LatestSnapshot | undefined;
+  /** The last full capture, reused by a scoped observe of the same page while no action ran (ADR 0016). */
+  #lastCapture: { captured: Captured; id: string; url: string; at: number } | undefined;
   readonly #captures = new Map<string, CaptureGeometry>();
   #recordingDir: string | undefined;
   #jsDialogs = 0;
@@ -301,9 +323,11 @@ export class WebComputer implements Computer {
       block: opts.blockOrigins ?? [],
       strictSubresources: opts.strictSubresources ?? false,
     });
-    if (opts.startUrl) {
+    // With an explicit allowlist (a testbed task, --allow-origin) the start site and its subdomains are part
+    // of it (facebook.com → www.facebook.com). Without one (a goal on any site) the agent may go anywhere
+    // the blocklist does not forbid: start pages redirect to other origins, and goals span sites (ADR 0016).
+    if (opts.startUrl && this.#guard.hasAllowlist) {
       this.#guard.allow(opts.startUrl);
-      // The start site's own subdomains and redirects (facebook.com → www.facebook.com) are part of the task.
       const site = siteOf(opts.startUrl);
       if (site) this.#guard.allow(site);
     }
@@ -311,7 +335,9 @@ export class WebComputer implements Computer {
     this.#maxElements = opts.maxElements;
     this.#maxTokens = opts.maxTokens;
     this.#timeout = opts.actionTimeoutMs ?? 5000;
-    this.#effectCap = opts.effectSettleCapMs ?? 2000;
+    // Long enough for a click's effect to land (a navigation starts well under a second); the step settle
+    // before the next observe waits for the rest, so heavy pages do not pay twice (ADR 0016).
+    this.#effectCap = opts.effectSettleCapMs ?? 1200;
     this.#closeContext = opts.closeContext ?? false;
     this.#uploadDir = opts.uploadDir;
     this.#downloadDir = opts.downloadDir;
@@ -535,7 +561,6 @@ export class WebComputer implements Computer {
   }
 
   async open(target: string): Promise<Result<void, ComputerError>> {
-    if (!this.#guard.hasAllowlist) this.#guard.allow(target);
     const decision = this.#guard.check(target);
     if (!decision.allowed)
       return err({
@@ -589,16 +614,49 @@ export class WebComputer implements Computer {
     if (this.#closed) return err({ kind: "closed", message: "the computer is closed" });
     const t0 = Date.now();
     const id = `s${++this.#seq}`;
-    const cap = await captureSnapshot({
-      page: this.#page,
-      scope: this.#scope,
-      snapshotId: id,
-      timeoutMs: this.#timeout,
-      ...(scope?.region !== undefined ? { sectionText: scope.region } : {}),
-      ...(scope?.focus ? { focus: scope.focus } : {}),
-    });
-    if (!cap.ok) return cap;
-    const c = cap.value;
+    const region = scope?.region;
+    const reusable =
+      (region !== undefined || scope?.reuseCapture === true) &&
+      this.#lastCapture !== undefined &&
+      this.#latest?.invalidated === false &&
+      this.#lastCapture.url === this.#page.url() &&
+      Date.now() - this.#lastCapture.at < CAPTURE_REUSE_MS
+        ? this.#lastCapture.captured
+        : undefined;
+    let c: Captured;
+    if (reusable) {
+      // The region's text: its elements' names and context (the full text was already captured).
+      const regionTokens = [...reusable.sections].filter(([, r]) => r === region).map(([token]) => token);
+      const inRegion = new Set(regionTokens);
+      const sectionText =
+        region === undefined
+          ? undefined
+          : reusable.elements
+              .filter((e) => inRegion.has(e.token))
+              .map((e) => (e.context ? `${e.name} · ${e.context}` : e.name))
+              .join("\n");
+      // Tokens carry their snapshot id (freshness check): the reused table gets this snapshot's.
+      c = {
+        ...retokenCapture(reusable, this.#lastCapture?.id ?? "", id),
+        ...(sectionText !== undefined ? { sectionText } : {}),
+        timings: { ariaMs: 0, enrichMs: 0, buildMs: 0 },
+      };
+      // The reused table is now this snapshot's; a later reuse retokens from here.
+      if (this.#lastCapture) this.#lastCapture = { ...this.#lastCapture, captured: c, id };
+    } else {
+      const cap = await captureSnapshot({
+        page: this.#page,
+        scope: this.#scope,
+        snapshotId: id,
+        timeoutMs: Math.max(this.#timeout, OBSERVE_MIN_TIMEOUT_MS),
+        ...(scope?.region !== undefined ? { sectionText: scope.region } : {}),
+        ...(scope?.focus ? { focus: scope.focus } : {}),
+      });
+      if (!cap.ok) return cap;
+      c = cap.value;
+      if (scope?.region === undefined)
+        this.#lastCapture = { captured: c, id, url: this.#page.url(), at: Date.now() };
+    }
     let elements = c.elements;
     let text = c.text;
     let scopedTo: string | undefined;
@@ -706,7 +764,7 @@ export class WebComputer implements Computer {
       page: this.#page,
       scope: this.#scope,
       snapshotId: "v0",
-      timeoutMs: this.#timeout,
+      timeoutMs: Math.max(this.#timeout, OBSERVE_MIN_TIMEOUT_MS),
     });
     if (!cap.ok)
       return predicates.map((p) => ({ predicate: p, state: "unknown", detail: cap.error.message }));
@@ -815,6 +873,7 @@ export class WebComputer implements Computer {
 
   #invalidate(): void {
     if (this.#latest) this.#latest.invalidated = true;
+    this.#lastCapture = undefined;
   }
 
   /** Freshness check: only tokens of the latest, not yet invalidated snapshot are accepted. Never re-resolves. */
@@ -893,7 +952,16 @@ export class WebComputer implements Computer {
   async #perform(spec: ActionSpec): Promise<ActionResult> {
     const start = Date.now();
     if (this.#closed) return this.#refuse("driver", "the computer is closed", spec.route, start);
+    // Where an action's time goes (debug log): pacing, token, pre-probe, the action, settle, post-probe.
+    const phases: Record<string, number> = {};
+    let mark = start;
+    const phase = (name: string) => {
+      const now = Date.now();
+      phases[name] = (phases[name] ?? 0) + (now - mark);
+      mark = now;
+    };
     await this.#pacing.pause();
+    phase("pacing");
     let target: ResolvedTarget | undefined;
     if (spec.token !== undefined) {
       const resolved = await this.#resolveToken(spec.token);
@@ -911,8 +979,13 @@ export class WebComputer implements Computer {
           [{ kind: "dom", detail: `element at (${Math.round(hit.x)}, ${Math.round(hit.y)}): ${hit.hit}` }],
         );
     }
-    const pageBefore = await this.#observePage();
-    const before: TargetObservation = target ? await this.#probe(target.locator) : undefined;
+    phase("resolve");
+    // Two in-page evaluations; together they are one round trip instead of two.
+    const [pageBefore, before] = await Promise.all([
+      this.#observePage(),
+      target ? this.#probe(target.locator) : Promise.resolve<TargetObservation>(undefined),
+    ]);
+    phase("probeBefore");
     const blockedBefore = this.#blocked.length;
     const popupsBefore = this.#popups.length;
     const downloadsBefore = this.#downloadsStarted;
@@ -937,8 +1010,9 @@ export class WebComputer implements Computer {
       });
     }
     if (spec.mutating) this.#invalidate();
+    phase("action");
 
-    await waitForSettle(
+    const settled = await waitForSettle(
       { network: () => this.#tracker.state(), dom: () => this.#domState(), now: Date.now, sleep },
       { ...this.#settle, capMs: this.#effectCap, ...(spec.quick ? QUICK_SETTLE : {}) },
     );
@@ -990,8 +1064,16 @@ export class WebComputer implements Computer {
       );
     }
 
-    const pageAfter = await this.#observePage();
-    const after: TargetObservation = target ? await this.#probe(target.locator) : undefined;
+    phase("settle");
+    const [pageAfter, after] = await Promise.all([
+      this.#observePage(),
+      target ? this.#probe(target.locator) : Promise.resolve<TargetObservation>(undefined),
+    ]);
+    phase("probeAfter");
+    this.#log.debug(
+      { route: spec.route, ...phases, settleReason: settled.reason, totalMs: Date.now() - start },
+      "action phases",
+    );
     const judged = spec.judge({
       pageBefore,
       pageAfter,
@@ -1028,12 +1110,23 @@ export class WebComputer implements Computer {
   async #hitTest(locator: Locator): Promise<HitTestResult> {
     try {
       await locator.scrollIntoViewIfNeeded({ timeout: this.#timeout });
-      const raw = await locator.evaluate(hitTestTarget, undefined, { timeout: this.#timeout });
-      const parsed = HitTestResult.safeParse(raw);
-      return parsed.success ? parsed.data : { ok: false, hit: "unreadable hit test", x: 0, y: 0 };
+      const first = await this.#hitTestOnce(locator);
+      if (first.ok) return first;
+      // A fixed header or toolbar often covers a target that scrolled to the viewport's edge: put it in the
+      // middle and look again before calling it covered.
+      await locator.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }), undefined, {
+        timeout: this.#timeout,
+      });
+      return await this.#hitTestOnce(locator);
     } catch (e) {
       return { ok: false, hit: `hit test failed: ${firstLine(e)}`, x: 0, y: 0 };
     }
+  }
+
+  async #hitTestOnce(locator: Locator): Promise<HitTestResult> {
+    const raw = await locator.evaluate(hitTestTarget, undefined, { timeout: this.#timeout });
+    const parsed = HitTestResult.safeParse(raw);
+    return parsed.success ? parsed.data : { ok: false, hit: "unreadable hit test", x: 0, y: 0 };
   }
 
   async #leaveDisallowed(): Promise<void> {

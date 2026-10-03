@@ -46,6 +46,11 @@ export const GhostHandConfig = z.object({
       text: z.number().min(0).max(1).default(0.5),
       /** A target this sure lets an advance action run when Jev splits between two operations. */
       sureTarget: z.number().min(0).max(1).default(0.9),
+      /**
+       * An advance action (a link, a tab: undone with Back) runs when its target has at least this much
+       * probability and twice the runner-up element's; many good links spread a calibrated answer thin.
+       */
+      advanceTarget: z.number().min(0).max(1).default(0.45),
     })
     .prefault({}),
   browser: z
