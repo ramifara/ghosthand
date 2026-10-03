@@ -4,7 +4,13 @@ import { err, ok } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ModelClient } from "./model-client.ts";
-import { createModelWriter, parseWriterLine, ShortlistDraft, WriterDraft } from "./model-writer.ts";
+import {
+  createModelWriter,
+  parseShortlistLine,
+  parseWriterLine,
+  ShortlistDraft,
+  WriterDraft,
+} from "./model-writer.ts";
 
 const input = {
   instruction: "Sign in",
@@ -76,6 +82,22 @@ describe("createModelWriter", () => {
     const r = await createModelWriter(c).hint(input);
     expect(r.ok && r.value.hint).toEqual({ kind: "focus", focus: 'Click the "Economy" link' });
     expect(systems[0]).toContain("FOCUS:");
+  });
+
+  it("parses the one-line PICKS form for a shortlist, keeping only known ids", () => {
+    const candidates = ['e1 — link "Economy"', 'e2 — link "History"', 'e3 — button "Search"'];
+    expect(parseShortlistLine("PICKS: e2, e9, e1 | TEXT: - | NOTE: history first", candidates)).toEqual({
+      picks: ["e2", "e1"],
+      note: "history first",
+    });
+    expect(
+      parseShortlistLine("Sure!\nPICKS: e3 | TEXT: vegan berlin | NOTE: type then search", candidates),
+    ).toEqual({
+      picks: ["e3"],
+      text: "vegan berlin",
+      note: "type then search",
+    });
+    expect(parseShortlistLine("I would click Economy.", candidates)).toBeUndefined();
   });
 
   it("parses the one-line form and rejects anything else", () => {

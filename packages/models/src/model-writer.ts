@@ -89,8 +89,42 @@ export function parseWriterLine(text: string): WriterDraft | undefined {
   return { kind, content: content.slice(0, 600) };
 }
 
+/** Plan-served models answer in 10-20 s when they reason first; 8 s cut every hint off (measured 16-18 s). */
+export const WRITER_TIMEOUT_MS = 25_000;
+
+/** One line the writer can answer a shortlist with when JSON-schema output is not available. */
+export const SHORTLIST_TEXT_FORMAT =
+  "Answer with exactly one line, nothing else: PICKS: <id>, <id>, ... | TEXT: <text to type or -> | NOTE: <one short reason>";
+
+/** Parses the one-line shortlist form; undefined when no PICKS: part is found. */
+export function parseShortlistLine(text: string, candidates: readonly string[]): Shortlist | undefined {
+  const line = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => /PICKS\s*:/i.test(l));
+  if (!line) return undefined;
+  const part = (name: string) => {
+    const m = new RegExp(`${name}\\s*:\\s*([^|]*)`, "i").exec(line);
+    return m?.[1]?.trim() ?? "";
+  };
+  const picks = part("PICKS")
+    .split(/[,\s]+/)
+    .map((p) => p.replace(/[^\w-]/g, ""))
+    .filter(Boolean);
+  const typed = part("TEXT");
+  const note = part("NOTE");
+  return cleanShortlist(
+    {
+      picks: picks.slice(0, MAX_SHORTLIST),
+      text: typed && typed !== "-" ? typed.slice(0, 600) : null,
+      note: note ? note.slice(0, 300) : null,
+    },
+    candidates,
+  );
+}
+
 export function createModelWriter(client: ModelClient, opts: { timeoutMs?: number } = {}): Writer {
-  const timeoutMs = opts.timeoutMs ?? 8000;
+  const timeoutMs = opts.timeoutMs ?? WRITER_TIMEOUT_MS;
   return {
     id: "models:writer",
     async hint(input, callOpts = {}) {
@@ -102,7 +136,8 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
         schema: WriterDraft,
         schemaName: "writer_hint",
         timeoutMs,
-        maxOutputTokens: 400,
+        // Room for a reasoning model's hidden tokens before the answer; too little gives an empty reply.
+        maxOutputTokens: 1200,
         ...signal,
       });
       // A provider that cannot follow a JSON schema (the ChatGPT plan did not) gets one plain-text ask.
@@ -112,7 +147,7 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
           system: `${WRITER_SYSTEM} ${WRITER_TEXT_FORMAT}`,
           prompt: writerPrompt(input),
           timeoutMs,
-          maxOutputTokens: 200,
+          maxOutputTokens: 1200,
           ...signal,
         });
         if (!t.ok) return err(mapError(t.error));
@@ -120,7 +155,9 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
         if (!draft)
           return err({
             kind: "invalid",
-            message: `the writer answered in neither JSON nor the one-line form: ${t.value.value.slice(0, 120)}`,
+            message: t.value.value.trim()
+              ? `the writer answered in neither JSON nor the one-line form: ${t.value.value.slice(0, 120)}`
+              : "the writer returned an empty answer (its output budget may have gone to reasoning)",
           });
         r = { ...t, value: { ...t.value, value: draft } };
       }
@@ -133,16 +170,43 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
       });
     },
     async shortlist(input, callOpts = {}) {
+      const signal = callOpts.signal ? { signal: callOpts.signal } : {};
       const r = await client.generateStructured({
         role: "writer",
         system: SHORTLIST_SYSTEM,
         prompt: shortlistPrompt(input),
         schema: ShortlistDraft,
         schemaName: "shortlist",
-        timeoutMs: timeoutMs * 2,
-        maxOutputTokens: 300,
-        ...(callOpts.signal ? { signal: callOpts.signal } : {}),
+        timeoutMs,
+        maxOutputTokens: 1200,
+        ...signal,
       });
+      // Some plan-served models answer in prose despite the schema: one plain-text ask in a one-line form.
+      if (!r.ok && r.error.kind === "schema_failed") {
+        const t = await client.generateText({
+          role: "writer",
+          system: `${SHORTLIST_SYSTEM} ${SHORTLIST_TEXT_FORMAT}`,
+          prompt: shortlistPrompt(input),
+          timeoutMs,
+          maxOutputTokens: 1200,
+          ...signal,
+        });
+        if (!t.ok) return err(mapError(t.error));
+        const parsed = parseShortlistLine(t.value.value, input.candidates);
+        if (!parsed)
+          return err({
+            kind: "invalid",
+            message: t.value.value.trim()
+              ? `the writer answered in neither JSON nor the PICKS: form: ${t.value.value.slice(0, 120)}`
+              : "the writer returned an empty answer (its output budget may have gone to reasoning)",
+          });
+        return ok({
+          shortlist: parsed,
+          model: t.value.model,
+          latencyMs: t.value.latencyMs,
+          costUsd: t.value.costUsd,
+        });
+      }
       if (!r.ok) return err(mapError(r.error));
       return ok({
         shortlist: cleanShortlist(r.value.value, input.candidates),

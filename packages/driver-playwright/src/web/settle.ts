@@ -13,6 +13,11 @@ export interface SettleOptions {
   pollMs: number;
   /** With the document complete and still, network activity stops blocking after this long. */
   networkToleranceMs: number;
+  /**
+   * With the network quiet and no loading indicator, DOM mutations stop blocking after this long: a
+   * ticking timer or an animation never stops, and waiting for it only reaches the cap every step.
+   */
+  domToleranceMs: number;
 }
 
 export const DEFAULT_SETTLE: SettleOptions = {
@@ -21,6 +26,7 @@ export const DEFAULT_SETTLE: SettleOptions = {
   domQuietMs: 250,
   pollMs: 50,
   networkToleranceMs: 1200,
+  domToleranceMs: 1500,
 };
 
 export interface DomState {
@@ -65,7 +71,10 @@ function blockers(
   else {
     if (dom.readyState === "loading") out.push("document loading");
     if (dom.busy !== null) out.push(`loading indicator ${dom.busy}`);
-    if (dom.sinceMutation < opts.domQuietMs) out.push("DOM mutating");
+    const networkQuiet = net.pending === 0 && net.quietMs >= opts.networkQuietMs;
+    const mutationTolerated =
+      networkQuiet && dom.readyState !== "loading" && dom.busy === null && waitedMs >= opts.domToleranceMs;
+    if (dom.sinceMutation < opts.domQuietMs && !mutationTolerated) out.push("DOM mutating");
   }
   return out;
 }
@@ -80,7 +89,12 @@ export async function waitForSettle(probes: SettleProbes, opts: SettleOptions): 
     if (busy.length === 0)
       return {
         waitedMs: waited,
-        reason: net.pending > 0 ? "idle (document still; network left active)" : "idle",
+        reason:
+          net.pending > 0
+            ? "idle (document still; network left active)"
+            : dom !== undefined && dom.sinceMutation < opts.domQuietMs
+              ? "idle (network quiet; DOM left mutating)"
+              : "idle",
       };
     if (waited >= opts.capMs) return { waitedMs: waited, reason: `cap: ${busy.join(", ")}` };
     await probes.sleep(Math.min(opts.pollMs, Math.max(1, opts.capMs - waited)));
