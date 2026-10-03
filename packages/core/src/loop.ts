@@ -1843,6 +1843,8 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   // in the table at its rank, and the history says why it did not work.
   // The page moved on while we acted (a timer, a redirect): nothing is learned about the target.
   const pageMoved = result.error?.kind === "stale_token";
+  // The control was not ready (disabled while the page loads the next state): wait, do not give it up.
+  const notReady = result.error?.kind === "timeout";
   // A covered target may be free next time (an overlay closed), but one that stays covered is a dead end.
   const covered = result.error?.kind === "hit_test_failed";
   const coveredTimes = covered ? (ctx.coveredTries.get(key) ?? 0) + 1 : 0;
@@ -1850,9 +1852,15 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (
     (result.effect === "suspected_noop" || result.effect === "refused") &&
     !pageMoved &&
+    !notReady &&
     (!covered || coveredTimes >= MAX_COVERED_TRIES)
   )
     ctx.triedNoEffect.add(key);
+  if (notReady) {
+    history.push({ step, text: `${describe}: the control was not ready in time; waiting for the page` });
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    return { kind: "continue" };
+  }
   if (pageMoved) {
     // The same control may still be there under a new token: find it by stable id and act once more.
     const again = await deps.computer.observe({ focus: focusTerms(subgoal.goal, ctx.task.instruction) });
