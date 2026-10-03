@@ -33,6 +33,8 @@ export interface ModelAttempt {
 export interface ModelError {
   readonly kind: ModelErrorKind;
   readonly message: string;
+  /** For `schema_failed`: the start of what the model actually answered, so callers can salvage and logs show it. */
+  readonly rawText?: string;
   readonly role?: string;
   /** Model reference (`provider/model`) of the last attempt, when one was made. */
   readonly model?: string;

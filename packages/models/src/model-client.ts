@@ -431,7 +431,12 @@ export function createModelClient(options: ModelClientOptions): ModelClient {
       }
 
       log.warn(
-        { ...fields, errorKind: outcome.error.kind, status: outcome.error.status },
+        {
+          ...fields,
+          errorKind: outcome.error.kind,
+          status: outcome.error.status,
+          ...(outcome.error.rawText ? { rawText: outcome.error.rawText.slice(0, 200) } : {}),
+        },
         "model.call failed",
       );
       attempts.push({ model: model.ref, kind: outcome.error.kind, latencyMs });

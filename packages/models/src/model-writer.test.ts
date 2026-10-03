@@ -6,6 +6,8 @@ import { z } from "zod";
 import type { ModelClient } from "./model-client.ts";
 import {
   createModelWriter,
+  lenientHint,
+  lenientShortlist,
   parseShortlistLine,
   parseWriterLine,
   ShortlistDraft,
@@ -98,6 +100,38 @@ describe("createModelWriter", () => {
       note: "type then search",
     });
     expect(parseShortlistLine("I would click Economy.", candidates)).toBeUndefined();
+  });
+
+  it("reads a hint from JSON, the one-line form, or plain prose", () => {
+    expect(lenientHint('{"kind":"focus","content":"Click Economy"}')).toEqual({
+      kind: "focus",
+      content: "Click Economy",
+    });
+    expect(lenientHint("TEXT: hello")).toEqual({ kind: "text", content: "hello" });
+    expect(lenientHint("Click the “Economy” link in the sidebar.\nIt leads to the article.")).toEqual({
+      kind: "focus",
+      content: "Click the “Economy” link in the sidebar.",
+    });
+    expect(lenientHint("None of the links fit the goal.")).toEqual({
+      kind: "none",
+      content: "None of the links fit the goal.",
+    });
+    expect(lenientHint("  ")).toBeUndefined();
+  });
+
+  it("reads a shortlist from JSON, the PICKS line, or ids mentioned in prose", () => {
+    const candidates = ['f1e19s5 — link "bone"', 'f1e22s5 — link "mineral"', 'e3 — button "Search"'];
+    expect(
+      lenientShortlist('```json\n{"picks":["f1e22s5"],"text":null,"note":"minerals"}\n```', candidates),
+    ).toEqual({
+      picks: ["f1e22s5"],
+      note: "minerals",
+    });
+    expect(lenientShortlist("I would go with f1e19s5 (bone) first, then e3.", candidates)?.picks).toEqual([
+      "f1e19s5",
+      "e3",
+    ]);
+    expect(lenientShortlist("Pick the second one.", candidates)).toBeUndefined();
   });
 
   it("parses the one-line form and rejects anything else", () => {

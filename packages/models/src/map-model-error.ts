@@ -82,7 +82,12 @@ export function mapModelError(e: unknown, ctx: MapErrorContext): MappedError {
     if (e.finishReason === "content-filter")
       return { kind: "refused", message: "the provider filtered the output" };
     const truncated = e.finishReason === "length" ? " (output hit the token limit)" : "";
-    return { kind: "schema_failed", message: `output did not match the schema${truncated}: ${e.message}` };
+    const raw = typeof e.text === "string" ? e.text.trim().slice(0, 400) : "";
+    return {
+      kind: "schema_failed",
+      message: `output did not match the schema${truncated}: ${e.message}${raw ? ` · answer: ${raw.slice(0, 160)}` : " · answer: (empty)"}`,
+      ...(raw ? { rawText: raw } : {}),
+    };
   }
   if (TypeValidationError.isInstance(e) || JSONParseError.isInstance(e)) {
     return { kind: "schema_failed", message: e.message };
