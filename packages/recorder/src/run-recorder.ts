@@ -95,6 +95,7 @@ export function createRunRecorder(opts: RunRecorderOptions): Result<RunRecorder,
 
   let seq = 0;
   let closed = false;
+  const stateCounts = new Map<string, number>();
   let finished: RunSummary | null = null;
   let acc = emptySummary(runId, openedAt);
 
@@ -148,7 +149,11 @@ export function createRunRecorder(opts: RunRecorderOptions): Result<RunRecorder,
     },
 
     writeState(step, purpose, state) {
-      const name = stateName(step, purpose);
+      // Several requests can share a step (a shortlist, a widened re-ask, a hint): each keeps its own file.
+      const key = `${step}:${purpose}`;
+      const n = (stateCounts.get(key) ?? 0) + 1;
+      stateCounts.set(key, n);
+      const name = stateName(step, n === 1 ? purpose : `${purpose}-${n}`);
       const text = redactedJson(redactKeys(state), redact, 2);
       if (!text.ok) return text;
       try {

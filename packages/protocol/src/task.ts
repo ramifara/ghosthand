@@ -51,7 +51,11 @@ export const Budget = z.object({
 });
 export type Budget = z.infer<typeof Budget>;
 
-export const DEFAULT_BUDGET: Budget = { steps: 25, seconds: 180, usd: 0.25 };
+/**
+ * Reaching the goal matters more than the step count or the clock (ADR 0017): a guided step costs 5-10 s,
+ * and an open-ended goal (a navigation game, a multi-page form) can take 40 of them.
+ */
+export const DEFAULT_BUDGET: Budget = { steps: 60, seconds: 600, usd: 0.5 };
 
 export const Subgoal = z.object({
   id: z.string().min(1),

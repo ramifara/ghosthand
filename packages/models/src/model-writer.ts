@@ -14,6 +14,8 @@ import {
 } from "@ghosthand/core";
 import { err, ok } from "@ghosthand/protocol";
 import { z } from "zod";
+import { ZERO_USAGE } from "./cost-meter.ts";
+import { salvageObject } from "./json-salvage.ts";
 import type { ModelClient } from "./model-client.ts";
 import type { ModelError } from "./model-error.ts";
 
@@ -123,6 +125,58 @@ export function parseShortlistLine(text: string, candidates: readonly string[]):
   );
 }
 
+/**
+ * A hint from any answer shape: the JSON object, the one-line form, or (last) the first sentence of prose
+ * taken as a focus hint ("Click the Economy link."). Undefined only for an empty answer.
+ */
+export function lenientHint(text: string | undefined): WriterDraft | undefined {
+  if (!text?.trim()) return undefined;
+  const asJson = salvageObject(text, WriterDraft);
+  if (asJson) return asJson;
+  const asLine = parseWriterLine(text);
+  if (asLine) return asLine;
+  const first = text
+    .split("\n")
+    .map((l) =>
+      l
+        .trim()
+        .replace(/^[-*>\d.)\s]+/, "")
+        .replace(/^["'`]+|["'`]+$/g, ""),
+    )
+    .find((l) => l.length > 0);
+  if (!first) return undefined;
+  if (/^(none|nothing|no (link|control|element))\b/i.test(first))
+    return { kind: "none", content: first.slice(0, 600) };
+  return { kind: "focus", content: first.slice(0, 600) };
+}
+
+/**
+ * A shortlist from any answer shape: the JSON object, the PICKS: line, or (last) the candidate ids the
+ * prose mentions, in order. Undefined when no known id appears.
+ */
+export function lenientShortlist(
+  text: string | undefined,
+  candidates: readonly string[],
+): Shortlist | undefined {
+  if (!text?.trim()) return undefined;
+  const asJson = salvageObject(text, ShortlistDraft);
+  if (asJson) {
+    const cleaned = cleanShortlist(asJson, candidates);
+    if (cleaned.picks.length > 0) return cleaned;
+  }
+  const asLine = parseShortlistLine(text, candidates);
+  if (asLine && asLine.picks.length > 0) return asLine;
+  const ids = candidates.map((line) => line.split(" — ")[0]?.trim() ?? "").filter(Boolean);
+  const mentioned: string[] = [];
+  for (const m of text.matchAll(/\b(f\d+)?e\d+s\d+\b|\b[a-z]\w{0,15}\b/g)) {
+    const id = m[0];
+    if (ids.includes(id) && !mentioned.includes(id)) mentioned.push(id);
+    if (mentioned.length >= MAX_SHORTLIST) break;
+  }
+  if (mentioned.length === 0) return undefined;
+  return { picks: mentioned, note: text.trim().split("\n")[0]?.slice(0, 300) ?? "" };
+}
+
 export function createModelWriter(client: ModelClient, opts: { timeoutMs?: number } = {}): Writer {
   const timeoutMs = opts.timeoutMs ?? WRITER_TIMEOUT_MS;
   return {
@@ -140,26 +194,40 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
         maxOutputTokens: 1200,
         ...signal,
       });
-      // A provider that cannot follow a JSON schema (the ChatGPT plan did not) gets one plain-text ask.
+      // A provider that does not follow the JSON schema (the ChatGPT plan did not): read what it did answer,
+      // and only then spend a plain-text ask; prose is accepted as a focus hint.
       if (!r.ok && r.error.kind === "schema_failed") {
-        const t = await client.generateText({
-          role: "writer",
-          system: `${WRITER_SYSTEM} ${WRITER_TEXT_FORMAT}`,
-          prompt: writerPrompt(input),
-          timeoutMs,
-          maxOutputTokens: 1200,
-          ...signal,
-        });
-        if (!t.ok) return err(mapError(t.error));
-        const draft = parseWriterLine(t.value.value);
-        if (!draft)
-          return err({
-            kind: "invalid",
-            message: t.value.value.trim()
-              ? `the writer answered in neither JSON nor the one-line form: ${t.value.value.slice(0, 120)}`
-              : "the writer returned an empty answer (its output budget may have gone to reasoning)",
+        const fromRaw = lenientHint(r.error.rawText);
+        if (fromRaw) {
+          const failed = r.error;
+          r = ok({
+            value: fromRaw,
+            role: "writer",
+            model: failed.model ?? "writer",
+            usage: ZERO_USAGE,
+            costUsd: 0,
+            latencyMs: 0,
+            finishReason: "stop",
+            attempts: [],
           });
-        r = { ...t, value: { ...t.value, value: draft } };
+        } else {
+          const t = await client.generateText({
+            role: "writer",
+            system: `${WRITER_SYSTEM} ${WRITER_TEXT_FORMAT}`,
+            prompt: writerPrompt(input),
+            timeoutMs,
+            maxOutputTokens: 1200,
+            ...signal,
+          });
+          if (!t.ok) return err(mapError(t.error));
+          const draft = lenientHint(t.value.value);
+          if (!draft)
+            return err({
+              kind: "invalid",
+              message: "the writer returned an empty answer (its output budget may have gone to reasoning)",
+            });
+          r = { ...t, value: { ...t.value, value: draft } };
+        }
       }
       if (!r.ok) return err(mapError(r.error));
       return ok({
@@ -181,8 +249,12 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
         maxOutputTokens: 1200,
         ...signal,
       });
-      // Some plan-served models answer in prose despite the schema: one plain-text ask in a one-line form.
+      // Some plan-served models answer in prose despite the schema: read the ids that answer mentions, and
+      // only then spend a plain-text ask in the one-line form.
       if (!r.ok && r.error.kind === "schema_failed") {
+        const fromRaw = lenientShortlist(r.error.rawText, input.candidates);
+        if (fromRaw)
+          return ok({ shortlist: fromRaw, model: r.error.model ?? "writer", latencyMs: 0, costUsd: 0 });
         const t = await client.generateText({
           role: "writer",
           system: `${SHORTLIST_SYSTEM} ${SHORTLIST_TEXT_FORMAT}`,
@@ -192,12 +264,12 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
           ...signal,
         });
         if (!t.ok) return err(mapError(t.error));
-        const parsed = parseShortlistLine(t.value.value, input.candidates);
+        const parsed = lenientShortlist(t.value.value, input.candidates);
         if (!parsed)
           return err({
             kind: "invalid",
             message: t.value.value.trim()
-              ? `the writer answered in neither JSON nor the PICKS: form: ${t.value.value.slice(0, 120)}`
+              ? `the writer named none of the candidates: ${t.value.value.slice(0, 160)}`
               : "the writer returned an empty answer (its output budget may have gone to reasoning)",
           });
         return ok({

@@ -640,6 +640,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const trail: Array<{ fromUrl: string; key: string; choices: number }> = [];
     let pendingAdvance: { fromUrl: string; key: string; choices: number } | undefined;
     const backtracks = { count: 0 };
+    /** Consecutive steps on which the writer reported the goal reached and nothing left to do. */
+    const writerDone = { count: 0 };
     let subgoalSteps = 0;
     let refusals = 0;
     let lastGoalDone = 0;
@@ -854,6 +856,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         coveredTries,
         trail,
         backtracks,
+        writerDone,
         noteAdvance: (fromUrl, key, choices) => {
           pendingAdvance = { fromUrl, key, choices };
         },
@@ -866,7 +869,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // Speculation (plan §3.4): when a model check runs, send this step's decision in parallel on the
       // same snapshot. If the check says done, the answer is discarded (only its cost is paid).
       const speculative =
-        cfg.speculate && !oversized && checkModel && subgoal.doneWhen.all.some((p) => p.kind === "model")
+        cfg.speculate &&
+        // With guidance "every" the writer shortlists before Jev is asked; a speculative plain ask would skip it.
+        cfg.guidance !== "every" &&
+        !oversized &&
+        checkModel &&
+        subgoal.doneWhen.all.some((p) => p.kind === "model")
           ? startAct(ctx)
           : undefined;
       const done = await evaluateDoneWhen(
@@ -1052,6 +1060,20 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unknown", steps: subgoalSteps });
         return answerAndFinish(outcome.reason);
       }
+      if (outcome.kind === "end" && outcome.outcome === "success") {
+        emit({
+          type: "verify",
+          step,
+          state: "satisfied",
+          decidedBy: "writer",
+          predicates: subgoal.doneWhen.all.map((predicate) => ({ predicate, state: "satisfied" as const })),
+        });
+        history.push({ step, text: outcome.reason });
+        emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "satisfied", steps: subgoalSteps });
+        if (pendingRefine)
+          closeRefine(i, pendingRefine.settled ? "stale" : "not ready when the subgoal ended");
+        break;
+      }
       if (outcome.kind === "end") {
         emit({ type: "subgoal.end", subgoalId: subgoal.id, state: "unsatisfied", steps: subgoalSteps });
         if (outcome.outcome === "stuck" && (await replan(i, subgoal, outcome.reason, history))) {
@@ -1180,13 +1202,15 @@ interface DecideContext {
   deadRegions: Set<string>;
   /** Hit-test failures per action key in this subgoal (a target that stays covered is given up). */
   coveredTries: Map<string, number>;
-  /** Tokens the writer shortlisted for this step; the act questions offer only these (ADR 0017). */
-  shortlist?: Set<string>;
+  /** Tokens the writer shortlisted for this step, best first; the act questions offer only these (ADR 0017). */
+  shortlist?: string[];
   /** A shortlist was already asked for this step (no second one; a `none` falls back to the full table). */
   shortlistTried?: boolean;
   /** Advance navigations in this subgoal, newest last, with how many candidates the page offered. */
   trail: Array<{ fromUrl: string; key: string; choices: number }>;
   backtracks: { count: number };
+  /** Consecutive steps on which the writer reported the goal reached and nothing left to do. */
+  writerDone: { count: number };
   /** Records an advance action that may navigate (checked at the next observe). */
   noteAdvance: (fromUrl: string, key: string, choices: number) => void;
   /** The whole page, kept when the step was narrowed to a region; a dead end there re-asks on it once. */
@@ -1356,7 +1380,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         maxPerHead,
         focusTerms: focus,
       });
-      if (ctx.shortlist) restrictToShortlist(candidates, ctx.shortlist);
+      if (ctx.shortlist) restrictToShortlist(candidates, new Set(ctx.shortlist));
       const { questions, offered } = buildActQuestions({
         candidates,
         textOptions,
@@ -1427,7 +1451,38 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     deps.writer?.shortlist
   ) {
     const picks = await shortlistFor(ctx, "every step");
-    if (picks) return decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true });
+    if (picks && picks.length > 0) return decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true });
+    // The writer looked at the whole table and found nothing to do yet (a page still loading, a round
+    // between states): let the page move on instead of refusing; the stall detector ends a page that never does.
+    if (picks && picks.length === 0) {
+      // The writer's note often says why: "the round was completed and won", "the form was submitted". That
+      // is the signal the model done_when check waits for; the next step runs it.
+      const note = ctx.history.at(-1)?.text ?? "";
+      const looksDone = /\b(complet|won|finish|done|succe|achiev|reached|submitted|saved)/i.test(note);
+      ctx.writerDone.count = looksDone ? ctx.writerDone.count + 1 : 0;
+      ctx.onGoalDone(looksDone ? 0.9 : 0.5);
+      // Evidence of completion is often on a page that has already moved on (a win screen, a "saved"
+      // toast), where a page-based check sees nothing. When the subgoal has no deterministic check and
+      // the writer reports the goal reached twice in a row, the writer decides (ADR 0017).
+      if (
+        ctx.writerDone.count >= 2 &&
+        subgoal.doneWhen.all.length > 0 &&
+        subgoal.doneWhen.all.every((p) => p.kind === "model")
+      )
+        return {
+          kind: "end",
+          outcome: "success",
+          reason: `the writer reports the goal reached: ${note.replace(/^writer: nothing here to pick/, "").trim() || "nothing left to do"}`,
+        };
+      history.push({
+        step,
+        text: looksDone
+          ? "the writer says the goal looks reached; checking"
+          : "waited for the page (the writer saw nothing to do yet)",
+      });
+      if (!looksDone) await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+      return { kind: "continue" };
+    }
   }
   let t = clock.now();
   let pending = speculative ?? startAct(ctx);
@@ -1507,7 +1562,26 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const operation = op as Operation;
   if (operation === "scroll") return scrollStep(ctx, answers);
   const targetAnswer = answers[targetHead(operation)];
-  const targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
+  let targetToken = targetAnswer?.type === "choice" ? targetAnswer.choice : undefined;
+  // On a shortlisted ask the writer already ranked the few picks; Jev confirms or vetoes. "Ambiguous" (three
+  // plausible links fit "equally well" by construction) or a thin spread resolves to the writer's first pick;
+  // only a clear "none" (>= 0.5) is a veto.
+  const shortlistPick =
+    ctx.shortlist &&
+    (targetToken === undefined ||
+      targetToken === NONE ||
+      targetToken === AMBIGUOUS ||
+      !ctx.shortlist.includes(targetToken)) &&
+    sentinelP(targetAnswer, NONE) < 0.5
+      ? ctx.shortlist.find((p) => findByToken(snapshot, p) !== undefined)
+      : undefined;
+  if (shortlistPick) {
+    targetToken = shortlistPick;
+    history.push({
+      step,
+      text: "Jev was torn between the shortlisted options; taking the writer's first pick",
+    });
+  }
   const element =
     targetToken && targetToken !== NONE && targetToken !== AMBIGUOUS
       ? findByToken(snapshot, targetToken)
@@ -1591,6 +1665,17 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   // A page with many good links spreads a calibrated answer thin ("Economy 0.52, none 0.41"). An advance
   // action is undone with Back, so it runs when its target clearly beats every other element (ADR 0016).
   const targetGate = gates.find((g) => g.gate === "target_confidence");
+  if (
+    targetGate &&
+    !targetGate.passed &&
+    action &&
+    element &&
+    effect === "advance" &&
+    ctx.shortlist?.includes(element.token)
+  ) {
+    targetGate.passed = true;
+    targetGate.detail = `${targetGate.detail ?? ""}; accepted: shortlisted by the writer`;
+  }
   if (targetGate && !targetGate.passed && action && element && effect === "advance") {
     const top = choiceConfidence(targetAnswer);
     const runnerUp = runnerUpElement(targetAnswer, element.token);
@@ -1756,15 +1841,57 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   deps.events.emit({ type: "effect", step, result });
   // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
   // in the table at its rank, and the history says why it did not work.
+  // The page moved on while we acted (a timer, a redirect): nothing is learned about the target.
+  const pageMoved = result.error?.kind === "stale_token";
+  // The control was not ready (disabled while the page loads the next state): wait, do not give it up.
+  const notReady = result.error?.kind === "timeout";
   // A covered target may be free next time (an overlay closed), but one that stays covered is a dead end.
   const covered = result.error?.kind === "hit_test_failed";
   const coveredTimes = covered ? (ctx.coveredTries.get(key) ?? 0) + 1 : 0;
   if (covered) ctx.coveredTries.set(key, coveredTimes);
   if (
     (result.effect === "suspected_noop" || result.effect === "refused") &&
+    !pageMoved &&
+    !notReady &&
     (!covered || coveredTimes >= MAX_COVERED_TRIES)
   )
     ctx.triedNoEffect.add(key);
+  if (notReady) {
+    history.push({ step, text: `${describe}: the control was not ready in time; waiting for the page` });
+    await deps.computer.waitIdle({ capMs: cfg.settleCapMs });
+    return { kind: "continue" };
+  }
+  if (pageMoved) {
+    // The same control may still be there under a new token: find it by stable id and act once more.
+    const again = await deps.computer.observe({ focus: focusTerms(subgoal.goal, ctx.task.instruction) });
+    const same = again.ok ? again.value.elements.find((e) => e.stableId === element.stableId) : undefined;
+    const retargeted = same && "token" in action ? { ...action, token: same.token } : undefined;
+    if (same && retargeted) {
+      deps.events.emit({
+        type: "action",
+        step,
+        action: retargeted,
+        target: fingerprintOf(same),
+        effectClass: effect,
+        mode: "B",
+      });
+      const retry = await execute(deps.computer, retargeted);
+      deps.events.emit({ type: "effect", step, result: retry });
+      history.push({ step, text: `the page changed; ${describe} again on the new page (${retry.effect})` });
+      if (retry.effect === "confirmed") {
+        ctx.noteProblem(undefined);
+        if (effect === "advance" && again.ok && again.value.url)
+          ctx.noteAdvance(
+            again.value.url,
+            key,
+            elementOptionCount(pending.prepared.questions[targetHead(operation)]),
+          );
+      }
+      return { kind: "continue" };
+    }
+    history.push({ step, text: `the page changed before ${describe} could run; observing again` });
+    return { kind: "continue" };
+  }
   if (result.effect === "confirmed") {
     ctx.handoffs.count = 0;
     ctx.noteProblem(undefined);
@@ -1828,7 +1955,9 @@ async function retryUnnarrowed(ctx: DecideContext, why: string): Promise<DecideO
     focus: focusTerms(ctx.subgoal.goal, ctx.task.instruction),
     reuseCapture: true,
   });
-  return decideAndAct({ ...ctx, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
+  // Shortlist tokens belong to the narrowed snapshot; on the whole page they would filter everything out.
+  const { shortlist: _shortlist, ...rest } = ctx;
+  return decideAndAct({ ...rest, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
 }
 
 /** Advance navigations undone per subgoal when the page they led to was a dead end. */
@@ -1858,7 +1987,8 @@ function restrictToShortlist(candidates: CandidateTable, shortlist: Set<string>)
  * answer was not decisive) and returns their tokens; undefined when there is no writer, too few candidates,
  * a shortlist was already asked, or the writer returned nothing usable.
  */
-async function shortlistFor(ctx: DecideContext, why: string): Promise<Set<string> | undefined> {
+/** `[]` means the writer looked and found nothing worth picking (its note is in the history). */
+async function shortlistFor(ctx: DecideContext, why: string): Promise<string[] | undefined> {
   const writer = ctx.deps.writer;
   if (!writer?.shortlist || ctx.shortlistTried) return undefined;
   const { snapshot, deps } = ctx;
@@ -1937,13 +2067,17 @@ async function shortlistFor(ctx: DecideContext, why: string): Promise<Set<string
   }
   const text = r.value.shortlist.text ? deps.secrets.redact(r.value.shortlist.text) : undefined;
   if (text && !text.includes("[input:")) ctx.extraTexts.push(text);
-  if (picks.length === 0) return undefined;
+  if (picks.length === 0) {
+    const note = r.value.shortlist.note ? deps.secrets.redact(r.value.shortlist.note).slice(0, 160) : "";
+    ctx.history.push({ step: ctx.step, text: `writer: nothing here to pick${note ? ` (${note})` : ""}` });
+    return [];
+  }
   const names = picks.map((p) => ordered.find((e) => e.token === p)?.name ?? p).slice(0, 5);
   ctx.history.push({
     step: ctx.step,
     text: `writer shortlist: ${names.map((n) => JSON.stringify(n)).join(", ")}`,
   });
-  return new Set(picks);
+  return picks;
 }
 
 /**
@@ -1957,7 +2091,9 @@ async function guide(ctx: DecideContext, why: string): Promise<DecideOutcome | u
     return decideAndAct({ ...full, shortlistTried: true });
   }
   const picks = await shortlistFor(ctx, why);
-  return picks ? decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true }) : undefined;
+  return picks && picks.length > 0
+    ? decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true })
+    : undefined;
 }
 
 /**
