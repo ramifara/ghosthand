@@ -38,6 +38,11 @@ export interface ObserveScope {
    * or context contains more of them are kept first.
    */
   focus?: readonly string[];
+  /**
+   * Serve this observation from the last capture when nothing acted since (a re-ask on the whole page
+   * after a narrowed step): no second snapshot of the same page.
+   */
+  reuseCapture?: boolean;
 }
 
 export interface PredicateResult {

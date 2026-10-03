@@ -10,6 +10,7 @@ import {
   compileDraft,
   deterministicShare,
   FallbackPlanner,
+  MIN_SUBGOAL_STEPS,
   PLAN_DRAFT_JSON_SCHEMA,
   parsePlanDraft,
   replanCompileOptions,
@@ -58,7 +59,8 @@ describe("toPlan", () => {
     ]);
     expect(plan.subgoals[0]?.seedTargets).toEqual(["Display name"]);
     expect(plan.subgoals[1]?.maxSteps).toBe(25);
-    expect(plan.subgoals[2]?.maxSteps).toBe(1);
+    // Every subgoal gets at least MIN_SUBGOAL_STEPS: a planner's "1 step" is too tight for one refused step.
+    expect(plan.subgoals[2]?.maxSteps).toBe(MIN_SUBGOAL_STEPS);
     expect(plan.subgoals[2]?.doneWhen).toEqual({
       all: [
         { kind: "text", text: "Profile saved." },

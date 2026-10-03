@@ -22,6 +22,7 @@ import type { z } from "zod";
 import type { CatalogModel, ModelCatalog } from "./catalog/model-catalog.ts";
 import type { ModelUsage } from "./cost-meter.ts";
 import { costForUsage, estimateInputCost, type ModelCostMeter, ZERO_USAGE } from "./cost-meter.ts";
+import { salvageObject } from "./json-salvage.ts";
 import { mapModelError } from "./map-model-error.ts";
 import type { ModelAttempt, ModelError, ModelErrorKind } from "./model-error.ts";
 import { FALLBACK_KINDS } from "./model-error.ts";
@@ -262,6 +263,12 @@ export function createModelClient(options: ModelClientOptions): ModelClient {
             reportedCostUsd,
             error: { kind: read.error.kind, message: read.error.message },
           };
+    const objectSpec =
+      plan?.kind === "object"
+        ? { schema: plan.schema, schemaName: plan.schemaName, schemaDescription: undefined }
+        : mode.kind === "object"
+          ? mode.request
+          : undefined;
     try {
       if (plan?.kind === "tools") {
         const result = await sdkGenerateText({
@@ -279,12 +286,6 @@ export function createModelClient(options: ModelClientOptions): ModelClient {
         });
         return fromRead(read, usage, result.finishReason, reported);
       }
-      const objectSpec =
-        plan?.kind === "object"
-          ? { schema: plan.schema, schemaName: plan.schemaName, schemaDescription: undefined }
-          : mode.kind === "object"
-            ? mode.request
-            : undefined;
       if (objectSpec !== undefined) {
         const result = await sdkGenerateText({
           ...common,
@@ -323,6 +324,23 @@ export function createModelClient(options: ModelClientOptions): ModelClient {
         reportedCostUsd: reported,
       };
     } catch (e) {
+      // The model answered, but not as bare JSON (prose or a fence around the object): take the object.
+      if (NoObjectGeneratedError.isInstance(e) && objectSpec !== undefined) {
+        const salvaged = salvageObject(e.text, objectSpec.schema as z.ZodType<unknown>);
+        if (salvaged !== undefined) {
+          const usage = toModelUsage(e.usage);
+          log.debug({ model: model.ref }, "structured output salvaged from text");
+          if (plan?.kind === "object")
+            return fromRead(plan.read(salvaged), usage, e.finishReason ?? "stop", undefined);
+          return {
+            ok: true,
+            value: salvaged as T,
+            usage,
+            finishReason: e.finishReason ?? "stop",
+            reportedCostUsd: undefined,
+          };
+        }
+      }
       const mapped = mapModelError(e, {
         timedOut,
         callerAborted: request.signal?.aborted === true,

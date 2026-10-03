@@ -520,6 +520,18 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expect(notInSnapshot.error?.kind).toBe("stale_token");
   });
 
+  it("presses a link that wraps across two lines (its box centre lies on the paragraph)", async () => {
+    const c = await open("wrapped-link.html");
+    const link = find(
+      await observe(c),
+      "United States Department of Defense in the late nineteen sixties",
+      "link",
+    );
+    const r = await c.press(link.token);
+    expect(r.error).toBeUndefined();
+    expect(await c.page.evaluate(() => document.body.dataset.pressed)).toBe("dod");
+  });
+
   it("refuses a pointer action on a covered element", async () => {
     const c = await open("controls.html");
     const s = await observe(c);

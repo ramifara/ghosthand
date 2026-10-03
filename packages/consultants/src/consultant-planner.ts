@@ -132,6 +132,8 @@ export function createConsultantPlanner(
 
   return {
     id,
+    // A CLI round trip: 10-25 s measured. The loop plans on demand and skips speculative refinement.
+    slow: true,
     plan: (input: PlanInput, call: PlannerCallOptions = {}) =>
       run(
         buildPlannerPrompt(input),

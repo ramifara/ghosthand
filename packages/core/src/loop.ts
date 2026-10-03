@@ -91,7 +91,14 @@ export interface ApprovalRequest {
 }
 
 export interface LoopConfig {
-  gates: { operation: number; target: number; stuck: number; text: number; sureTarget: number };
+  gates: {
+    operation: number;
+    target: number;
+    stuck: number;
+    text: number;
+    sureTarget: number;
+    advanceTarget: number;
+  };
   /** Per-step deadline for the decision call, ms. */
   decisionDeadlineMs: number;
   screenshots: boolean;
@@ -111,7 +118,7 @@ export interface LoopConfig {
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
-  gates: { operation: 0.65, target: 0.7, stuck: 0.85, text: 0.5, sureTarget: 0.9 },
+  gates: { operation: 0.65, target: 0.7, stuck: 0.85, text: 0.5, sureTarget: 0.9, advanceTarget: 0.45 },
   decisionDeadlineMs: 6000,
   screenshots: true,
   maxStateTokens: 20_000,
@@ -265,6 +272,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   let lastMode: RouterMode = "B";
   /** Bumped whenever the plan changes; a refinement made for another version is stale. */
   let planVersion = 0;
+  /** Index of the first subgoal written by the latest replan (its checks were chosen from the stuck screen). */
+  let replannedAt: number | undefined;
   let refinements = 0;
   let pendingRefine: PendingRefine | undefined;
 
@@ -334,7 +343,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
   /** Starts refining the subgoals after `index` from this screen, without waiting for it. */
   const startRefine = (index: number, snapshot: Snapshot, history: HistoryEntry[]): void => {
     const planner = deps.planner;
-    if (!planner?.refine || !cfg.refinePlan || pendingRefine || refinements >= cfg.maxRefinements) return;
+    if (!planner?.refine || planner.slow || !cfg.refinePlan || pendingRefine) return;
+    if (refinements >= cfg.maxRefinements) return;
     if (plan.source !== "planner" || index >= plan.subgoals.length - 1) return;
     const current = plan.subgoals[index];
     if (!current) return;
@@ -495,8 +505,9 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     }
   }
 
-  // Mode C: without a task plan, the planner plans once from the first screen.
-  if (!task.plan && !recipe?.plan && deps.planner) {
+  // Mode C: without a task plan, a fast planner plans once from the first screen. A slow one (a CLI
+  // consultant) plans on demand, at the first escalation: Jev-first, and no 15-25 s before the first click.
+  if (!task.plan && !recipe?.plan && deps.planner && !deps.planner.slow) {
     const first = await deps.computer.observe();
     const r = await deps.planner.plan(
       {
@@ -582,6 +593,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     plannerCall(r, "planner");
     if (!r.ok) return false;
     plan = { source: "planner", subgoals: [...plan.subgoals.slice(0, index), ...r.value.plan.subgoals] };
+    replannedAt = index;
     planVersion++;
     // The premise of a pending refinement (this subgoal succeeds on the old plan) no longer holds.
     closeRefine(undefined, "the plan changed (replan)");
@@ -597,16 +609,28 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const stall = new StallDetector();
     const history: HistoryEntry[] = [];
     const triedNoEffect = new Set<string>();
+    const coveredTries = new Map<string, number>();
     let subgoalSteps = 0;
     let refusals = 0;
     let lastGoalDone = 0;
     const handoffs = { count: 0 };
     const acted = { count: 0 };
+    let refineStarted = false;
     const extraTexts: string[] = [];
     /** Goal words the driver and the candidate ranking keep first on a large page. */
     const subgoalFocus = focusTerms(subgoal.goal, task.instruction);
     /** Page text at the previous observation, to show what the last action produced (`new_text`). */
     let previousText: string | undefined;
+    /** Per screen: regions a narrowed step was scoped to where Jev then found nothing (ADR 0016). */
+    const deadRegions = new Map<string, Set<string>>();
+    const deadRegionsOn = (screen: string): Set<string> => {
+      let set = deadRegions.get(screen);
+      if (!set) {
+        set = new Set<string>();
+        deadRegions.set(screen, set);
+      }
+      return set;
+    };
     // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
     const d1Failures = new Map<string, number>();
     let driving: { remaining: number } | undefined;
@@ -792,6 +816,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
         newText,
         requestScale,
+        deadRegions: deadRegionsOn(fingerprint.key),
+        coveredTries,
         noteProblem: (problem, append) => {
           if (problem === undefined) problems = [];
           else if (append && problems.length > 0) problems[problems.length - 1] += `; ${problem}`;
@@ -828,12 +854,42 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       }
       // A task-level goal (single subgoal from the task) that holds before any action is suspicious: its
       // checks are too weak to tell "done" from "not started". Require at least one action first.
-      const preSatisfied =
+      let preSatisfied =
         done.state === "satisfied" &&
         acted.count === 0 &&
         replayedActions === 0 &&
         plan.source === "task" &&
         plan.subgoals.length === 1;
+      // A replan's last subgoal carries checks written from the stuck screen; one that already holds there
+      // ("the heading is visible") may say nothing about progress. Before the run ends on it, Jev confirms
+      // the task's own goal with one noul (ADR 0016).
+      if (
+        done.state === "satisfied" &&
+        acted.count === 0 &&
+        replannedAt !== undefined &&
+        i >= replannedAt &&
+        i === plan.subgoals.length - 1
+      ) {
+        const confirm = await evaluateDoneWhen(
+          { all: [{ kind: "model", criteria: task.instruction }], none: [] },
+          snapshot,
+          {
+            decision: deps.decision,
+            state: verifyState,
+            ...(deps.oracle ? { oracle: deps.oracle } : {}),
+            ...(deps.signal ? { signal: deps.signal } : {}),
+          },
+        );
+        decisionCalls += confirm.decisionCalls;
+        budget.spend(confirm.costUsd);
+        if (confirm.state !== "satisfied") {
+          preSatisfied = true;
+          history.push({
+            step: current,
+            text: `the replanned check already held before any action; Jev does not see the task done (continuing)`,
+          });
+        }
+      }
       if (done.state === "satisfied" && !preSatisfied) await pendingShot;
       if (done.state === "satisfied" && !preSatisfied) {
         if (speculative) {
@@ -846,7 +902,6 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         break;
       }
 
-      if (subgoalSteps === 0) startRefine(i, snapshot, history);
       step = current;
       subgoalSteps++;
       budget.step();
@@ -868,7 +923,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         t = clock.now();
         const scoped = await narrow(ctx);
         timing.observeMs += clock.now() - t;
-        if (scoped) ctx.snapshot = scoped;
+        if (scoped) {
+          ctx.fullSnapshot = ctx.snapshot;
+          ctx.snapshot = scoped;
+        }
       }
       // Router: D2 for a poor surface (two observations in a row) or after two D1 failures on this screen;
       // back to B as soon as the element table is good again.
@@ -938,6 +996,12 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       }
 
       const outcome = await decideAndAct(ctx, speculative);
+      // Speculation v1 assumes this subgoal succeeds: start it after the first action here worked, so a
+      // subgoal that fails at once does not cost a planner call that is then thrown away (ADR 0016).
+      if (!refineStarted && acted.count > 0) {
+        refineStarted = true;
+        startRefine(i, snapshot, history);
+      }
       const stepMode = ctx.mode.current;
       modeCounts[stepMode] = (modeCounts[stepMode] ?? 0) + 1;
       lastMode = stepMode;
@@ -1073,6 +1137,14 @@ interface DecideContext {
   requestScale: { value: number };
   /** Text lines that appeared since the previous observation (what the last action produced). */
   newText: string[];
+  /** Regions on this screen that a narrowed step was scoped to without finding anything. */
+  deadRegions: Set<string>;
+  /** Hit-test failures per action key in this subgoal (a target that stays covered is given up). */
+  coveredTries: Map<string, number>;
+  /** The whole page, kept when the step was narrowed to a region; a dead end there re-asks on it once. */
+  fullSnapshot?: Snapshot;
+  /** The re-ask on the whole page already happened this step. */
+  unnarrowedTried?: boolean;
   /** Records why this step made no progress (undefined clears it); `append` adds to the current note. */
   noteProblem: (problem: string | undefined, append?: boolean) => void;
 }
@@ -1356,6 +1428,8 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
         ? "Jev found nothing on this page that moves the goal forward"
         : `Jev did not choose a usable action (${op ?? "no answer"})`,
     );
+    const widened = await retryUnnarrowed(ctx, `Jev chose ${op ?? "no action"} in the region`);
+    if (widened) return widened;
     // "Nothing to do" on a page that looks done is not a vision case.
     const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
     const viaVision =
@@ -1380,7 +1454,9 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const modelEffect = effectAnswer?.type === "choice" ? (effectAnswer.choice as EffectClass) : undefined;
   // Code check: a target whose name (and row/card context) matches a forbidden phrase is never acted on.
   const forbiddenHit = element ? matchForbidden(element, ctx.forbidden) : undefined;
-  const effect: EffectClass = forbiddenHit ? "forbidden" : combineEffect(element, modelEffect);
+  const effect: EffectClass = forbiddenHit
+    ? "forbidden"
+    : combineEffect(element, modelEffect, { crossOriginLinksCommit: ctx.task.allowOrigins.length > 0 });
 
   // Build the action.
   let action: Action | undefined;
@@ -1450,6 +1526,17 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     allowedEffects: subgoal.allowedEffects,
     snapshotFresh: true,
   });
+  // A page with many good links spreads a calibrated answer thin ("Economy 0.52, none 0.41"). An advance
+  // action is undone with Back, so it runs when its target clearly beats every other element (ADR 0016).
+  const targetGate = gates.find((g) => g.gate === "target_confidence");
+  if (targetGate && !targetGate.passed && action && element && effect === "advance") {
+    const top = choiceConfidence(targetAnswer);
+    const runnerUp = runnerUpElement(targetAnswer, element.token);
+    if (top >= cfg.gates.advanceTarget && top >= 2 * runnerUp) {
+      targetGate.passed = true;
+      targetGate.detail = `${targetGate.detail ?? ""}; accepted: advance, next element ${runnerUp.toFixed(2)}`;
+    }
+  }
   // Jev often splits between two operations ("set_value 46% / press 27%") while the target of the top one is
   // certain. For an action that only advances, that split is not worth a stuck run: the top operation runs.
   // Commits still need a confident operation (or a human approval).
@@ -1524,6 +1611,10 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     });
     if (unsure) {
       const reason = failed.map((g) => `${g.gate} ${g.detail ?? ""}`.trim()).join("; ");
+      if (!element) {
+        const widened = await retryUnnarrowed(ctx, reason);
+        if (widened) return widened;
+      }
       // Mode D1: an unnamed target or a poorly named table goes to vision before the writer.
       const unnamedChosen = element !== undefined && !isNamed(element);
       const poorTable = snapshot.quality.score < QUALITY_GOOD && unnamedTargets(snapshot).length > 0;
@@ -1588,8 +1679,14 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   deps.events.emit({ type: "effect", step, result });
   // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
   // in the table at its rank, and the history says why it did not work.
+  // A covered target may be free next time (an overlay closed), but one that stays covered is a dead end.
   const covered = result.error?.kind === "hit_test_failed";
-  if ((result.effect === "suspected_noop" || result.effect === "refused") && !covered)
+  const coveredTimes = covered ? (ctx.coveredTries.get(key) ?? 0) + 1 : 0;
+  if (covered) ctx.coveredTries.set(key, coveredTimes);
+  if (
+    (result.effect === "suspected_noop" || result.effect === "refused") &&
+    (!covered || coveredTimes >= MAX_COVERED_TRIES)
+  )
     ctx.triedNoEffect.add(key);
   if (result.effect === "confirmed") {
     ctx.handoffs.count = 0;
@@ -1627,6 +1724,39 @@ export function linkTo(snapshot: Snapshot, url: string): Element | undefined {
   return names.size === 1 ? hits[0] : undefined;
 }
 
+/**
+ * A narrowed step whose region held nothing for Jev: the region is marked dead for this screen and the
+ * step is decided again on the whole page (fitted to the model's limits), once. Returns undefined when the
+ * step was not narrowed or the re-ask already happened.
+ */
+async function retryUnnarrowed(ctx: DecideContext, why: string): Promise<DecideOutcome | undefined> {
+  const full = ctx.fullSnapshot;
+  const region = ctx.snapshot.scope;
+  if (!full || ctx.unnarrowedTried || region === undefined) return undefined;
+  ctx.deadRegions.add(region);
+  ctx.history.push({
+    step: ctx.step,
+    text: `nothing fit in region "${region}" (${why}); asked again on the whole page`,
+  });
+  ctx.log.debug({ step: ctx.step, region }, "narrowed region was a dead end; re-asking on the whole page");
+  // The narrowed observe superseded the full snapshot's tokens: observe the whole page again (served from
+  // the driver's capture cache, so no second snapshot) and decide on that.
+  const again = await ctx.deps.computer.observe({
+    focus: focusTerms(ctx.subgoal.goal, ctx.task.instruction),
+    reuseCapture: true,
+  });
+  return decideAndAct({ ...ctx, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
+}
+
+/** The highest probability of any element other than `chosen` in a target answer (sentinels excluded). */
+function runnerUpElement(a: Answer | undefined, chosen: string): number {
+  if (a?.type !== "choice") return 0;
+  let best = 0;
+  for (const [key, p] of Object.entries(a.probabilities))
+    if (key !== chosen && key !== NONE && key !== AMBIGUOUS && key !== PAGE && p > best) best = p;
+  return best;
+}
+
 /** Smaller re-asks after a `too_large` answer, per step. */
 const MAX_TOO_LARGE_RETRIES = 2;
 
@@ -1635,6 +1765,9 @@ const VERIFY_QUESTION_RESERVE = 2000;
 
 /** The top operation of a split must still have this much probability to run on a sure target. */
 const MIN_SPLIT_OPERATION = 0.35;
+
+/** Hit-test failures on one target (same screen) before it counts as tried without effect. */
+const MAX_COVERED_TRIES = 2;
 
 /** Distinct problems quoted in a stop reason. */
 const MAX_PROBLEMS_SHOWN = 3;
@@ -1919,7 +2052,10 @@ function needsNarrowing(
  */
 async function narrow(ctx: DecideContext): Promise<Snapshot | undefined> {
   const { deps, snapshot } = ctx;
-  const regions = snapshot.regions ?? [];
+  const all = snapshot.regions ?? [];
+  // A region Jev was scoped to and found nothing in is not offered again on this screen.
+  const live = all.filter((r) => !ctx.deadRegions.has(r.id));
+  const regions = live.length >= 2 ? live : all;
   let chosen = regions.find((r) => r.kind === "dialog")?.id;
   if (chosen === undefined) {
     const state = buildNarrowState(

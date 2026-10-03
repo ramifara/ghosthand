@@ -40,6 +40,8 @@ describe.skipIf(skip)("launchWebComputer", () => {
       store: openProfileStore({ root: join(tmp, "profiles") }),
       host,
       startUrl: server.origin,
+      // An explicit allowlist: without one a goal may go to any site (ADR 0016).
+      allowOrigins: [server.origin],
     });
     if (!launched.ok) throw new Error(`${launched.error.kind}: ${launched.error.message}`);
     const { computer, browserInfo } = launched.value;

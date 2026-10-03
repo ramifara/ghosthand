@@ -102,17 +102,6 @@ export function hitTestTarget(el: Element): HitTestResult {
     const root = node.getRootNode();
     return root instanceof ShadowRoot ? root.host : null;
   };
-  const r = el.getBoundingClientRect();
-  const x = r.left + r.width / 2;
-  const y = r.top + r.height / 2;
-  if (r.width === 0 || r.height === 0) return { ok: false, hit: "zero-size target", x, y };
-  let hit: Element | null = el.ownerDocument.elementFromPoint(x, y);
-  while (hit?.shadowRoot) {
-    const inner = hit.shadowRoot.elementFromPoint(x, y);
-    if (!inner || inner === hit) break;
-    hit = inner;
-  }
-  if (!hit) return { ok: false, hit: "nothing (outside the viewport)", x, y };
   const describe = (e: Element): string => {
     const id = e.id ? `#${e.id}` : "";
     const cls =
@@ -120,11 +109,37 @@ export function hitTestTarget(el: Element): HitTestResult {
     const text = (e.textContent ?? "").trim().slice(0, 40);
     return `${e.localName}${id}${cls}${text ? ` "${text}"` : ""}`;
   };
-  for (let cur: Element | null = hit; cur; cur = parentOf(cur)) {
-    if (cur === el) return { ok: true, hit: describe(hit), x, y };
-    if (cur instanceof HTMLLabelElement && cur.control === el) return { ok: true, hit: describe(hit), x, y };
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0)
+    return { ok: false, hit: "zero-size target", x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  // An inline element that wraps (a link across two lines) has a bounding box whose centre lies between
+  // its line boxes, on the paragraph. Test the centre of each line box, largest first.
+  const boxes = Array.from(el.getClientRects()).filter((b) => b.width > 0 && b.height > 0);
+  boxes.sort((a, b) => b.width * b.height - a.width * a.height);
+  const points = (boxes.length > 0 ? boxes : [r]).map((b) => ({
+    x: b.left + b.width / 2,
+    y: b.top + b.height / 2,
+  }));
+  let last: HitTestResult | undefined;
+  for (const { x, y } of points) {
+    let hit: Element | null = el.ownerDocument.elementFromPoint(x, y);
+    while (hit?.shadowRoot) {
+      const inner = hit.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+    if (!hit) {
+      last = { ok: false, hit: "nothing (outside the viewport)", x, y };
+      continue;
+    }
+    for (let cur: Element | null = hit; cur; cur = parentOf(cur)) {
+      if (cur === el) return { ok: true, hit: describe(hit), x, y };
+      if (cur instanceof HTMLLabelElement && cur.control === el)
+        return { ok: true, hit: describe(hit), x, y };
+    }
+    last = { ok: false, hit: describe(hit), x, y };
   }
-  return { ok: false, hit: describe(hit), x, y };
+  return last ?? { ok: false, hit: "zero-size target", x: points[0]?.x ?? 0, y: points[0]?.y ?? 0 };
 }
 
 /** Describes the element at a viewport point, for evidence on coordinate actions. */

@@ -81,8 +81,12 @@ function cleanPhrase(raw: string): string | undefined {
   return text;
 }
 
+/** `[input:NAME]` placeholders stand for stored secrets, offered by name; never as text to type. */
+const PLACEHOLDER = /\[input:[A-Za-z0-9_]+\]/g;
+
 /** Extracts candidate literals in order of appearance, deduplicated. */
-export function extractLiterals(goal: string): string[] {
+export function extractLiterals(rawGoal: string): string[] {
+  const goal = rawGoal.replace(PLACEHOLDER, (s) => " ".repeat(s.length));
   const found: Found[] = [];
   const add = (at: number, text: string | undefined, rank: number) => {
     if (text) found.push({ at, text, rank });
