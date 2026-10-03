@@ -71,7 +71,8 @@
     "changeset": "changeset",
     "smoke:loop": "node scripts/smoke-loop.ts",
     "eval:desktop": "node scripts/eval-desktop.ts",
-    "smoke:mcp": "node scripts/mcp-smoke.ts"
+    "smoke:mcp": "node scripts/mcp-smoke.ts",
+    "dist:desktop:mac-signed": "node scripts/mac-release.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

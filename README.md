@@ -15,7 +15,9 @@ Get the newest installers from [GitHub Releases](https://github.com/ramifara/gho
 
 Releases are built on demand (ADR 0018): push a `vMAJOR.MINOR.PATCH` tag, or run the release workflow from `main` in the Actions tab (its version is the desktop package's major/minor plus the run number). CI on pull requests runs on Linux only; the macOS and Windows desktop-host jobs run when their sources change or when the workflow is started by hand with "hosts" ticked. macOS runner minutes cost ten times Linux ones, so this keeps the free Actions quota for the month.
 
-The builds are not signed with an Apple Developer ID or a Windows code-signing certificate, so the first launch needs one extra step:
+**Signed macOS builds** (ADR 0019): `bun run dist:desktop:mac-signed` builds the app, signs it with the Developer ID under the hardened runtime, notarizes it with Apple and staples the ticket, from any OS (it uses [`rcodesign`](https://github.com/indygreg/apple-platform-rs); set `RCODESIGN` to its path if it is not on `PATH`). It needs the signing files in `~/.config/ghosthand/signing/` (see the ADR); a signed build opens with a double-click.
+
+Builds without those files (and Windows builds) are not signed with an Apple Developer ID or a Windows code-signing certificate, so the first launch needs one extra step:
 
 - **macOS**: Gatekeeper blocks the app once. Open **System Settings → Privacy & Security**, scroll to the "GhostHand was blocked" message and press **Open Anyway**; or right-click the app and choose **Open**; or run `xattr -dr com.apple.quarantine /Applications/GhostHand.app`. The app does not use the Keychain (an unsigned app would be asked for your password on every launch); API keys are encrypted with a key kept in `~/Library/Application Support/GhostHand/`.
 - **Windows**: SmartScreen shows "Windows protected your PC". Press **More info → Run anyway**.
