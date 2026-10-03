@@ -25,6 +25,13 @@ describe("extractLiterals without quotes", () => {
     ).toEqual(["ramiar374@gmail.com", "9xWAkDj7K5Kxttf@"]);
   });
 
+  it("never offers a secret placeholder as text to type", () => {
+    expect(
+      extractLiterals("Sign in as alice@testbed.local with the password [input:TESTBED_PASSWORD]"),
+    ).toEqual(["alice@testbed.local"]);
+    expect(extractLiterals("Password: [input:PW]\nthen save")).toEqual([]);
+  });
+
   it("reads labeled values from a brief", () => {
     expect(extractLiterals("Email: bob@x.io\nPassword: hunter2!\nThen open settings")).toEqual([
       "bob@x.io",
