@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import { err, ok } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { ModelClient } from "./model-client.ts";
-import { createModelWriter, parseWriterLine } from "./model-writer.ts";
+import { createModelWriter, parseWriterLine, ShortlistDraft, WriterDraft } from "./model-writer.ts";
 
 const input = {
   instruction: "Sign in",
@@ -37,6 +38,17 @@ function client(answer: unknown, fail?: "timeout" | "auth"): ModelClient & { pro
     },
   };
 }
+
+describe("structured drafts are strict-schema safe", () => {
+  // OpenAI strict mode rejects a schema whose `required` misses a property; optional fields are nullable.
+  it.each([
+    ["WriterDraft", WriterDraft],
+    ["ShortlistDraft", ShortlistDraft],
+  ])("%s requires every property", (_name, schema) => {
+    const js = z.toJSONSchema(schema) as { required?: string[]; properties: Record<string, unknown> };
+    expect([...(js.required ?? [])].sort()).toEqual(Object.keys(js.properties).sort());
+  });
+});
 
 describe("createModelWriter", () => {
   it("returns a focus hint and passes the reason to the model", async () => {
