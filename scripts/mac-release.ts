@@ -11,7 +11,7 @@
 import { execFileSync } from "node:child_process";
 import { createPrivateKey, sign } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -116,7 +116,43 @@ if (!flag("--no-notarize")) {
   const status = await waitForNotary(apiKey, id);
   if (status !== "Accepted")
     throw new Error(`notarization ${status}: run \`${rcodesign} notary-log --api-key-file ${apiKey} ${id}\``);
-  run(rcodesign, ["staple", app]);
+  await staple(app);
+}
+
+/**
+ * Staples the ticket. rcodesign's ticket lookup fails on hosts without an IPv6 route, so on failure the
+ * record it names is looked up here with fetch (IPv4 fallback) and written where stapling puts it for an
+ * app bundle, `Contents/CodeResources`.
+ */
+async function staple(bundle: string): Promise<void> {
+  let out = "";
+  try {
+    out = execFileSync(rcodesign, ["staple", bundle], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    console.log(out.trim());
+    return;
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    out = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+  }
+  const record = /looking up notarization ticket for (\S+)/.exec(out)?.[1];
+  if (!record) throw new Error(`staple failed:\n${out}`);
+  const res = await fetch(
+    "https://api.apple-cloudkit.com/database/1/com.apple.gk.ticket-delivery/production/public/records/lookup",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ records: [{ recordName: record }] }),
+    },
+  );
+  const body = (await res.json()) as { records?: Array<{ fields?: { signedTicket?: { value?: string } } }> };
+  const ticket = body.records?.[0]?.fields?.signedTicket?.value;
+  if (!ticket) throw new Error(`no notarization ticket for ${record}: ${JSON.stringify(body).slice(0, 300)}`);
+  writeFileSync(join(bundle, "Contents/CodeResources"), Buffer.from(ticket, "base64"));
+  console.log(`stapled ticket ${record} (fetched over the IPv4 fallback)`);
 }
 
 /** Polls the notary service until the submission leaves "In Progress"; returns the final status. */
