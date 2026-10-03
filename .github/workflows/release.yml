@@ -1,34 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Rami Fara and GhostHand contributors
-# Publish installers after main's CI passes. PRs build the same installers without publishing.
+# Publish installers on demand: push a `v*` tag or run the workflow from `main` (ADR 0018). It no longer
+# runs on pull requests or after every merge: the macOS runners cost ten times a Linux minute, and a
+# four-platform matrix per push used up the month's Actions quota in three days.
 name: release
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
   push:
     tags: ["v*"]
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 defaults:
   run:
     shell: bash
 jobs:
   prepare:
-    # workflow_run also reports failed/cancelled CI and PR checks; only release a successful push.
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -36,8 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Build the commit CI checked, even if main has advanced since that run.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
@@ -123,8 +112,7 @@ jobs:
           # No publisher certificates yet; macOS uses the configured ad-hoc identity.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Verify macOS ad-hoc signature
-        # electron-builder deliberately skips all signing for PR builds.
-        if: runner.os == 'macOS' && github.event_name != 'pull_request'
+        if: runner.os == 'macOS'
         working-directory: apps/desktop
         run: codesign --verify --deep --strict release/mac*/GhostHand.app
       - uses: actions/upload-artifact@v4
@@ -139,8 +127,8 @@ jobs:
           retention-days: 7
   publish:
     needs: [prepare, desktop]
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     env:
