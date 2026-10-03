@@ -33,6 +33,11 @@ export interface ObserveScope {
    */
   region?: string;
   maxElements?: number;
+  /**
+   * Lower-case goal words. When the page has more elements than the snapshot keeps, elements whose name
+   * or context contains more of them are kept first.
+   */
+  focus?: readonly string[];
 }
 
 export interface PredicateResult {

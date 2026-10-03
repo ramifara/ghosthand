@@ -10,17 +10,17 @@ const options = (n: number): Record<string, string> =>
 const levels = (n: number): string[] => Array.from({ length: n }, (_, i) => `level ${i}`);
 
 describe("estimateTokens", () => {
-  it("uses characters / 3, rounded up", () => {
-    expect(estimateTokens("abcdefg")).toBe(3);
-    expect(estimateTokens({ a: 1 })).toBe(Math.ceil('{"a":1}'.length / 3));
+  it("uses characters / 2, rounded up", () => {
+    expect(estimateTokens("abcdefg")).toBe(4);
+    expect(estimateTokens({ a: 1 })).toBe(Math.ceil('{"a":1}'.length / 2));
   });
 
   it("sums the state with all questions and with the longest question", () => {
     const q: Questions = { a: { type: "noul", instructions: "x".repeat(30) }, b: { type: "noul" } };
     const e = estimateRequestTokens("y".repeat(300), q);
-    expect(e.state).toBe(100);
-    expect(e.total).toBe(100 + (e.questions.a ?? 0) + (e.questions.b ?? 0));
-    expect(e.stateWithLongestQuestion).toBe(100 + (e.questions.a ?? 0));
+    expect(e.state).toBe(150);
+    expect(e.total).toBe(150 + (e.questions.a ?? 0) + (e.questions.b ?? 0));
+    expect(e.stateWithLongestQuestion).toBe(150 + (e.questions.a ?? 0));
   });
 });
 
@@ -69,7 +69,7 @@ describe("preflight", () => {
   });
 
   it("rejects state + longest question over 32k as too_large", () => {
-    const r = preflight("x".repeat(33_000 * 3), { done: { type: "noul" } }, caps);
+    const r = preflight("x".repeat(33_000 * 2), { done: { type: "noul" } }, caps);
     expect(r.ok ? undefined : r.error).toMatchObject({
       kind: "too_large",
       message: expect.stringMatching(/longest question/),
@@ -79,8 +79,8 @@ describe("preflight", () => {
   it("rejects state + all questions over 64k as too_large", () => {
     // 30k-token state passes the 32k rule with each 1.5k-token question, but 30 of them exceed 64k.
     const q: Questions = {};
-    for (let i = 0; i < 30; i++) q[`q${i}`] = { type: "noul", instructions: "z".repeat(4_500) };
-    const r = preflight("x".repeat(30_000 * 3), q, caps);
+    for (let i = 0; i < 30; i++) q[`q${i}`] = { type: "noul", instructions: "z".repeat(2_950) };
+    const r = preflight("x".repeat(30_000 * 2), q, caps);
     expect(r.ok ? undefined : r.error).toMatchObject({
       kind: "too_large",
       message: expect.stringMatching(/all questions/),

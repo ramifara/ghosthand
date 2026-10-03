@@ -361,7 +361,7 @@ describe("region narrowing (P1-06)", () => {
     expect(
       (actRequest?.state as { page: { omitted_elements?: number } } | undefined)?.page.omitted_elements,
     ).toBeGreaterThan(0);
-    expect(computer.observed.every((s) => s === undefined)).toBe(true);
+    expect(computer.observed.every((s) => s?.region === undefined)).toBe(true);
   });
 
   it("asks every option partition of a long select in one request and selects the single pick", async () => {

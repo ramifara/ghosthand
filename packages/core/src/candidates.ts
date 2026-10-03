@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Picks and ranks the elements offered to the decision model for each operation.
 import type { Element, ElementAction, Region, Snapshot } from "@ghosthand/protocol";
+import { focusHits } from "./focus-terms.ts";
 
 /** Operations the loop can offer to Jev in mode B. */
 export const OPERATIONS = [
@@ -58,6 +59,10 @@ export interface RankOptions {
   seedTargets?: string[];
   /** stableIds tried on this screen without effect; ranked last. */
   triedHere?: Set<string>;
+  /** Candidates per head (default MAX_CANDIDATES_PER_HEAD); lower when a request must fit a context limit. */
+  maxPerHead?: number;
+  /** Goal words (focus-terms.ts): elements naming more of them rank first, so a cap never cuts them. */
+  focusTerms?: readonly string[];
 }
 
 export function rankElements(elements: Element[], opts: RankOptions = {}): Element[] {
@@ -69,10 +74,13 @@ export function rankElements(elements: Element[], opts: RankOptions = {}): Eleme
     if (el.states.includes("offscreen")) s += 2;
     return s;
   };
-  // Stable sort keeps document order within equal scores.
+  const terms = opts.focusTerms ?? [];
+  const tried = (el: Element) => (opts.triedHere?.has(el.stableId) ? 1 : 0);
+  // Tried-without-effect last, then more goal words first, then region and visibility; stable sort keeps
+  // document order within equal scores.
   return elements
-    .map((el, i) => ({ el, i, s: score(el) }))
-    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((el, i) => ({ el, i, t: tried(el), h: focusHits(el, terms), s: score(el) }))
+    .sort((a, b) => a.t - b.t || b.h - a.h || a.s - b.s || a.i - b.i)
     .map((x) => x.el);
 }
 
@@ -89,15 +97,22 @@ export function emptyCandidates(): CandidateTable {
 export function buildCandidates(snapshot: Snapshot, opts: RankOptions = {}): CandidateTable {
   const dialog = hasOpenDialog(snapshot);
   const pool = snapshot.elements.filter((el) => isActionable(el) && (!dialog || el.region === "dialog"));
+  // Goal words decide which candidates survive the per-head cap; the survivors are offered in the usual
+  // order (region, visibility, document), because Jev weighs earlier options more and a goal-ordered list
+  // pulls it towards rows that merely mention the goal.
   const ranked = rankElements(pool, opts);
+  const usual = new Map(rankElements(pool, { ...opts, focusTerms: [] }).map((el, i) => [el.token, i]));
+  const inUsualOrder = (els: Element[]) =>
+    els.sort((a, b) => (usual.get(a.token) ?? 0) - (usual.get(b.token) ?? 0));
+  const perHead = Math.min(opts.maxPerHead ?? MAX_CANDIDATES_PER_HEAD, MAX_CANDIDATES_PER_HEAD);
   const table = {} as CandidateTable;
   for (const op of OPERATIONS) {
     if (op === "scroll") continue;
-    table[op] = ranked
-      .filter((el) => el.actions.includes(OPERATION_ACTION[op]))
-      .slice(0, MAX_CANDIDATES_PER_HEAD);
+    table[op] = inUsualOrder(
+      ranked.filter((el) => el.actions.includes(OPERATION_ACTION[op])).slice(0, perHead),
+    );
   }
-  table.drop = ranked.filter((el) => el.actions.includes("drop")).slice(0, MAX_CANDIDATES_PER_HEAD);
+  table.drop = inUsualOrder(ranked.filter((el) => el.actions.includes("drop")).slice(0, perHead));
   // A drag needs somewhere to drop.
   if (table.drop.length === 0) table.drag = [];
   // Scrolling is offered only when the driver says it reveals content missing from the table. Targets

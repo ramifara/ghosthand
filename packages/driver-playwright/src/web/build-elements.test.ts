@@ -139,6 +139,33 @@ describe("buildElements", () => {
     expect(byName("Docs")[0]?.href).toBe("https://other.test/docs");
   });
 
+  it("keeps the elements that name the goal and on-screen controls when it caps", () => {
+    const OFFSCREEN: Element["states"] = ["offscreen"];
+    const ON_SCREEN: Element["states"] = [];
+    const many = Array.from({ length: 300 }, (_, i) => ({
+      ...(elements[1] as (typeof elements)[number]),
+      token: `l${i}`,
+      name: `Result ${i}`,
+      states: OFFSCREEN,
+    }));
+    const base = elements[1] as (typeof elements)[number];
+    const feed = {
+      ...base,
+      token: "feed",
+      name: "Feed the bear a salmon",
+      region: "other" as const,
+      states: OFFSCREEN,
+    };
+    const overlay = { ...base, token: "share", name: "Share", region: "other" as const, states: ON_SCREEN };
+    const all = [...many, feed, overlay];
+    const plain = capElements(all, "", 50);
+    expect(plain.elements.map((e) => e.token)).not.toContain("feed");
+    // A control on screen is kept even outside the main region.
+    expect(plain.elements.map((e) => e.token)).toContain("share");
+    const focused = capElements(all, "", 50, 20_000, ["feed", "bear"]);
+    expect(focused.elements.map((e) => e.token)).toContain("feed");
+  });
+
   it("caps by region rank and keeps document order", () => {
     const capped = capElements(elements, "", 3);
     expect(capped.elements.map((e) => e.name)).toEqual(["Password", "Edit", "Card"]);
