@@ -13,6 +13,7 @@ import type {
   Entry,
   FieldValue,
   GateName,
+  Guidance,
   Plan,
   Questions,
   Result,
@@ -26,7 +27,15 @@ import type {
 } from "@ghosthand/protocol";
 import { type AnswerResult, extractAnswer } from "./answer.ts";
 import { BudgetTracker } from "./budget.ts";
-import { buildCandidates, DROP_HEAD, findByToken, isNamed, type Operation } from "./candidates.ts";
+import {
+  buildCandidates,
+  type CandidateTable,
+  DROP_HEAD,
+  findByToken,
+  isNamed,
+  OPERATIONS,
+  type Operation,
+} from "./candidates.ts";
 import { consentRejectButton } from "./consent-banner.ts";
 import { evaluateDoneWhen, hasDeterministicPredicates } from "./done-when.ts";
 import { type ForbiddenRule, forbiddenRules, matchForbidden } from "./effect-rules.ts";
@@ -78,7 +87,12 @@ import {
   QUALITY_POOR,
   type VisionAssist,
 } from "./vision.ts";
-import { MAX_HANDOFFS_PER_SUBGOAL, type Writer, type WriterHint } from "./writer.ts";
+import {
+  MAX_HANDOFFS_PER_SUBGOAL,
+  MAX_SHORTLIST_CANDIDATES,
+  type Writer,
+  type WriterHint,
+} from "./writer.ts";
 
 export type { EventSink } from "./event-sink.ts";
 
@@ -98,7 +112,10 @@ export interface LoopConfig {
     text: number;
     sureTarget: number;
     advanceTarget: number;
+    advanceChoiceFactor: number;
   };
+  /** How often the writer is called (ADR 0017): never, after refusals, when unsure, or before every decision. */
+  guidance: Guidance;
   /** Per-step deadline for the decision call, ms. */
   decisionDeadlineMs: number;
   screenshots: boolean;
@@ -118,7 +135,16 @@ export interface LoopConfig {
 }
 
 export const DEFAULT_LOOP_CONFIG: LoopConfig = {
-  gates: { operation: 0.65, target: 0.7, stuck: 0.85, text: 0.5, sureTarget: 0.9, advanceTarget: 0.45 },
+  gates: {
+    operation: 0.65,
+    target: 0.7,
+    stuck: 0.85,
+    text: 0.5,
+    sureTarget: 0.9,
+    advanceTarget: 0.2,
+    advanceChoiceFactor: 1.5,
+  },
+  guidance: "unsure",
   decisionDeadlineMs: 6000,
   screenshots: true,
   maxStateTokens: 20_000,
@@ -610,6 +636,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     const history: HistoryEntry[] = [];
     const triedNoEffect = new Set<string>();
     const coveredTries = new Map<string, number>();
+    /** Advance navigations taken in this subgoal (where from, which link), newest last; dead ends go back. */
+    const trail: Array<{ fromUrl: string; key: string }> = [];
+    let pendingAdvance: { fromUrl: string; key: string } | undefined;
+    const backtracks = { count: 0 };
     let subgoalSteps = 0;
     let refusals = 0;
     let lastGoalDone = 0;
@@ -673,6 +703,10 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         return finish("error", `observe failed: ${observed.error.kind}: ${observed.error.message}`);
       const snapshot = observed.value;
       const newText = newTextLines(previousText, snapshot.text);
+      // The last advance took us to a new page: remember where it came from, for a backtrack.
+      if (pendingAdvance && snapshot.url && snapshot.url !== pendingAdvance.fromUrl)
+        trail.push(pendingAdvance);
+      pendingAdvance = undefined;
       previousText = snapshot.text;
       const fingerprint = screenFingerprint(snapshot);
       deps.onSnapshot?.(snapshot, fingerprint, current);
@@ -818,6 +852,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         requestScale,
         deadRegions: deadRegionsOn(fingerprint.key),
         coveredTries,
+        trail,
+        backtracks,
+        noteAdvance: (fromUrl, key) => {
+          pendingAdvance = { fromUrl, key };
+        },
         noteProblem: (problem, append) => {
           if (problem === undefined) problems = [];
           else if (append && problems.length > 0) problems[problems.length - 1] += `; ${problem}`;
@@ -1141,6 +1180,15 @@ interface DecideContext {
   deadRegions: Set<string>;
   /** Hit-test failures per action key in this subgoal (a target that stays covered is given up). */
   coveredTries: Map<string, number>;
+  /** Tokens the writer shortlisted for this step; the act questions offer only these (ADR 0017). */
+  shortlist?: Set<string>;
+  /** A shortlist was already asked for this step (no second one; a `none` falls back to the full table). */
+  shortlistTried?: boolean;
+  /** Advance navigations in this subgoal, newest last. */
+  trail: Array<{ fromUrl: string; key: string }>;
+  backtracks: { count: number };
+  /** Records an advance action that may navigate (checked at the next observe). */
+  noteAdvance: (fromUrl: string, key: string) => void;
   /** The whole page, kept when the step was narrowed to a region; a dead end there re-asks on it once. */
   fullSnapshot?: Snapshot;
   /** The re-ask on the whole page already happened this step. */
@@ -1308,6 +1356,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         maxPerHead,
         focusTerms: focus,
       });
+      if (ctx.shortlist) restrictToShortlist(candidates, ctx.shortlist);
       const { questions, offered } = buildActQuestions({
         candidates,
         textOptions,
@@ -1369,6 +1418,17 @@ function startAct(ctx: DecideContext): SpeculativeAct {
 
 async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): Promise<DecideOutcome> {
   const { deps, cfg, subgoal, snapshot, step, history, clock } = ctx;
+  // Guidance "every": the writer shortlists the candidates before Jev decides (ADR 0017).
+  if (
+    !speculative &&
+    cfg.guidance === "every" &&
+    !ctx.shortlist &&
+    !ctx.shortlistTried &&
+    deps.writer?.shortlist
+  ) {
+    const picks = await shortlistFor(ctx, "every step");
+    if (picks) return decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true });
+  }
   let t = clock.now();
   let pending = speculative ?? startAct(ctx);
   let r = await pending.response;
@@ -1440,7 +1500,9 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
             answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance",
           )
         : undefined;
-    return viaVision ?? (await handOff(ctx, `the agent chose ${op ?? "no valid operation"}`)) ?? refuse();
+    if (viaVision) return viaVision;
+    const why = `the agent chose ${op ?? "no valid operation"}`;
+    return (await guide(ctx, why)) ?? (await handOff(ctx, why)) ?? (await backtrack(ctx, why)) ?? refuse();
   }
   const operation = op as Operation;
   if (operation === "scroll") return scrollStep(ctx, answers);
@@ -1532,9 +1594,18 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (targetGate && !targetGate.passed && action && element && effect === "advance") {
     const top = choiceConfidence(targetAnswer);
     const runnerUp = runnerUpElement(targetAnswer, element.token);
-    if (top >= cfg.gates.advanceTarget && top >= 2 * runnerUp) {
+    const options = elementOptionCount(pending.prepared.questions[targetHead(operation)]);
+    // The demand scales with the number of choices (twice the uniform share), never below the floor; the
+    // pick must also be the most likely element and beat "none" and "ambiguous" (ADR 0017).
+    const demand = Math.max(
+      cfg.gates.advanceTarget,
+      options > 0 ? cfg.gates.advanceChoiceFactor / options : 1,
+    );
+    const none = sentinelP(targetAnswer, NONE);
+    const ambiguous = sentinelP(targetAnswer, AMBIGUOUS);
+    if (top >= demand && top >= runnerUp && top >= none && top >= ambiguous) {
       targetGate.passed = true;
-      targetGate.detail = `${targetGate.detail ?? ""}; accepted: advance, next element ${runnerUp.toFixed(2)}`;
+      targetGate.detail = `${targetGate.detail ?? ""}; accepted: advance, ${options} options, demand ${demand.toFixed(2)}`;
     }
   }
   // Jev often splits between two operations ("set_value 46% / press 27%") while the target of the top one is
@@ -1631,8 +1702,14 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
             ? await visionGround(ctx, `no listed element fits (${streak} times on this screen)`, effect)
             : undefined;
       if (viaVision) return viaVision;
+      const guided = await guide(ctx, reason);
+      if (guided) return guided;
       const handed = await handOff(ctx, reason, needsText ? element?.name : undefined);
       if (handed) return handed;
+      if (!element) {
+        const back = await backtrack(ctx, reason);
+        if (back) return back;
+      }
     }
     return refuse();
   }
@@ -1691,6 +1768,7 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   if (result.effect === "confirmed") {
     ctx.handoffs.count = 0;
     ctx.noteProblem(undefined);
+    if (effect === "advance" && snapshot.url) ctx.noteAdvance(snapshot.url, key);
   } else if (result.effect === "suspected_noop" || result.effect === "refused")
     ctx.noteProblem(
       `the last action (${describe}) ${result.error ? `failed: ${result.error.kind}` : "changed nothing on the page"}`,
@@ -1746,6 +1824,167 @@ async function retryUnnarrowed(ctx: DecideContext, why: string): Promise<DecideO
     reuseCapture: true,
   });
   return decideAndAct({ ...ctx, snapshot: again.ok ? again.value : full, unnarrowedTried: true });
+}
+
+/** Advance navigations undone per subgoal when the page they led to was a dead end. */
+const MAX_BACKTRACKS = 3;
+/** Below this many candidates a shortlist is not worth a writer call. */
+const MIN_CANDIDATES_FOR_SHORTLIST = 6;
+
+const sentinelP = (a: Answer | undefined, key: string): number =>
+  a?.type === "choice" ? (a.probabilities[key] ?? 0) : 0;
+
+/** Elements offered in a target question (its options without the sentinels). */
+function elementOptionCount(q: Questions[string] | undefined): number {
+  if (q?.type !== "choice") return 0;
+  return Object.keys(q.criteria).filter((k) => k !== NONE && k !== AMBIGUOUS && k !== PAGE).length;
+}
+
+/** Keeps only shortlisted tokens in every target head; a head left empty is dropped (not offered). */
+function restrictToShortlist(candidates: CandidateTable, shortlist: Set<string>): void {
+  for (const key of Object.keys(candidates) as Array<keyof CandidateTable>) {
+    if (key === "scroll") continue;
+    candidates[key] = candidates[key].filter((e) => shortlist.has(e.token));
+  }
+}
+
+/**
+ * Asks the writer to shortlist the candidates for this step (guidance "every", or "unsure" after Jev's
+ * answer was not decisive) and returns their tokens; undefined when there is no writer, too few candidates,
+ * a shortlist was already asked, or the writer returned nothing usable.
+ */
+async function shortlistFor(ctx: DecideContext, why: string): Promise<Set<string> | undefined> {
+  const writer = ctx.deps.writer;
+  if (!writer?.shortlist || ctx.shortlistTried) return undefined;
+  const { snapshot, deps } = ctx;
+  const triedHere = new Set(
+    [...ctx.triedNoEffect].filter((k) => ctx.stall.triedHere(k)).map((k) => k.split("|")[1] ?? ""),
+  );
+  const table = buildCandidates(snapshot, {
+    seedTargets: ctx.subgoal.seedTargets,
+    triedHere,
+    focusTerms: focusTerms(ctx.subgoal.goal, ctx.task.instruction),
+  });
+  const seen = new Set<string>();
+  const ordered: Element[] = [];
+  for (const op of OPERATIONS) {
+    if (op === "scroll") continue;
+    for (const e of table[op]) {
+      if (!seen.has(e.token)) {
+        seen.add(e.token);
+        ordered.push(e);
+      }
+    }
+  }
+  if (ordered.length < MIN_CANDIDATES_FOR_SHORTLIST) return undefined;
+  const line = (e: Element) =>
+    deps.secrets.redact(
+      `${e.token} — ${e.role} ${JSON.stringify(e.name.slice(0, 80))}${e.context ? ` · ${e.context.slice(0, 80)}` : ""}`,
+    );
+  const candidates = ordered.slice(0, MAX_SHORTLIST_CANDIDATES).map(line);
+  const deadEnds = ordered
+    .filter((e) => triedHere.has(e.stableId))
+    .map((e) => e.name)
+    .slice(0, 12);
+  const state = buildState(
+    {
+      instruction: ctx.task.instruction,
+      goal: ctx.subgoal.goal,
+      step: ctx.step,
+      phase: "act",
+      snapshot,
+      elements: [],
+      history: ctx.history,
+      inputs: ctx.task.secrets,
+    },
+    deps.secrets,
+  );
+  const page = JSON.stringify({ page: state.page, texts: state.texts }).slice(0, 4000);
+  const t = ctx.clock.now();
+  const r = await writer.shortlist(
+    {
+      instruction: ctx.task.instruction,
+      goal: ctx.subgoal.goal,
+      page,
+      candidates,
+      history: ctx.history.slice(-8).map((h) => `${h.step}. ${h.text}`),
+      deadEnds,
+    },
+    deps.signal ? { signal: deps.signal } : {},
+  );
+  ctx.onModelCall(r.ok ? r.value.costUsd : 0);
+  const picks = r.ok ? r.value.shortlist.picks.filter((p) => seen.has(p)) : [];
+  deps.events.emit({
+    type: "model.call",
+    step: ctx.step,
+    role: "writer",
+    model: r.ok ? r.value.model : writer.id,
+    latencyMs: r.ok ? r.value.latencyMs : ctx.clock.now() - t,
+    ...(r.ok ? { costUsd: r.value.costUsd } : {}),
+    ok: r.ok,
+    summary: r.ok
+      ? `shortlist (${why}): ${picks.length} of ${ordered.length}${r.value.shortlist.note ? ` · ${deps.secrets.redact(r.value.shortlist.note).slice(0, 120)}` : ""}`
+      : `${r.error.kind}: ${r.error.message}`,
+  });
+  if (!r.ok) {
+    ctx.noteProblem(`the writer model (${writer.id}) failed: ${r.error.kind}: ${r.error.message}`, true);
+    return undefined;
+  }
+  const text = r.value.shortlist.text ? deps.secrets.redact(r.value.shortlist.text) : undefined;
+  if (text && !text.includes("[input:")) ctx.extraTexts.push(text);
+  if (picks.length === 0) return undefined;
+  const names = picks.map((p) => ordered.find((e) => e.token === p)?.name ?? p).slice(0, 5);
+  ctx.history.push({
+    step: ctx.step,
+    text: `writer shortlist: ${names.map((n) => JSON.stringify(n)).join(", ")}`,
+  });
+  return new Set(picks);
+}
+
+/**
+ * Guidance for a step whose answer was not decisive: with "unsure" or "every", a shortlist (once) and a
+ * re-ask; a shortlisted step that still found nothing is asked again on the full table (once).
+ */
+async function guide(ctx: DecideContext, why: string): Promise<DecideOutcome | undefined> {
+  if (ctx.cfg.guidance === "off" || ctx.cfg.guidance === "stuck") return undefined;
+  if (ctx.shortlist) {
+    const { shortlist: _shortlist, ...full } = ctx;
+    return decideAndAct({ ...full, shortlistTried: true });
+  }
+  const picks = await shortlistFor(ctx, why);
+  return picks ? decideAndAct({ ...ctx, shortlist: picks, shortlistTried: true }) : undefined;
+}
+
+/**
+ * The page reached by the last advance holds nothing for the goal: go back to where that advance started,
+ * and rank that link last there. At most MAX_BACKTRACKS per subgoal (ADR 0017).
+ */
+async function backtrack(ctx: DecideContext, why: string): Promise<DecideOutcome | undefined> {
+  const last = ctx.trail.at(-1);
+  if (!last || ctx.backtracks.count >= MAX_BACKTRACKS) return undefined;
+  if (!ctx.snapshot.url || ctx.snapshot.url === last.fromUrl) return undefined;
+  ctx.trail.pop();
+  ctx.backtracks.count++;
+  ctx.triedNoEffect.add(last.key);
+  const action: Action = { type: "navigate", url: last.fromUrl };
+  ctx.deps.events.emit({ type: "action", step: ctx.step, action, effectClass: "advance", mode: "B" });
+  const t0 = ctx.clock.now();
+  const opened = await ctx.deps.computer.open(last.fromUrl);
+  const result: ActionResult = {
+    effect: opened.ok ? "confirmed" : "refused",
+    route: "navigation",
+    evidence: opened.ok ? [{ kind: "url", after: last.fromUrl }] : [],
+    ...(opened.ok ? {} : { error: { kind: "driver" as const, message: opened.error.message } }),
+    invalidatedSnapshots: [ctx.snapshot.id],
+    durationMs: ctx.clock.now() - t0,
+  };
+  ctx.deps.events.emit({ type: "effect", step: ctx.step, result });
+  ctx.history.push({
+    step: ctx.step,
+    text: `dead end (${why}): went back to ${last.fromUrl}; that link will not be tried again`,
+  });
+  ctx.noteProblem(undefined);
+  return { kind: "continue" };
 }
 
 /** The highest probability of any element other than `chosen` in a target answer (sentinels excluded). */

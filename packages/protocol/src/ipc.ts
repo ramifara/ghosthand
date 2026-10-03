@@ -71,12 +71,21 @@ export type RoleBindingsInput = z.infer<typeof RoleBindingsInput>;
 
 // ---- settings --------------------------------------------------------------------------------------
 
+/**
+ * How often the writer (a larger model) is called during a run (ADR 0017): never; only after a refused
+ * step (`stuck`); when Jev's answer is not decisive (`unsure`); or before every decision (`every`), where
+ * it shortlists the candidates and Jev picks among them.
+ */
+export const Guidance = z.enum(["off", "stuck", "unsure", "every"]);
+export type Guidance = z.infer<typeof Guidance>;
+
 export const Settings = z
   .object({
     defaultProfile: ProfileName.default("default"),
     budget: Budget.default({ steps: 25, seconds: 180, usd: 0.25 }),
     planner: PlannerChoice.default("auto"),
     writer: WriterChoice.default("auto"),
+    guidance: Guidance.default("unsure"),
     showBrowser: z.boolean().default(true),
     browserBehavior: BrowserBehavior.prefault({}),
     browserNetwork: BrowserNetwork.prefault({}),
@@ -247,6 +256,7 @@ export const StartRunInput = z
     profile: ProfileName.optional(),
     planner: PlannerChoice.optional(),
     writer: WriterChoice.optional(),
+    guidance: Guidance.optional(),
     decision: DecisionChoice.default("jev"),
     showBrowser: z.boolean().optional(),
     /** Run without handover: no approval prompts; human-verification walls still pause for takeover. */

@@ -11,7 +11,7 @@ import {
   webLauncher,
 } from "@ghosthand/engine";
 import { runSuite } from "@ghosthand/evals";
-import type { DecisionProvider, TaskSpec } from "@ghosthand/protocol";
+import type { DecisionProvider, Guidance, TaskSpec } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
 import { type ExtrasFlags, setupRunExtras } from "../run-extras.ts";
 
@@ -26,6 +26,7 @@ export interface EvalFlags {
   json: boolean;
   planner?: PlannerChoice;
   writer?: WriterChoice;
+  guidance?: Guidance;
   extras: ExtrasFlags;
   /** Experiment: start every task at this path. */
   startPath?: string;
@@ -64,6 +65,7 @@ export async function evalCommand(flags: EvalFlags): Promise<number> {
     ...(flags.startPath ? { startPath: flags.startPath } : {}),
     ...(assistants?.planner ? { planner: assistants.planner } : {}),
     ...(assistants?.writer ? { writer: assistants.writer } : {}),
+    ...(flags.guidance ? { guidance: flags.guidance } : {}),
     suite: flags.suite,
     n: flags.n,
     ...(flags.only ? { only: flags.only } : {}),

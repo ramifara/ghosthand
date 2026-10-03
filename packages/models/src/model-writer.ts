@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Writer hand-off over the models layer (role "writer"). Strict JSON: one focus hint, free text, or none.
-import { WRITER_SYSTEM, type Writer, type WriterError, type WriterHint, writerPrompt } from "@ghosthand/core";
+import {
+  MAX_SHORTLIST,
+  SHORTLIST_SYSTEM,
+  type Shortlist,
+  shortlistPrompt,
+  WRITER_SYSTEM,
+  type Writer,
+  type WriterError,
+  type WriterHint,
+  writerPrompt,
+} from "@ghosthand/core";
 import { err, ok } from "@ghosthand/protocol";
 import { z } from "zod";
 import type { ModelClient } from "./model-client.ts";
@@ -13,6 +23,28 @@ export const WriterDraft = z.object({
   content: z.string().min(1).max(600),
 });
 export type WriterDraft = z.infer<typeof WriterDraft>;
+
+export const ShortlistDraft = z.object({
+  picks: z.array(z.string().min(1).max(40)).max(MAX_SHORTLIST),
+  text: z.string().max(600).optional(),
+  note: z.string().max(300).optional(),
+});
+
+/** Keeps only ids that exist in the candidate lines (`id — ...`), in the model's order. */
+export function cleanShortlist(
+  draft: z.infer<typeof ShortlistDraft>,
+  candidates: readonly string[],
+): Shortlist {
+  const ids = new Set(candidates.map((line) => line.split(" — ")[0]?.trim() ?? ""));
+  const picks = [...new Set(draft.picks.map((p) => p.trim()))]
+    .filter((p) => ids.has(p))
+    .slice(0, MAX_SHORTLIST);
+  return {
+    picks,
+    ...(draft.text?.trim() ? { text: draft.text.trim() } : {}),
+    ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
+  };
+}
 
 export function toWriterHint(d: WriterDraft): WriterHint {
   if (d.kind === "focus") return { kind: "focus", focus: d.content };
@@ -94,6 +126,25 @@ export function createModelWriter(client: ModelClient, opts: { timeoutMs?: numbe
       if (!r.ok) return err(mapError(r.error));
       return ok({
         hint: toWriterHint(r.value.value),
+        model: r.value.model,
+        latencyMs: r.value.latencyMs,
+        costUsd: r.value.costUsd,
+      });
+    },
+    async shortlist(input, callOpts = {}) {
+      const r = await client.generateStructured({
+        role: "writer",
+        system: SHORTLIST_SYSTEM,
+        prompt: shortlistPrompt(input),
+        schema: ShortlistDraft,
+        schemaName: "shortlist",
+        timeoutMs: timeoutMs * 2,
+        maxOutputTokens: 300,
+        ...(callOpts.signal ? { signal: callOpts.signal } : {}),
+      });
+      if (!r.ok) return err(mapError(r.error));
+      return ok({
+        shortlist: cleanShortlist(r.value.value, input.candidates),
         model: r.value.model,
         latencyMs: r.value.latencyMs,
         costUsd: r.value.costUsd,

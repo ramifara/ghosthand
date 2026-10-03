@@ -21,6 +21,7 @@ const SETTINGS = {
   budget: { steps: 25, seconds: 180, usd: 0.25 },
   planner: "auto",
   writer: "auto",
+  guidance: "unsure",
   showBrowser: true,
   devPlumbingMode: false,
   devTestbed: false,
@@ -127,6 +128,7 @@ describe("ComposerPage", () => {
       profile: "default",
       planner: "auto",
       writer: "auto",
+      guidance: "unsure",
       showBrowser: true,
       unattended: false,
     });
