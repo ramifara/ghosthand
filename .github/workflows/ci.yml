@@ -19,7 +19,7 @@ concurrency:
 jobs:
   changes:
     # Which expensive jobs this change needs: a diff against the PR base (or the previous main commit).
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.diff.outputs.macos }}
@@ -46,7 +46,7 @@ jobs:
           echo "macos=$(hit '^(packages/driver-desktop/hosts/macos/|scripts/desktop-host-smoke\.ts|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
           echo "windows=$(hit '^(packages/driver-desktop/hosts/windows/|scripts/desktop-host-smoke\.ts|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -69,7 +69,7 @@ jobs:
       - run: bun run license:check
       - run: bun run secrets:check
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -101,7 +101,7 @@ jobs:
           retention-days: 7
   desktop-x11:
     # Linux X11 sandbox: builds the container image (Xvfb, xfwm4, AT-SPI, GTK testbed) and drives it live.
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -128,7 +128,7 @@ jobs:
     # (hosted runners may lack an interactive desktop or ship a packaged Notepad). Windows minutes cost
     # twice Linux ones: only when the host or the smoke changed.
     needs: changes
-    if: needs.changes.outputs.windows == 'true'
+    if: needs.changes.outputs.windows == 'true' && (vars.LINUX_RUNNER == '' || inputs.hosts)
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -151,7 +151,7 @@ jobs:
     # smoke is best effort and normally reports "not trusted". macOS minutes cost ten times Linux ones:
     # only when the host or the smoke changed.
     needs: changes
-    if: needs.changes.outputs.macos == 'true'
+    if: needs.changes.outputs.macos == 'true' && (vars.LINUX_RUNNER == '' || inputs.hosts)
     runs-on: macos-latest
     timeout-minutes: 15
     steps:

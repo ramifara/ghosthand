@@ -15,7 +15,7 @@ jobs:
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/copilot-review') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
     steps:
       - name: Request Copilot review

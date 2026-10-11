@@ -18,7 +18,7 @@ defaults:
     shell: bash
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -127,7 +127,7 @@ jobs:
           retention-days: 7
   publish:
     needs: [prepare, desktop]
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: write
