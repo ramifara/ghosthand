@@ -54,7 +54,18 @@ export function ReplayPage({ runId, onTaskReady }: { runId: string; onTaskReady:
 
   if (log.isError) return <Empty title="Cannot open this run">{errorMessage(log.error)}</Empty>;
 
-  const bounds = step?.action?.target?.bounds;
+  // A D0 step (ADR 0020) carries the box Jev located as image fractions; drawn over the screenshot.
+  const box = step?.action?.target?.box;
+  const bounds =
+    step?.action?.target?.bounds ??
+    (box && size
+      ? {
+          x: box.left * size.w,
+          y: box.top * size.h,
+          width: (box.right - box.left) * size.w,
+          height: (box.bottom - box.top) * size.h,
+        }
+      : undefined);
   return (
     <div className="flex h-full flex-col gap-3 p-3">
       <div className="shrink-0 rounded-md border border-line bg-panel px-4 py-2.5">
@@ -95,7 +106,7 @@ export function ReplayPage({ runId, onTaskReady }: { runId: string; onTaskReady:
             target={
               bounds && step?.action?.target
                 ? {
-                    label: `${step.action.type} ${step.action.target.name || step.action.target.role}`,
+                    label: `${step.mode === "D0" ? "Jev box · " : ""}${step.action.type} ${step.action.target.name || step.action.target.role}`,
                     bounds,
                     ...(step.action.target.confidence !== undefined
                       ? { confidence: step.action.target.confidence }

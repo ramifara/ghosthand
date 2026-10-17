@@ -86,3 +86,28 @@ describe("projectRect", () => {
     ).toBeUndefined();
   });
 });
+
+describe("D0 actions (ADR 0020)", () => {
+  it("carries the box Jev located into the step's action target", () => {
+    const base = { runId: "r", t: 1 };
+    const run = deriveRun([
+      RunEvent.parse({
+        ...base,
+        seq: 0,
+        type: "action",
+        step: 3,
+        action: { type: "click", target: { captureId: "c1", x: 10, y: 10 } },
+        target: {
+          stableId: "d0|save",
+          role: "unknown",
+          name: "the Save button",
+          box: { top: 0.75, bottom: 0.79, left: 0.19, right: 0.3 },
+        },
+        mode: "D0",
+      }),
+    ]);
+    const step = run.steps.find((s) => s.step === 3);
+    expect(step?.mode).toBe("D0");
+    expect(step?.action?.target?.box).toEqual({ top: 0.75, bottom: 0.79, left: 0.19, right: 0.3 });
+  });
+});

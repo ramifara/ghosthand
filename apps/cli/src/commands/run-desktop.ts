@@ -25,7 +25,10 @@ export async function runDesktopCommand(flags: RunFlags, surface: DesktopSurface
   if (!flags.task && !flags.goal)
     return fail('give a desktop task (--task desktop-...) or a goal ("...")', 2);
   if (!flags.task && !flags.app) return fail("--app is required with a free-text desktop goal", 2);
-  const opened = await openRuntime({ ...(flags.config ? { configPath: flags.config } : {}) });
+  const opened = await openRuntime({
+    ...(flags.config ? { configPath: flags.config } : {}),
+    ...(flags.jev ? { overrides: { decision: flags.jev } } : {}),
+  });
   if (!opened.ok) return fail(opened.error.message);
   const rt: EngineRuntime = opened.value;
   for (const w of rt.warnings) process.stderr.write(`warn: ${w}\n`);

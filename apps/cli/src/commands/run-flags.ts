@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 import type { DesktopLaunchOptions, PlannerChoice, WriterChoice } from "@ghosthand/engine";
-import type { BrowserBehaviorInput, Guidance } from "@ghosthand/protocol";
+import type { BrowserBehaviorInput, DecisionImages, Guidance } from "@ghosthand/protocol";
 import type { ExtrasFlags } from "../run-extras.ts";
+
+/** `--jev-images` and `--jev-vision-model` (ADR 0020), applied as decision config overrides. */
+export interface JevFlags {
+  images?: DecisionImages;
+  visionModel?: string;
+}
 
 export interface RunFlags {
   /** How often the writer is called (ADR 0017). */
   guidance?: Guidance;
+  jev?: JevFlags;
   url?: string;
   task?: string;
   goal?: string;

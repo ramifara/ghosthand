@@ -236,6 +236,7 @@ export async function runAgent(
       secrets: rt.secrets,
       config: {
         gates: rt.config.gates,
+        images: rt.config.decision.images,
         ...(opts.guidance ? { guidance: opts.guidance } : {}),
         ...(opts.autonomy === "unattended" ? UNATTENDED_LOOP : {}),
         ...opts.loop?.config,

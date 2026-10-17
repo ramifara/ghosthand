@@ -5,6 +5,7 @@
 // presence and against free endpoints.
 import { accessSync, constants } from "node:fs";
 import { createClaudeConsultant, createCodexConsultant } from "@ghosthand/consultants";
+import { DEFAULT_VISION_MODEL } from "@ghosthand/decision-typesafe";
 import { desktopDoctorChecks } from "@ghosthand/driver-desktop";
 import { detectBrowsers, nodeBrowserHost } from "@ghosthand/driver-playwright";
 import { DEFAULT_LOCAL_SERVERS, discoverLocalModels } from "@ghosthand/models";
@@ -152,6 +153,21 @@ export async function runDoctor(rt: EngineRuntime, opts: DoctorOptions = {}): Pr
         : `${rt.envFile.path}${rt.envFile.insecure ? " is readable by others; chmod 600" : ""}`,
   });
   checks.push(...(await decisionChecks(rt, opts)));
+  // Jev images and box (ADR 0020): which model answers them, and a pinned-version reminder. Aliases move
+  // without notice (jev-latest → 1.14.0 a week after release; 1.13.0 retires with 60 days' notice), and a
+  // retired pin shows up at run time as an `invalid` decision error naming the model.
+  const images = rt.config.decision.images;
+  const visionModel = rt.config.decision.visionModel ?? DEFAULT_VISION_MODEL;
+  const primaryModel = decisionCarrierSettings(rt.config, "primary")?.model ?? "";
+  const aliased = [primaryModel, visionModel].filter((m) => /^jev-(latest|preview)$/.test(m));
+  checks.push({
+    name: "jev images (D0)",
+    ok: aliased.length === 0,
+    detail:
+      images === "off"
+        ? `off (decision.images); vision model ${visionModel}`
+        : `${images}; text ${primaryModel}, images and box ${visionModel}${aliased.length > 0 ? ` — pin a version instead of ${aliased.join(", ")}` : ""}`,
+  });
   checks.push(...providerKeyChecks(rt, env));
   const vision = providerKeys(rt, env).filter(
     (k) => k.env && ["openai", "anthropic", "google"].includes(k.provider),

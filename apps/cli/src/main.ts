@@ -4,7 +4,7 @@ import type { PlannerChoice, WriterChoice } from "@ghosthand/engine";
 import type { BrowserBehaviorInput } from "@ghosthand/protocol";
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
-import { Guidance } from "@ghosthand/protocol";
+import { DecisionImages, Guidance } from "@ghosthand/protocol";
 import { doctorCommand } from "./commands/doctor.ts";
 import { evalCommand } from "./commands/eval.ts";
 import { exportCommand } from "./commands/export.ts";
@@ -23,6 +23,18 @@ import { testCommand } from "./commands/test.ts";
 import { voiceCommand } from "./commands/voice.ts";
 import { fail, out } from "./io.ts";
 
+/** `--jev-images off|grounding|always` and `--jev-vision-model <id>` (ADR 0020) as decision config overrides. */
+export function jevFlags(values: ReturnType<typeof parse>["values"]): {
+  images?: DecisionImages;
+  visionModel?: string;
+} {
+  const images = DecisionImages.safeParse(values["jev-images"]);
+  return {
+    ...(images.success ? { images: images.data } : {}),
+    ...(values["jev-vision-model"] ? { visionModel: values["jev-vision-model"] } : {}),
+  };
+}
+
 /** `--guidance off|stuck|unsure|every` (ADR 0017) as a spreadable option; anything else leaves the default. */
 function guidanceSpread(value: string | undefined): { guidance: Guidance } | Record<string, never> {
   const parsed = Guidance.safeParse(value);
@@ -36,6 +48,7 @@ Usage:
                 [--unattended] [--creds <KEY=value file>]
                 [--planner auto|codex|claude|models|none] [--writer auto|models|none] [--yes]
                 [--guidance off|stuck|unsure|every] [--learn] [--recipes auto|off] [--source <app src dir>] [--vision auto|off]
+                [--jev-images off|grounding|always] [--jev-vision-model <id>]
   ghosthand run --surface x11|wayland|windows|macos (--task desktop-<id> | --app "<command>" "<goal>")
                 [--runtime auto|docker|podman|host] [--vnc-port <port>] [--network] [--allow-host-desktop] [--yes]
   ghosthand replay <runId> [--headless]
@@ -139,6 +152,7 @@ export async function main(argv: string[]): Promise<number> {
           ? values.writer
           : "auto") as WriterChoice,
         ...guidanceSpread(values.guidance),
+        jev: jevFlags(values),
         // Evals keep runs independent: recipes and learning only when asked (ADR 0011).
         extras: extrasFlags(values, "off"),
         ...(values["start-path"] ? { startPath: values["start-path"] } : {}),
@@ -219,6 +233,7 @@ export function runFlags({ values, positionals }: ReturnType<typeof parse>): Run
       ? values.writer
       : "auto") as WriterChoice,
     ...guidanceSpread(values.guidance),
+    jev: jevFlags(values),
     ...(values.surface ? { surface: surfaceFlag(values.surface) } : {}),
     ...(values.app ? { app: values.app } : {}),
     ...(values.runtime ? { runtime: runtimeFlag(values.runtime) } : {}),
@@ -287,6 +302,8 @@ export function parse(argv: string[]) {
       all: { type: "boolean" },
       writer: { type: "string" },
       guidance: { type: "string" },
+      "jev-images": { type: "string" },
+      "jev-vision-model": { type: "string" },
       n: { type: "string" },
       only: { type: "string" },
       decision: { type: "string" },

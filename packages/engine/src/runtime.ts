@@ -176,6 +176,7 @@ export function createDecisionProvider(
     ...common,
     apiKey,
     model: primary.model,
+    ...(d.visionModel ? { visionModel: d.visionModel } : {}),
     ...(primary.baseUrl ? { baseUrl: primary.baseUrl } : {}),
   });
   const fallback = decisionCarrierSettings(rt.config, "fallback");
@@ -190,6 +191,7 @@ export function createDecisionProvider(
     ...common,
     apiKey: fallbackKey,
     model: fallback.model,
+    ...(d.visionModel ? { visionModel: d.visionModel } : {}),
   });
   return ok(new FallbackDecisionProvider(first, second, { logger }));
 }

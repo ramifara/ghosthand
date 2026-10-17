@@ -122,7 +122,7 @@ describe("decision.images = always", () => {
       width: 1280,
       height: 860,
     });
-    expect((first?.state as { screen?: string }).screen).toBe("<image:screen>");
+    expect((first?.state as { screen?: string } | undefined)?.screen).toBe("<image:screen>");
     expect(JSON.stringify(first?.questions.operation)).toContain("`screen`");
     const ev = s.events.find((e) => e.type === "decision.request" && e.purpose === "act");
     expect(ev?.type === "decision.request" && ev.images?.[0]?.tokens).toBe(estimateImageTokens(1280, 860));
@@ -154,7 +154,7 @@ describe("decision.images = always", () => {
     await runTask(task, { ...base(c, d), config: { screenshots: false, images: "always" } });
     const verify = d.requests.find((q) => q.questions.holds);
     expect(verify?.images[0]?.ref).toBe("<image:screen>");
-    expect((verify?.state as { screen?: string }).screen).toBe("<image:screen>");
+    expect((verify?.state as { screen?: string } | undefined)?.screen).toBe("<image:screen>");
   });
 
   it("sends no images with act requests at the default level (grounding)", async () => {

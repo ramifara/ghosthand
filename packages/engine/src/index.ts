@@ -21,6 +21,7 @@ export * from "./runtime.ts";
 export * from "./source-aware.ts";
 export * from "./testbed.ts";
 export * from "./tracing.ts";
+export * from "./viewport.ts";
 export * from "./vision-assist.ts";
 export * from "./voice-session.ts";
 export * from "./voice-stt.ts";

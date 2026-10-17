@@ -272,6 +272,10 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
       requestId = res.requestId;
     } catch (e) {
       const error = mapSdkError(e, provider);
+      // A pinned version that was retired (or a typo) comes back as a 400/404 naming the model.
+      if ((error.status === 404 || error.status === 400) && /model/i.test(error.message)) {
+        error.message = `${error.message} (model "${model}" unavailable? set decision.model or decision.visionModel to a current version)`;
+      }
       const latencyMs = Math.round(now() - started);
       logger.warn(
         { provider, model, kind: error.kind, status: error.status, requestId: error.requestId, latencyMs },

@@ -276,6 +276,10 @@ export class HostService {
       logLevel: "warn",
       overrides: {
         budget: settings.budget,
+        decision: {
+          images: settings.decisionImages,
+          ...(settings.decisionVisionModel ? { visionModel: settings.decisionVisionModel } : {}),
+        },
         browser: {
           profile: input.profile ?? settings.defaultProfile,
           headless: !(input.showBrowser ?? settings.showBrowser),

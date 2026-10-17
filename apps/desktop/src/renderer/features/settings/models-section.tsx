@@ -2,12 +2,18 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Per-role model selection. Each role lists only models whose capabilities meet it (from the catalog),
 // with badges for what each model can do. Jev (decision) is fixed and served by TypeSafe.
-import type { ChatRoleName, ModelListItem, RoleBindingsInput } from "@ghosthand/protocol";
+import type {
+  ChatRoleName,
+  DecisionImages,
+  ModelListItem,
+  RoleBindingsInput,
+  Settings,
+} from "@ghosthand/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId } from "react";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Button } from "../../components/ui/button.tsx";
-import { Field, Select } from "../../components/ui/field.tsx";
+import { Field, Input, Select } from "../../components/ui/field.tsx";
 import { call, errorMessage } from "../../lib/bridge.ts";
 import { formatTokens } from "../../lib/format.ts";
 import { useUiStore } from "../../stores/ui-store.ts";
@@ -107,6 +113,75 @@ function RoleRow({
   );
 }
 
+const DEFAULT_VISION_MODEL = "jev-1.14.0";
+const IMAGE_LEVELS: Array<{ value: DecisionImages; label: string }> = [
+  { value: "off", label: "Off: text only" },
+  { value: "grounding", label: "Grounding only (D0): a screenshot when the element table has no target" },
+  { value: "always", label: "Always: a screenshot with every decision (about 3k tokens per step)" },
+];
+
+/** Jev's pins and the screenshot setting (ADR 0020). Images and box are TypeSafe's "danger zone": experimental. */
+function DecisionSettings() {
+  const qc = useQueryClient();
+  const imagesId = useId();
+  const visionId = useId();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => call("settings.get", {}) });
+  const save = useMutation({
+    mutationFn: (patch: Partial<Settings>) => call("settings.set", patch),
+    onSuccess: (s) => qc.setQueryData(["settings"], s),
+  });
+  const s = settings.data;
+  const visionModel = s?.decisionVisionModel ?? DEFAULT_VISION_MODEL;
+  return (
+    <div className="grid gap-3 rounded-md border border-line bg-panel-2 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="label">decision</span>
+        <span className="font-mono text-xs">typesafe/jev-1.13.0</span>
+        <span className="text-muted">· vision</span>
+        <span className="font-mono text-xs">typesafe/{visionModel}</span>
+        <span className="text-muted">— Jev answers every step; the roles below help it.</span>
+      </div>
+      {s ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field
+            label="Screenshots to Jev (experimental)"
+            htmlFor={imagesId}
+            hint='TypeSafe marks image input and box answers as "danger zone": not production-ready, formats and accuracy may change. Secrets are masked before a screenshot leaves the machine.'
+          >
+            <Select
+              id={imagesId}
+              value={s.decisionImages}
+              onChange={(e) => save.mutate({ decisionImages: e.target.value as DecisionImages })}
+            >
+              {IMAGE_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Jev vision model"
+            htmlFor={visionId}
+            hint="Pinned model for requests with a screenshot or a box question. Box needs Jev 1.14; aliases move without notice."
+          >
+            <Input
+              id={visionId}
+              defaultValue={visionModel}
+              placeholder={DEFAULT_VISION_MODEL}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== visionModel) save.mutate({ decisionVisionModel: v || DEFAULT_VISION_MODEL });
+              }}
+            />
+          </Field>
+        </div>
+      ) : null}
+      {save.error ? <p className="text-danger">{errorMessage(save.error)}</p> : null}
+    </div>
+  );
+}
+
 export function ModelsSection() {
   const qc = useQueryClient();
   const models = useQuery({ queryKey: ["models"], queryFn: () => call("models.list", {}) });
@@ -123,11 +198,7 @@ export function ModelsSection() {
   const list = models.data ?? [];
   return (
     <div className="grid max-w-5xl gap-4">
-      <div className="flex items-center gap-2 rounded-md border border-line bg-panel-2 px-3 py-2">
-        <span className="label">decision</span>
-        <span className="font-mono text-xs">typesafe/jev-1.13.0</span>
-        <span className="text-muted">— fixed: Jev answers every step; the roles below help it.</span>
-      </div>
+      <DecisionSettings />
       <div>
         {ROLES.map((r) => (
           <RoleRow
