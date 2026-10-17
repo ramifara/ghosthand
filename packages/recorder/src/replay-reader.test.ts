@@ -149,3 +149,18 @@ describe("runSummary", () => {
     });
   });
 });
+
+describe("Jev 1.14 events", () => {
+  it("parses a run with a ground request, a box answer and a D0 action", () => {
+    const r = parseEvents(readFileSync(join(import.meta.dirname, "__fixtures__", "events-d0.jsonl"), "utf8"));
+    expect(r.ok ? r.value.map((e) => e.type) : r.error).toEqual([
+      "run.start",
+      "observe",
+      "decision.request",
+      "decision.answer",
+      "action",
+      "step.end",
+      "run.end",
+    ]);
+  });
+});

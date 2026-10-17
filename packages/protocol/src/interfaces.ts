@@ -3,7 +3,13 @@
 // Stable interfaces between the loop and its drivers, decision providers and consultants (plan §3.2).
 import type { ActionResult, FieldValue, PointerTarget } from "./action.ts";
 import type { ConsultantError, ConsultantProbe, RateLimits } from "./consultant.ts";
-import type { DecisionCapabilities, DecisionError, DecisionResponse, Questions } from "./decision.ts";
+import type {
+  DecisionCapabilities,
+  DecisionError,
+  DecisionImageData,
+  DecisionResponse,
+  Questions,
+} from "./decision.ts";
 import type { ComputerError } from "./errors.ts";
 import type { VerifyState } from "./events.ts";
 import type { Rect } from "./geometry.ts";
@@ -82,6 +88,8 @@ export interface Computer {
 
 export interface DecisionAskOptions {
   signal?: AbortSignal;
+  /** Images the state refers to by `ref`. Needs `capabilities.images`. */
+  images?: DecisionImageData[];
 }
 
 export interface DecisionProvider {

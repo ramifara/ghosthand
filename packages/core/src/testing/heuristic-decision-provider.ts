@@ -3,7 +3,14 @@
 // A rule-based stand-in for Jev, used only for plumbing smoke tests (no network, no key). It reads the same
 // rendered state and questions the real model gets, so it exercises the whole pipeline, but it is not smart:
 // it fills fields named right before a literal in the goal, then presses a save/submit button.
-import type { Answer, DecisionProvider, DecisionResponse, Entry, Questions } from "@ghosthand/protocol";
+import type {
+  Answer,
+  DecisionCapabilities,
+  DecisionProvider,
+  DecisionResponse,
+  Entry,
+  Questions,
+} from "@ghosthand/protocol";
 import { ok } from "@ghosthand/protocol";
 
 type RenderedElement = { id: string; role: string; name: string; value?: string; ops?: string[] };
@@ -27,7 +34,12 @@ export interface HeuristicOptions {
 
 export class HeuristicDecisionProvider implements DecisionProvider {
   readonly id = "heuristic";
-  readonly capabilities = { maxOptions: 255, maxLevels: 10, contextTokens: 64_000, zdr: true };
+  readonly capabilities: DecisionCapabilities = {
+    maxOptions: 255,
+    maxLevels: 10,
+    contextTokens: 64_000,
+    zdr: true,
+  };
   readonly #pressed = new Set<string>();
   readonly #follow: readonly RegExp[];
 
@@ -45,7 +57,7 @@ export class HeuristicDecisionProvider implements DecisionProvider {
       else if (q.type === "choice") {
         const keys = Object.keys(q.criteria);
         answers[name] = pick(q.criteria, keys.includes("none") ? "none" : (keys[0] ?? ""), 0.5);
-      } else answers[name] = { type: "abstain", reason: "score not supported" };
+      } else answers[name] = { type: "abstain", reason: `${q.type} not supported` };
     }
     const op = questions.operation;
     if (op?.type === "choice") {

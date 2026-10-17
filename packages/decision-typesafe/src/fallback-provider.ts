@@ -43,6 +43,17 @@ export function intersectCapabilities(
     (n): n is number => n !== undefined,
   );
   if (perQuestion.length > 0) out.perQuestionContextTokens = Math.min(...perQuestion);
+  if (a.images === true && b.images === true) out.images = true;
+  if (a.box === true && b.box === true) out.box = true;
+  if (a.imageLimits && b.imageLimits) {
+    out.imageLimits = {
+      minSide: Math.max(a.imageLimits.minSide, b.imageLimits.minSide),
+      maxSide: Math.min(a.imageLimits.maxSide, b.imageLimits.maxSide),
+      minPixels: Math.max(a.imageLimits.minPixels, b.imageLimits.minPixels),
+      maxPixels: Math.min(a.imageLimits.maxPixels, b.imageLimits.maxPixels),
+      maxBytes: Math.min(a.imageLimits.maxBytes, b.imageLimits.maxBytes),
+    };
+  }
   return out;
 }
 
@@ -72,6 +83,9 @@ export class FallbackDecisionProvider implements DecisionProvider {
   ): Promise<Result<DecisionResponse, DecisionError>> {
     const first = await this.#primary.ask(state, questions, opts);
     if (first.ok || !FAILOVER_KINDS.has(first.error.kind) || opts.signal?.aborted === true) return first;
+    // An image request cannot be served by a text-only carrier.
+    const hasImages = (opts.images?.length ?? 0) > 0;
+    if (hasImages && this.#secondary.capabilities.images !== true) return first;
     this.#logger.warn(
       {
         primary: this.#primary.id,

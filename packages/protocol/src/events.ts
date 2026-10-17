@@ -3,13 +3,13 @@
 // One JSONL record per line in events.jsonl. Every record has {t, seq, type}.
 import { z } from "zod";
 import { Action, ActionResult } from "./action.ts";
-import { Answer, DecisionError, Questions } from "./decision.ts";
+import { Answer, Box, DecisionError, DecisionImage, Questions } from "./decision.ts";
 import { Rect } from "./geometry.ts";
 import { EffectClass, Plan, Predicate, TaskSpec } from "./task.ts";
 
 const Base = { t: z.number().int().nonnegative(), seq: z.number().int().nonnegative(), runId: z.string() };
 
-export const RouterMode = z.enum(["A", "B", "C", "D1", "D2", "H"]);
+export const RouterMode = z.enum(["A", "B", "C", "D0", "D1", "D2", "H"]);
 export type RouterMode = z.infer<typeof RouterMode>;
 
 export const RunOutcome = z.enum(["success", "failure", "budget_exhausted", "stuck", "aborted", "error"]);
@@ -69,11 +69,20 @@ export const RunEvent = z.discriminatedUnion("type", [
     ...Base,
     type: z.literal("decision.request"),
     step: z.number().int(),
-    purpose: z.enum(["act", "verify", "narrow", "replay"]),
+    purpose: z.enum(["act", "verify", "narrow", "replay", "ground"]),
     questions: Questions,
     /** The rendered state is stored in a sidecar file to keep events small. */
     stateFile: z.string().optional(),
+    /** Estimated tokens, images included. */
     stateTokens: z.number().int(),
+    /** Model the request was sent to, when it differs from the run's decision model (images, box). */
+    model: z.string().optional(),
+    /** Images sent with the request; `file` is the screenshot in the run folder. */
+    images: z
+      .array(DecisionImage.extend({ file: z.string().optional(), tokens: z.number().int() }))
+      .optional(),
+    /** Why no image was attached although images are enabled. */
+    imageSkipped: z.string().optional(),
   }),
   z.object({
     ...Base,
@@ -122,6 +131,8 @@ export const RunEvent = z.discriminatedUnion("type", [
         bounds: Rect.optional(),
         /** The decision model's confidence in this target. */
         confidence: z.number().min(0).max(1).optional(),
+        /** The box Jev located the target in (mode D0), as image fractions. */
+        box: Box.optional(),
       })
       .optional(),
     /** Effect class the gates allowed (advance/commit), for recipes. */

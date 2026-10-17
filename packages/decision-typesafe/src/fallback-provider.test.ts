@@ -111,3 +111,47 @@ describe("FallbackDecisionProvider", () => {
     });
   });
 });
+
+describe("images and box capabilities", () => {
+  const imageReq = {
+    ref: "<image:screen>" as const,
+    mimeType: "image/png" as const,
+    width: 300,
+    height: 300,
+    data: new Uint8Array([1]),
+  };
+
+  it("intersects image and box flags (absent means false)", () => {
+    expect(
+      intersectCapabilities(caps(64_000, { images: true, box: true }), caps(64_000)).images,
+    ).toBeUndefined();
+    expect(
+      intersectCapabilities(caps(64_000, { images: true, box: true }), caps(64_000, { images: true })).box,
+    ).toBeUndefined();
+    expect(
+      intersectCapabilities(
+        caps(64_000, { images: true, box: true }),
+        caps(64_000, { images: true, box: true }),
+      ),
+    ).toMatchObject({ images: true, box: true });
+  });
+
+  it("does not fail an image request over to a provider without images", async () => {
+    const a = fake("typesafe", "server", caps(64_000, { images: true, box: true }));
+    const b = fake("openrouter", "ok");
+    const r = await new FallbackDecisionProvider(a.provider, b.provider).ask("s <image:screen>", q, {
+      images: [imageReq],
+    });
+    expect(r.ok ? undefined : r.error).toMatchObject({ kind: "server", provider: "typesafe" });
+    expect(b.calls()).toBe(0);
+  });
+
+  it("fails an image request over when the secondary also takes images", async () => {
+    const a = fake("typesafe", "server", caps(64_000, { images: true, box: true }));
+    const b = fake("mirror", "ok", caps(64_000, { images: true, box: true }));
+    const r = await new FallbackDecisionProvider(a.provider, b.provider).ask("s <image:screen>", q, {
+      images: [imageReq],
+    });
+    expect(r.ok && r.value.provider).toBe("mirror");
+  });
+});

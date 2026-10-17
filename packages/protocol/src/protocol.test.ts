@@ -140,3 +140,110 @@ describe("TaskSpec and config defaults", () => {
     );
   });
 });
+
+describe("Jev 1.14: box questions, box answers and images (ADR 0020)", () => {
+  it("parses a box question and a box answer", () => {
+    expect(Question.parse({ type: "box", instructions: "The Save button in `screen`" })).toEqual({
+      type: "box",
+      instructions: "The Save button in `screen`",
+    });
+    const a = Answer.parse({
+      type: "box",
+      box: { top: 0.1, bottom: 0.2, left: 0.3, right: 0.4 },
+      confidence: null,
+    });
+    expect(a).toMatchObject({ type: "box", confidence: null });
+  });
+
+  it("isValidBox requires ordered edges inside the unit square", async () => {
+    const { isValidBox } = await import("./index.ts");
+    expect(isValidBox({ top: 0.1, bottom: 0.2, left: 0.3, right: 0.4 })).toBe(true);
+    expect(isValidBox({ top: 0.2, bottom: 0.1, left: 0.3, right: 0.4 })).toBe(false);
+    expect(isValidBox({ top: 0, bottom: 1, left: 0, right: 1.01 })).toBe(false);
+    expect(isValidBox({ top: 0.5, bottom: 0.5, left: 0, right: 1 })).toBe(false);
+  });
+
+  it("parses image metadata and capability flags", async () => {
+    const { DecisionImage, DecisionCapabilities, DecisionErrorKind } = await import("./index.ts");
+    expect(
+      DecisionImage.parse({
+        ref: "<image:screen>",
+        mimeType: "image/jpeg",
+        width: 1280,
+        height: 834,
+        captureId: "c1",
+      }),
+    ).toMatchObject({ ref: "<image:screen>" });
+    expect(
+      DecisionImage.safeParse({ ref: "screen", mimeType: "image/png", width: 1, height: 1 }).success,
+    ).toBe(false);
+    expect(
+      DecisionCapabilities.parse({
+        maxOptions: 255,
+        maxLevels: 10,
+        contextTokens: 64_000,
+        zdr: false,
+        images: true,
+        box: true,
+        imageLimits: {
+          minSide: 280,
+          maxSide: 1568,
+          minPixels: 78_400,
+          maxPixels: 2_458_624,
+          maxBytes: 16_777_216,
+        },
+      }).box,
+    ).toBe(true);
+    expect(DecisionErrorKind.parse("image_rejected")).toBe("image_rejected");
+  });
+
+  it("records images and a ground purpose on decision.request, D0 and a box on action", () => {
+    const base = { t: 1, seq: 1, runId: "r" };
+    expect(
+      RunEvent.safeParse({
+        ...base,
+        type: "decision.request",
+        step: 1,
+        purpose: "ground",
+        questions: { where: { type: "box", instructions: "x" } },
+        stateTokens: 3000,
+        model: "jev-1.14.0",
+        images: [
+          {
+            ref: "<image:screen>",
+            mimeType: "image/jpeg",
+            width: 1280,
+            height: 834,
+            captureId: "c1",
+            file: "step-001.jpg",
+            tokens: 3012,
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      RunEvent.safeParse({
+        ...base,
+        type: "action",
+        step: 1,
+        action: { type: "click", target: { captureId: "c1", x: 10, y: 10 } },
+        target: {
+          stableId: "s",
+          role: "button",
+          name: "Save",
+          box: { top: 0.1, bottom: 0.2, left: 0.3, right: 0.4 },
+        },
+        mode: "D0",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("config defaults: images for grounding only, no vision model pin, box gates", () => {
+    const c = GhostHandConfig.parse({});
+    expect(c.decision.images).toBe("grounding");
+    expect(c.decision.visionModel).toBeUndefined();
+    expect(c.gates.boxPresent).toBe(0.7);
+    expect(c.gates.boxMaxArea).toBe(0.25);
+    expect(GhostHandConfig.safeParse({ decision: { images: "sometimes" } }).success).toBe(false);
+  });
+});

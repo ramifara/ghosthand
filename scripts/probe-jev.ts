@@ -164,6 +164,8 @@ function describeAnswer(a: Answer | undefined): string {
       return `${a.choice} (conf ${a.confidence}; ${top(a.probabilities)})`;
     case "score":
       return `${a.score} (conf ${a.confidence}; ${top(a.probabilities, 10)})`;
+    case "box":
+      return `box t=${a.box.top} b=${a.box.bottom} l=${a.box.left} r=${a.box.right} (conf ${a.confidence})`;
     case "abstain":
       return `ABSTAIN: ${a.reason}`;
   }

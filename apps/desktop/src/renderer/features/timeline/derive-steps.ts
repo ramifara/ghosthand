@@ -88,6 +88,17 @@ function answerView(head: string, a: Answer): AnswerView {
         top,
       };
     }
+    case "box": {
+      const b = a.box;
+      const pct = (x: number) => `${Math.round(x * 100)}%`;
+      return {
+        head,
+        kind: "box",
+        value: `${pct(b.left)}–${pct(b.right)} × ${pct(b.top)}–${pct(b.bottom)}`,
+        ...(a.confidence === null ? {} : { confidence: a.confidence }),
+        top: [],
+      };
+    }
     case "abstain":
       return { head, kind: "abstain", value: a.reason, top: [] };
   }

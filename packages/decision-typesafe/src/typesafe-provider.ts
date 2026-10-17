@@ -119,6 +119,11 @@ function toSdkQuestion(q: Question): SdkQuestion {
       if (q.instructions !== undefined) out.instructions = q.instructions;
       return out;
     }
+    case "box": {
+      const out: SdkQuestion = { type: "box" };
+      if (q.instructions !== undefined) out.instructions = q.instructions;
+      return out;
+    }
   }
 }
 

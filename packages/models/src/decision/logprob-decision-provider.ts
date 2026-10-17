@@ -98,7 +98,7 @@ export function questionPrompt(q: Question): { labels: string[]; keys: string[];
         .join("\n"),
     };
   }
-  throw new Error("unreachable: score questions are rejected before prompting");
+  throw new Error("unreachable: score and box questions are rejected before prompting");
 }
 
 /** Softmax over the allowed labels found in the first token's top logprobs. Undefined when none appear. */
@@ -245,11 +245,11 @@ export function createLogprobDecisionProvider(opts: LogprobDecisionProviderOptio
     if (askOpts.signal?.aborted === true)
       return err({ kind: "aborted", provider: providerName, message: "aborted before sending" });
     for (const [name, q] of Object.entries(questions)) {
-      if (q.type === "score") {
+      if (q.type === "score" || q.type === "box") {
         return err({
           kind: "invalid",
           provider: providerName,
-          message: `${name}: score questions are not supported by the logprob emulation`,
+          message: `${name}: ${q.type} questions are not supported by the logprob emulation`,
         });
       }
       if (q.type === "choice" && Object.keys(q.criteria).length > LOGPROB_MAX_OPTIONS) {
