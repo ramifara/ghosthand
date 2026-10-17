@@ -140,3 +140,21 @@ describe("request fitting", () => {
     expect(JSON.stringify(state)).toContain("Order saved");
   });
 });
+
+describe("image tokens in request fitting (ADR 0020)", () => {
+  it("counts extra state tokens (a screenshot) in the size and the fit", () => {
+    const state = { screen: "<image:screen>", goal: "x" };
+    const q: Questions = { a: { type: "noul", instructions: "y" } };
+    const plain = requestSize(state, q);
+    const withImage = requestSize(state, q, 3000);
+    expect(withImage.state).toBe(plain.state + 3000);
+    expect(withImage.total).toBe(plain.total + 3000);
+    expect(withImage.statePlusLongest).toBe(plain.statePlusLongest + 3000);
+    const fitted = fitRequest(
+      () => ({ state, questions: q }),
+      { total: 100_000, statePlusLongest: 100_000 },
+      3000,
+    );
+    expect(fitted.size.state).toBe(withImage.state);
+  });
+});

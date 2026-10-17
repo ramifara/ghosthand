@@ -35,6 +35,8 @@ export const StepTiming = z.object({
   decideMs: z.number().nonnegative(),
   actMs: z.number().nonnegative(),
   verifyMs: z.number().nonnegative(),
+  /** Time spent on the decision screenshot when it is awaited before the act request (images = always). */
+  screenshotMs: z.number().nonnegative().optional(),
 });
 export type StepTiming = z.infer<typeof StepTiming>;
 

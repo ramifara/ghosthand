@@ -3,6 +3,7 @@
 // Evaluates done_when predicates: deterministic checks on the snapshot first, then the oracle,
 // then a separate Jev "holds" request. The model's own "done" is never the verdict.
 import type {
+  DecisionImageData,
   DecisionProvider,
   DoneWhen,
   Entry,
@@ -95,6 +96,8 @@ export interface DoneWhenDeps {
   ) => Promise<{ state: VerifyState; detail?: string; costUsd?: number }>;
   /** Rendered state for model checks (built by the loop). */
   state?: Entry;
+  /** Images the state refers to (the step screenshot when images = always, ADR 0020). */
+  images?: DecisionImageData[];
   signal?: AbortSignal;
 }
 
@@ -176,7 +179,10 @@ export async function evaluateDoneWhen(
       const r = await deps.decision.ask(
         deps.state,
         { holds: holdsQuestion(p.criteria) },
-        deps.signal ? { signal: deps.signal } : {},
+        {
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          ...(deps.images && deps.images.length > 0 ? { images: deps.images } : {}),
+        },
       );
       decisionCalls++;
       if (!r.ok) {

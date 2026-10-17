@@ -62,7 +62,8 @@ export function summarize(rows: EvalRow[]): EvalSummary {
       modeSteps[m] = (modeSteps[m] ?? 0) + share * r.steps;
   const modeShares: Record<string, number> = {};
   for (const [m, n] of Object.entries(modeSteps)) modeShares[m] = steps > 0 ? n / steps : 0;
-  const phase = (k: keyof StepTiming) => median(timings.map((t) => t[k]));
+  const phase = (k: keyof StepTiming) =>
+    median(timings.map((t) => t[k]).filter((v): v is number => v !== undefined));
   return {
     suite: rows[0]?.suite ?? "",
     runs: rows.length,
