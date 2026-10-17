@@ -1308,9 +1308,14 @@ function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
   };
 }
 
-/** What D0 looks for: the writer's hint when there is one, else the goal itself. */
+/**
+ * What D0 looks for: the writer's hint when there is one, else the goal itself, with the last few steps so a
+ * second look aims at the next control (the Apply button after the code was typed).
+ */
 function groundDescription(ctx: DecideContext): string {
-  return (ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`).slice(0, 200);
+  const base = (ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`).slice(0, 200);
+  const recent = ctx.history.slice(-3).map((h) => `${h.step}. ${h.text}`);
+  return recent.length > 0 ? `${base}\nRecent steps: ${recent.join("; ")}`.slice(0, 500) : base;
 }
 
 /**
@@ -1341,6 +1346,7 @@ async function jevGround(
       elements: ctx.snapshot.elements,
       gates: { boxPresent: cfg.gates.boxPresent, boxMaxArea: cfg.gates.boxMaxArea },
       history: ctx.history,
+      textOptions: buildTextOptions(textGoal(ctx), ctx.task.secrets, deps.secrets),
       ask: (state, questions, images) => ask(ctx, "ground", state, questions, images),
     },
     groundDescription(ctx),

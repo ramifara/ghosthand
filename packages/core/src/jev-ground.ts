@@ -23,8 +23,9 @@ import type {
   Result,
 } from "@ghosthand/protocol";
 import type { EventSink } from "./event-sink.ts";
+import { describeTextOption, type TextOption } from "./literals.ts";
 import type { Clock } from "./logger.ts";
-import { ANTI_INJECTION } from "./questions.ts";
+import { ANTI_INJECTION, NONE } from "./questions.ts";
 import {
   boxArea,
   boxCentre,
@@ -101,17 +102,30 @@ export function isGroundedBox(
   return { grounded: true };
 }
 
-/** The state and questions of one D0 request. */
+/** The state and questions of one D0 request. With text options, Jev also picks what to type there. */
 export function groundRequest(
   goal: string,
   description: string,
   ref: ImageRef,
+  textOptions: readonly TextOption[] = [],
 ): { state: Entry; questions: Questions } {
   const name = ref === REGION_REF ? "region" : "screen";
   const evidence = SCREEN_EVIDENCE.replaceAll("`screen`", `\`${name}\``);
+  const textCriteria: Record<string, string> = {};
+  for (const o of textOptions) textCriteria[o.key] = describeTextOption(o);
+  textCriteria[NONE] = "Nothing should be typed into the target.";
   return {
     state: { task: { goal, target: description }, [name]: ref },
     questions: {
+      ...(textOptions.length > 0
+        ? {
+            text: {
+              type: "choice" as const,
+              instructions: `If the \`target\` is a field to type into, which text does \`goal\` call for there? ${ANTI_INJECTION}`,
+              criteria: textCriteria,
+            },
+          }
+        : {}),
       present: {
         type: "noul",
         instructions: `Is the \`target\` visible in \`${name}\`? ${evidence} ${ANTI_INJECTION}`,
@@ -124,6 +138,15 @@ export function groundRequest(
           advance: "Moves to another view or opens something; Back undoes it.",
           commit: "Submits, saves, sends, deletes or pays: a lasting change.",
           forbidden: "Something the goal does not allow.",
+        },
+      },
+      kind: {
+        type: "choice",
+        instructions: `What kind of control is the \`target\` in \`${name}\`? ${ANTI_INJECTION}`,
+        criteria: {
+          text_field: "A text field, search box or editor to type into.",
+          button: "A button, link, tab, menu item, checkbox or switch to press.",
+          other: "Something else: an image, a label, a chart, decoration.",
         },
       },
     },
@@ -159,6 +182,8 @@ export interface JevGroundEnv {
   elements: readonly Element[];
   gates: BoxGates;
   history: HistoryEntry[];
+  /** Texts the goal allows typing (a literal from the goal or a stored secret). */
+  textOptions: readonly TextOption[];
   /** The loop's decision wrapper (events, deadline, budget), with images. */
   ask: GroundAsk;
 }
@@ -193,21 +218,37 @@ interface Located {
   present: number;
   confidence: number | null;
   effect: EffectClass | undefined;
+  kind: "text_field" | "button" | "other" | undefined;
+  /** Key of the text option Jev chose for the field, when it chose one with enough confidence. */
+  textKey: string | undefined;
 }
 
+/** Jev's text pick counts only when it clearly beats "none" (the same bar as the act text head). */
+const MIN_TEXT_CONFIDENCE = 0.5;
+
 async function locate(env: JevGroundEnv, description: string, l: Look): Promise<Located | string> {
-  const { state, questions } = groundRequest(env.goal, description, l.image.ref);
+  const { state, questions } = groundRequest(env.goal, description, l.image.ref, env.textOptions);
   const r = await env.ask(state, questions, [l.image]);
   if (!r.ok) return `decision ${r.error.kind}`;
   const where = r.value.answers.where;
   const present = r.value.answers.present;
   if (where?.type !== "box") return `no box (${where?.type === "abstain" ? where.reason : "missing"})`;
   const eff = r.value.answers.effect;
+  const kind = r.value.answers.kind;
+  const text = r.value.answers.text;
+  const textKey =
+    text?.type === "choice" &&
+    text.choice !== NONE &&
+    (text.probabilities[text.choice] ?? 0) >= MIN_TEXT_CONFIDENCE
+      ? text.choice
+      : undefined;
   return {
     box: where.box,
     present: present?.type === "noul" ? present.p : 0,
     confidence: where.confidence,
     effect: eff?.type === "choice" ? (eff.choice as EffectClass) : undefined,
+    kind: kind?.type === "choice" ? (kind.choice as Located["kind"]) : undefined,
+    textKey,
   };
 }
 
@@ -274,5 +315,25 @@ export async function jevGroundAndClick(
     step: env.step,
     text: `clicked where Jev located: ${description.slice(0, 120)} (${result.effect})`,
   });
+  // A click on a text field only focuses it: when the goal says what to type, type it now. The text is
+  // the option Jev picked, or the only one there is; never text read off the page.
+  if (located.kind === "text_field" && result.effect !== "refused") {
+    const option =
+      env.textOptions.find((o) => o.key === located.textKey) ??
+      (env.textOptions.length === 1 ? env.textOptions[0] : undefined);
+    if (option) {
+      const text = option.kind === "literal" ? option.text : { secretRef: option.name };
+      const typing: Action = { type: "type_text", text };
+      env.events.emit({ type: "action", step: env.step, action: typing, effectClass: "advance", mode: "D0" });
+      const typed = await env.computer.typeText(text);
+      env.events.emit({ type: "effect", step: env.step, result: typed });
+      const label = option.kind === "literal" ? JSON.stringify(option.text) : `[input:${option.name}]`;
+      env.history.push({
+        step: env.step,
+        text: `typed ${label} into the field Jev located (${typed.effect})`,
+      });
+      return { result: typed, reason: `clicked and typed in ${env.clock.now() - t} ms`, box: located.box };
+    }
+  }
   return { result, reason: `clicked in ${env.clock.now() - t} ms`, box: located.box };
 }

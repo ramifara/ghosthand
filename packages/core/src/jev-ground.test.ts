@@ -41,9 +41,10 @@ const task = (goal: string, done: string) =>
     },
   });
 
+/** Jev finds no listed target: "none" on the press head when there is one, else "blocked" (no heads at all). */
 const noTarget = (q: Questions) => ({
-  operation: choiceOf(q, "operation", "press"),
-  press_target: choiceOf(q, "press_target", "none"),
+  operation: choiceOf(q, "operation", q.press_target ? "press" : "blocked"),
+  ...(q.press_target ? { press_target: choiceOf(q, "press_target", "none") } : {}),
   effect: choiceOf(q, "effect", "advance"),
   goal_done: noulOf(0.1),
   stuck: noulOf(0.05),
@@ -296,5 +297,69 @@ describe("D0 captures in the run folder", () => {
     expect(written.some((w) => w.label === "d0")).toBe(true);
     const ground = s.events.find((e) => e.type === "decision.request" && e.purpose === "ground");
     expect(ground?.type === "decision.request" && ground.images?.[0]?.file).toMatch(/^step-\d{3}-d0\.jpg$/);
+  });
+});
+
+describe("D0 on a text field", () => {
+  const screens: Record<string, ScriptedScreen> = {
+    promo: { url: "u", title: "Promo", elements: [] },
+    typed: { url: "u", title: "Promo", text: "Code typed", elements: [] },
+    done: { url: "u", title: "Promo", text: "Promo code ABC-1 applied.", elements: [] },
+  };
+  /** Clicks focus; typing moves on; a later click applies. */
+  const computer = () =>
+    new ScriptedComputer({
+      screens,
+      start: "promo",
+      transition: function (this: ScriptedComputer | undefined, a) {
+        if (a.type === "type_text") return "typed";
+        return undefined;
+      },
+    });
+
+  it("types the goal's only literal after clicking a located text field, then keeps going", async () => {
+    const c = computer();
+    let grounds = 0;
+    const decision = new FnDecisionProvider((q) => {
+      if (q.operation) return noTarget(q);
+      if (q.where?.type === "box") {
+        grounds++;
+        const textKey =
+          q.text?.type === "choice"
+            ? (Object.entries(q.text.criteria).find(([, d]) => String(d).includes("ABC-1"))?.[0] ?? "none")
+            : "none";
+        return {
+          present: noulOf(0.97),
+          where: boxAnswer({ top: 0.2, bottom: 0.26, left: 0.12, right: 0.32 }),
+          effect: choiceOf(q, "effect", "advance"),
+          kind: choiceOf(q, "kind", grounds === 1 ? "text_field" : "button"),
+          ...(q.text ? { text: choiceOf(q, "text", textKey) } : {}),
+        };
+      }
+      return {};
+    });
+    const s = sink();
+    await runTask(
+      task('Enter the promo code "ABC-1" in the promo box and apply it', "Promo code ABC-1 applied."),
+      deps(c, decision, s),
+    );
+    const typed = c.actions.find((a) => a.type === "type_text");
+    expect(typed).toEqual({ type: "type_text", text: "ABC-1" });
+    const typedEvent = s.events.find((e) => e.type === "action" && e.action.type === "type_text");
+    expect(typedEvent?.type === "action" && typedEvent.mode).toBe("D0");
+    // The second D0 look describes what happened so far, so Jev can aim at the next control.
+    const second = decision.requests.filter((r) => r.questions.where?.type === "box")[1];
+    const target = (second?.state as { task?: { target?: string } } | undefined)?.task?.target ?? "";
+    expect(target).toContain('typed "ABC-1"');
+  });
+
+  it("does not type when the located control is a button", async () => {
+    const c = computer();
+    const decision = provider({ present: 0.97, box: { top: 0.2, bottom: 0.26, left: 0.12, right: 0.32 } });
+    await runTask(
+      task('Enter the promo code "ABC-1" in the promo box and apply it', "Promo code ABC-1 applied."),
+      deps(c, decision),
+    );
+    expect(c.actions.some((a) => a.type === "type_text")).toBe(false);
   });
 });
