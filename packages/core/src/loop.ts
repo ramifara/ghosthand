@@ -7,6 +7,8 @@ import type {
   ActionResult,
   Answer,
   Computer,
+  DecisionImageData,
+  DecisionImages,
   DecisionProvider,
   EffectClass,
   Element,
@@ -43,6 +45,7 @@ import type { EventSink } from "./event-sink.ts";
 import { focusTerms } from "./focus-terms.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { detectHumanWall } from "./human-wall.ts";
+import { D0_ATTEMPTS_PER_SCREEN, jevGroundAndClick } from "./jev-ground.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
 import { runModeA } from "./mode-a.ts";
@@ -70,6 +73,7 @@ import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
 import { explainRefusal } from "./refusal-explain.ts";
 import { FIT_PER_HEAD, fitRequest, jevTokens, requestLimits, SHRINK_FACTOR } from "./request-fit.ts";
 import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
+import { estimateImageTokens } from "./screen-image.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import {
@@ -113,7 +117,13 @@ export interface LoopConfig {
     sureTarget: number;
     advanceTarget: number;
     advanceChoiceFactor: number;
+    /** D0: the presence noul must be at least this likely for a box to be clicked (ADR 0020). */
+    boxPresent: number;
+    /** D0: a box covering at least this fraction of the image is not a control. */
+    boxMaxArea: number;
   };
+  /** When a screenshot goes to Jev (ADR 0020): never, for D0 grounding only, or with every request. */
+  images: DecisionImages;
   /** How often the writer is called (ADR 0017): never, after refusals, when unsure, or before every decision. */
   guidance: Guidance;
   /** Per-step deadline for the decision call, ms. */
@@ -143,7 +153,10 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
     sureTarget: 0.9,
     advanceTarget: 0.2,
     advanceChoiceFactor: 1.5,
+    boxPresent: 0.7,
+    boxMaxArea: 0.25,
   },
+  images: "grounding",
   guidance: "unsure",
   decisionDeadlineMs: 6000,
   screenshots: true,
@@ -665,6 +678,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     };
     // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
     const d1Failures = new Map<string, number>();
+    const d0Failures = new Map<string, number>();
     let driving: { remaining: number } | undefined;
     const noneStreak = { screen: "", count: 0 };
     let poorStreak = 0;
@@ -847,6 +861,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         acted,
         screenKey: fingerprint.key,
         d1Failures,
+        d0Failures,
         noneStreak,
         mode: { current: "B" },
         noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
@@ -1186,6 +1201,10 @@ interface DecideContext {
   screenKey: string;
   /** D1 attempts that changed nothing, per screen key. */
   d1Failures: Map<string, number>;
+  /** D0 (Jev box) attempts that clicked nothing, per screen key. */
+  d0Failures: Map<string, number>;
+  /** D0 was already tried this step. */
+  jevTried?: boolean;
   /** Consecutive steps on one screen where Jev found no target. */
   noneStreak: { screen: string; count: number };
   /** The mode this step ends up in (B, or D1 when vision assisted). */
@@ -1235,6 +1254,56 @@ function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
     ...(ctx.deps.signal ? { signal: ctx.deps.signal } : {}),
     onModelCall: ctx.onModelCall,
   };
+}
+
+/** What D0 looks for: the writer's hint when there is one, else the goal itself. */
+function groundDescription(ctx: DecideContext): string {
+  return (ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`).slice(0, 200);
+}
+
+/**
+ * Mode D0 (ADR 0020): Jev locates the control on a screenshot and the loop clicks it. Tried before the LLM
+ * vision modes whenever they would be, at most `D0_ATTEMPTS_PER_SCREEN` times per screen.
+ */
+async function jevGround(
+  ctx: DecideContext,
+  why: string,
+  effect: EffectClass,
+): Promise<DecideOutcome | undefined> {
+  const { deps, cfg } = ctx;
+  if (ctx.jevTried || ctx.visionTried) return undefined;
+  if (cfg.images === "off" || deps.decision.capabilities.box !== true) return undefined;
+  if (!deps.computer.capabilities().screenshots) return undefined;
+  if ((ctx.d0Failures.get(ctx.screenKey) ?? 0) >= D0_ATTEMPTS_PER_SCREEN) return undefined;
+  if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
+  ctx.jevTried = true;
+  deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D0", reason: why });
+  const t = ctx.clock.now();
+  const r = await jevGroundAndClick(
+    {
+      computer: deps.computer,
+      events: deps.events,
+      clock: ctx.clock,
+      step: ctx.step,
+      goal: ctx.subgoal.goal,
+      elements: ctx.snapshot.elements,
+      gates: { boxPresent: cfg.gates.boxPresent, boxMaxArea: cfg.gates.boxMaxArea },
+      history: ctx.history,
+      ask: (state, questions, images) => ask(ctx, "ground", state, questions, images),
+    },
+    groundDescription(ctx),
+    effect,
+    ctx.subgoal.allowedEffects,
+  );
+  ctx.timing.actMs = ctx.clock.now() - t;
+  if (!r.result || r.result.effect === "suspected_noop" || r.result.effect === "refused") {
+    ctx.d0Failures.set(ctx.screenKey, (ctx.d0Failures.get(ctx.screenKey) ?? 0) + 1);
+    ctx.history.push({ step: ctx.step, text: `Jev grounding failed: ${r.reason}` });
+    if (!r.result) return undefined;
+  }
+  ctx.mode.current = "D0";
+  if (r.result && r.result.effect !== "suspected_noop" && r.result.effect !== "refused") ctx.acted.count++;
+  return { kind: "continue" };
 }
 
 /** D1 screen-to-text: vision names unlabeled controls, then Jev is asked again on the named table. */
@@ -1305,23 +1374,37 @@ type DecideOutcome = StepOutcome | { kind: "continue"; refused: true };
 
 async function ask(
   ctx: DecideContext,
-  purpose: "act" | "narrow",
+  purpose: "act" | "narrow" | "ground",
   state: Entry,
   questions: Parameters<DecisionProvider["ask"]>[1],
+  images: DecisionImageData[] = [],
 ) {
   const { deps, step, cfg } = ctx;
   const stateFile = deps.events.writeState?.(ctx.step, purpose, state);
+  const imageTokens = images.reduce((sum, i) => sum + estimateImageTokens(i.width, i.height), 0);
   deps.events.emit({
     type: "decision.request",
     step,
     purpose,
     questions,
     ...(stateFile ? { stateFile } : {}),
-    stateTokens: estimateTokens(state),
+    stateTokens: estimateTokens(state) + imageTokens,
+    ...(images.length > 0
+      ? {
+          images: images.map((i) => ({
+            ref: i.ref,
+            mimeType: i.mimeType,
+            width: i.width,
+            height: i.height,
+            ...(i.captureId ? { captureId: i.captureId } : {}),
+            tokens: estimateImageTokens(i.width, i.height),
+          })),
+        }
+      : {}),
   });
   const deadline = AbortSignal.timeout(cfg.decisionDeadlineMs);
   const signal = deps.signal ? AbortSignal.any([deps.signal, deadline]) : deadline;
-  const r = await deps.decision.ask(state, questions, { signal });
+  const r = await deps.decision.ask(state, questions, { signal, ...(images.length > 0 ? { images } : {}) });
   if (r.ok) {
     ctx.onDecision(r.value.costUsd);
     deps.events.emit({
@@ -1547,14 +1630,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     if (widened) return widened;
     // "Nothing to do" on a page that looks done is not a vision case.
     const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
-    const viaVision =
-      streak >= 2
-        ? await visionGround(
-            ctx,
-            `no listed element fits (${streak} times on this screen)`,
-            answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance",
-          )
-        : undefined;
+    const noneEffect = answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance";
+    const noneWhy = `no listed element fits (${streak} times on this screen)`;
+    const viaJev = streak >= 2 ? await jevGround(ctx, noneWhy, noneEffect) : undefined;
+    if (viaJev) return viaJev;
+    const viaVision = streak >= 2 ? await visionGround(ctx, noneWhy, noneEffect) : undefined;
     if (viaVision) return viaVision;
     const why = `the agent chose ${op ?? "no valid operation"}`;
     return (await guide(ctx, why)) ?? (await handOff(ctx, why)) ?? (await backtrack(ctx, why)) ?? refuse();
@@ -1775,6 +1855,19 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       const unnamedChosen = element !== undefined && !isNamed(element);
       const poorTable = snapshot.quality.score < QUALITY_GOOD && unnamedTargets(snapshot).length > 0;
       const streak = noteNone(ctx, targetToken === NONE);
+      const viaJev =
+        unnamedChosen || poorTable || streak >= 2
+          ? await jevGround(
+              ctx,
+              unnamedChosen
+                ? "the chosen target has no name"
+                : poorTable
+                  ? `unnamed controls (q=${snapshot.quality.score.toFixed(2)})`
+                  : `no listed element fits (${streak} times on this screen)`,
+              effect,
+            )
+          : undefined;
+      if (viaJev) return viaJev;
       const viaVision =
         unnamedChosen || poorTable
           ? await visionName(

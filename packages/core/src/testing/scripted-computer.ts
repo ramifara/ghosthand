@@ -12,10 +12,13 @@ import type {
   FieldValue,
   PointerTarget,
   PredicateResult,
+  Rect,
   Result,
+  ScreenshotOptions,
   Snapshot,
 } from "@ghosthand/protocol";
 import { ok } from "@ghosthand/protocol";
+import { fakeJpeg, fakePng } from "./fake-images.ts";
 
 export interface ScriptedScreen {
   url: string;
@@ -139,13 +142,30 @@ export class ScriptedComputer implements Computer {
       ...(s.canScroll ? { canScroll: true } : {}),
     });
   }
-  async screenshot(): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
+  /** Regions asked for with `screenshot(region)`, in order. */
+  readonly captureRegions: Array<Rect | undefined> = [];
+  async screenshot(
+    region?: Rect,
+    opts?: ScreenshotOptions,
+  ): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
     this.screenshots++;
+    this.captureRegions.push(region);
     const id = `c${this.screenshots}`;
     this.#captures.add(id);
+    const width = Math.round(region?.width ?? 1280);
+    const height = Math.round(region?.height ?? 860);
+    const jpeg = opts?.format === "jpeg";
     return ok({
-      capture: { id, takenAt: this.screenshots, mimeType: "image/png", width: 1280, height: 860, scale: 1 },
-      data: new Uint8Array([137, 80, 78, 71]),
+      capture: {
+        id,
+        takenAt: this.screenshots,
+        mimeType: jpeg ? "image/jpeg" : "image/png",
+        width,
+        height,
+        scale: 1,
+        ...(region ? { region } : {}),
+      },
+      data: jpeg ? fakeJpeg(width, height) : fakePng(width, height),
     });
   }
   #act(action: Action): ActionResult {

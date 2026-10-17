@@ -12,6 +12,7 @@ export * from "./focus-terms.ts";
 export * from "./gates.ts";
 export * from "./human-wall.ts";
 export * from "./image-header.ts";
+export * from "./jev-ground.ts";
 export * from "./literals.ts";
 export * from "./logger.ts";
 export * from "./loop.ts";

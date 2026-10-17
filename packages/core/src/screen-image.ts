@@ -34,6 +34,14 @@ export const DECISION_SCREENSHOT_OPTIONS: Required<ScreenshotOptions> = {
   mask: "secrets",
 };
 
+/**
+ * Input tokens one use of an image costs on Jev. Measured 2026-10-17 on 280² … 1568×1022 screenshots
+ * within ±5 %: a flat part plus one token per 385 pixels. PNG and JPEG cost the same.
+ */
+export function estimateImageTokens(width: number, height: number): number {
+  return 240 + Math.ceil((width * height) / 385);
+}
+
 export type PrepareImageError = { kind: "too_small" | "too_large" | "unsupported"; message: string };
 
 /**

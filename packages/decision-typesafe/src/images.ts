@@ -4,7 +4,7 @@
 // documented limits, the measured token curve, and header sniffing so a bad image never costs a request.
 import type { ImageLimits } from "@ghosthand/protocol";
 
-export { readImageSize, sniffImageType } from "@ghosthand/core";
+export { estimateImageTokens, readImageSize, sniffImageType } from "@ghosthand/core";
 
 /** Opt-in header TypeSafe requires on every request that carries an image or a box question. */
 export const IMAGES_HEADER = "TypeSafe-Danger-Zone-Images";
@@ -17,14 +17,6 @@ export const TYPESAFE_IMAGE_LIMITS: ImageLimits = {
   maxPixels: 2_458_624,
   maxBytes: 16 * 1024 * 1024,
 };
-
-/**
- * Input tokens one use of an image costs. Measured 2026-10-17 on 280² … 1568×1022 screenshots within ±5 %:
- * a flat part plus one token per 385 pixels. PNG and JPEG cost the same.
- */
-export function estimateImageTokens(width: number, height: number): number {
-  return 240 + Math.ceil((width * height) / 385);
-}
 
 /** How often `ref` occurs in `text` as a plain substring (each use sends the image again). */
 export function countRefUses(text: string, ref: string): number {

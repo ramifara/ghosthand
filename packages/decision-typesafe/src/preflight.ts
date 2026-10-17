@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Checks a request against provider caps before anything is sent. The SDK only rejects empty question
 // sets and short score lists; option and level caps, null score levels and context size are ours.
+
+import { estimateImageTokens, readImageSize, sniffImageType } from "@ghosthand/core";
 import type {
   DecisionCapabilities,
   DecisionError,
@@ -12,13 +14,7 @@ import type {
   Result,
 } from "@ghosthand/protocol";
 import { err, ImageRef, ok } from "@ghosthand/protocol";
-import {
-  countRefUses,
-  estimateImageTokens,
-  readImageSize,
-  sniffImageType,
-  TYPESAFE_IMAGE_LIMITS,
-} from "./images.ts";
+import { countRefUses, TYPESAFE_IMAGE_LIMITS } from "./images.ts";
 
 /**
  * Conservative characters-per-token ratio; no tokenizer or count endpoint is published. JSON states and

@@ -3,7 +3,9 @@
 // A DecisionProvider whose answers come from a test function over the asked questions.
 import type {
   Answer,
+  DecisionAskOptions,
   DecisionCapabilities,
+  DecisionImageData,
   DecisionProvider,
   DecisionResponse,
   Entry,
@@ -35,16 +37,18 @@ export class FnDecisionProvider implements DecisionProvider {
     maxLevels: 10,
     contextTokens: 64_000,
     zdr: true,
+    images: true,
+    box: true,
   };
-  readonly requests: Array<{ state: Entry; questions: Questions }> = [];
+  readonly requests: Array<{ state: Entry; questions: Questions; images: DecisionImageData[] }> = [];
   readonly #fn: AnswerFn;
 
   constructor(fn: AnswerFn) {
     this.#fn = fn;
   }
 
-  async ask(state: Entry, questions: Questions) {
-    this.requests.push({ state, questions });
+  async ask(state: Entry, questions: Questions, opts: DecisionAskOptions = {}) {
+    this.requests.push({ state, questions, images: opts.images ?? [] });
     const given = this.#fn(questions, state, this.requests.length);
     const answers: Record<string, Answer> = {};
     for (const name of Object.keys(questions))
