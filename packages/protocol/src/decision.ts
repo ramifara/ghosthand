@@ -137,7 +137,11 @@ export const DecisionImage = z.object({
 export type DecisionImage = z.infer<typeof DecisionImage>;
 
 /** An image with its bytes, as handed to a provider in memory. */
-export type DecisionImageData = DecisionImage & { data: Uint8Array };
+export type DecisionImageData = DecisionImage & {
+  data: Uint8Array;
+  /** File name in the run folder, once written (recorded on the decision.request event). */
+  file?: string;
+};
 
 /** Image limits a provider enforces (TypeSafe direct: docs/research/notes/jev-1-14-images-box.md). */
 export const ImageLimits = z.object({

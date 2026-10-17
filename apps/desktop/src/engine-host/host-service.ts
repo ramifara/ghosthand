@@ -39,7 +39,7 @@ import {
   StartRunInput,
   TaskSpec,
 } from "@ghosthand/protocol";
-import { readRun, screenshotName } from "@ghosthand/recorder";
+import { findScreenshot, listScreenshotSteps, readRun } from "@ghosthand/recorder";
 import { tasks } from "@ghosthand/testbed-kit";
 import { z } from "zod";
 import { FrameThrottle } from "./frame-throttle.ts";
@@ -246,26 +246,18 @@ export class HostService {
     if (!rec?.ok) return fail("not_found", `run ${runId} is not in the index`);
     const log = readRun(rec.value.folder);
     if (!log.ok) return fail(log.error.kind === "not_found" ? "not_found" : "engine", log.error.message);
-    let screenshotSteps: number[] = [];
-    try {
-      screenshotSteps = readdirSync(join(rec.value.folder, "screenshots"))
-        .map((f) => /^step-(\d+)\.png$/.exec(f)?.[1])
-        .filter((s): s is string => s !== undefined)
-        .map(Number)
-        .sort((a, b) => a - b);
-    } catch {
-      // No screenshots folder.
-    }
-    return done({ runId, events: log.value.events, screenshotSteps });
+    return done({ runId, events: log.value.events, screenshotSteps: listScreenshotSteps(rec.value.folder) });
   }
 
   async #screenshot(runId: string, step: number): Promise<Outcome> {
     const rt = await this.#runtime();
     const rec = rt?.index.getRun(runId);
     if (!rec?.ok) return fail("not_found", `run ${runId} is not in the index`);
+    const found = findScreenshot(rec.value.folder, step);
+    if (!found) return done(null);
     try {
-      const bytes = await readFile(join(rec.value.folder, "screenshots", screenshotName(step)));
-      return done({ dataUrl: `data:image/png;base64,${bytes.toString("base64")}` });
+      const bytes = await readFile(found.file);
+      return done({ dataUrl: `data:${found.mimeType};base64,${bytes.toString("base64")}` });
     } catch {
       return done(null);
     }

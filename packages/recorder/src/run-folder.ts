@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Layout of one run folder: <runsDir>/<runId>/...
 import { join } from "node:path";
+import type { ImageMimeType } from "@ghosthand/protocol";
 
 export type RunPaths = {
   readonly folder: string;
@@ -43,8 +44,20 @@ export function runPaths(folder: string): RunPaths {
 
 const step3 = (step: number): string => String(Math.max(0, Math.trunc(step))).padStart(3, "0");
 
-export function screenshotName(step: number): string {
-  return `step-${step3(step)}.png`;
+const slug = (label: string): string =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+/**
+ * `step-NNN.png`, or `.jpg` for a JPEG capture (ADR 0020). A `label` names an extra capture of the same
+ * step (`step-NNN-d0.jpg`: what Jev saw), which is not the step's main screenshot.
+ */
+export function screenshotName(step: number, mimeType: ImageMimeType = "image/png", label?: string): string {
+  const ext = mimeType === "image/jpeg" ? "jpg" : "png";
+  const tag = label ? slug(label) : "";
+  return `step-${step3(step)}${tag ? `-${tag}` : ""}.${ext}`;
 }
 
 /** Purpose is reduced to kebab-case `[a-z0-9-]` so it is always a safe file name segment. */

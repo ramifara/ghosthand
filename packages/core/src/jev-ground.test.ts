@@ -274,3 +274,27 @@ describe("mode D0: Jev box grounding", () => {
     expect(decision.requests.every((q) => q.images.length === 0)).toBe(true);
   });
 });
+
+describe("D0 captures in the run folder", () => {
+  it("writes what Jev saw as a labelled capture and records the file on the request", async () => {
+    const computer = canvasComputer();
+    const decision = provider({ present: 0.98, box: { top: 0.4, bottom: 0.5, left: 0.3, right: 0.38 } });
+    const written: Array<{ step: number; bytes: number; label?: string }> = [];
+    const s = sink();
+    const events = {
+      emit: s.emit,
+      writeScreenshot: (step: number, bytes: Uint8Array, label?: string) => {
+        written.push({ step, bytes: bytes.byteLength, ...(label ? { label } : {}) });
+        return `step-${String(step).padStart(3, "0")}${label ? `-${label}` : ""}.jpg`;
+      },
+    };
+    const r = await runTask(task("Select the Q3 bar in the chart", "Q3 selected"), {
+      ...deps(computer, decision, s),
+      events,
+    });
+    expect(r.outcome).toBe("success");
+    expect(written.some((w) => w.label === "d0")).toBe(true);
+    const ground = s.events.find((e) => e.type === "decision.request" && e.purpose === "ground");
+    expect(ground?.type === "decision.request" && ground.images?.[0]?.file).toMatch(/^step-\d{3}-d0\.jpg$/);
+  });
+});

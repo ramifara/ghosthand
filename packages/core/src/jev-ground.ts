@@ -179,7 +179,13 @@ async function look(env: JevGroundEnv, region: Rect | undefined, ref: ImageRef):
   if (!shot.ok) return `screenshot failed: ${shot.error.message}`;
   const image = prepareForDecision(shot.value, { ref });
   if (!image.ok) return `screenshot unusable: ${image.error.message}`;
-  return { capture: shot.value.capture, image: image.value };
+  // What Jev saw goes into the run folder beside the step screenshot (`step-NNN-d0.jpg`).
+  const file = env.events.writeScreenshot?.(
+    env.step,
+    image.value.data,
+    ref === REGION_REF ? "d0 region" : "d0",
+  );
+  return { capture: shot.value.capture, image: file ? { ...image.value, file } : image.value };
 }
 
 interface Located {

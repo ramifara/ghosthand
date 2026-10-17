@@ -734,10 +734,33 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       previousText = snapshot.text;
       const fingerprint = screenFingerprint(snapshot);
       deps.onSnapshot?.(snapshot, fingerprint, current);
+      // images = always (ADR 0020): the step screenshot goes with every request as `state.screen`, awaited
+      // here so the act request can carry it. Not on the step after a secret was typed.
+      let stepImage: DecisionImageData | undefined;
+      let imageSkipped: string | undefined;
+      if (cfg.images === "always" && deps.decision.capabilities.images === true) {
+        if (secretWrittenStep === current - 1) imageSkipped = "secret_written";
+        else if (!deps.computer.capabilities().screenshots) imageSkipped = "no_screenshots";
+        else {
+          const ts = clock.now();
+          const shot = await deps.computer.screenshot(undefined, DECISION_SCREENSHOT_OPTIONS);
+          timing.screenshotMs = clock.now() - ts;
+          if (!shot.ok) imageSkipped = "screenshot_failed";
+          else {
+            const prepared = prepareForDecision(shot.value);
+            if (prepared.ok) stepImage = prepared.value;
+            else imageSkipped = prepared.error.kind;
+          }
+        }
+      }
       let screenshot: string | undefined;
       // With a reserved name the capture runs in parallel with verify/decide and is written at step end.
       let pendingShot: Promise<void> | undefined;
-      if (cfg.screenshots && deps.events.writeScreenshot) {
+      if (cfg.screenshots && deps.events.writeScreenshot && stepImage) {
+        // The prepared capture is the step screenshot: one capture serves the record and the model.
+        screenshot = deps.events.writeScreenshot(current, stepImage.data);
+        stepImage.file = screenshot;
+      } else if (cfg.screenshots && deps.events.writeScreenshot) {
         const write = deps.events.writeScreenshot.bind(deps.events);
         if (deps.events.screenshotName) {
           screenshot = deps.events.screenshotName(current);
@@ -811,25 +834,6 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
       const oversized = needsNarrowing(snapshot, task, subgoal, current, history, cfg, deps);
 
-      // images = always (ADR 0020): the step screenshot goes with every request as `state.screen`, awaited
-      // here so the act request can carry it. Not on the step after a secret was typed.
-      let stepImage: DecisionImageData | undefined;
-      let imageSkipped: string | undefined;
-      if (cfg.images === "always" && deps.decision.capabilities.images === true) {
-        if (secretWrittenStep === current - 1) imageSkipped = "secret_written";
-        else if (!deps.computer.capabilities().screenshots) imageSkipped = "no_screenshots";
-        else {
-          const ts = clock.now();
-          const shot = await deps.computer.screenshot(undefined, DECISION_SCREENSHOT_OPTIONS);
-          timing.screenshotMs = clock.now() - ts;
-          if (!shot.ok) imageSkipped = "screenshot_failed";
-          else {
-            const prepared = prepareForDecision(shot.value);
-            if (prepared.ok) stepImage = prepared.value;
-            else imageSkipped = prepared.error.kind;
-          }
-        }
-      }
       const stepImages = stepImage ? [stepImage] : [];
       const stepImageTokens = stepImage ? estimateImageTokens(stepImage.width, stepImage.height) : 0;
       const withScreen = (state: Record<string, JsonValue>): Record<string, JsonValue> =>
@@ -1448,6 +1452,7 @@ async function ask(
             width: i.width,
             height: i.height,
             ...(i.captureId ? { captureId: i.captureId } : {}),
+            ...(i.file ? { file: i.file } : {}),
             tokens: estimateImageTokens(i.width, i.height),
           })),
         }
