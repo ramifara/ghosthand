@@ -82,6 +82,7 @@ Every mode is live as of Phase 3 (ADR 0011). Each step is counted in `run.end.mo
 - **A, recipe replay.** A verified recipe that matches the task (intent template binds the instruction) and the start screen (fingerprint key or URL pattern) replays before mode B, with 0 model calls when nothing moved. Each step's target must resolve (stable id, test id, unique role + name). One Jev "same control?" question heals a miss. A failed guard hands the rest of the run to B. Final `done_when` checks always run. Source-aware route-first navigation is also counted as A.
 - **B, Jev-first.** The element table, one Jev request per step, code gates. Operations: press, set_value, toggle, select_option, select_text, drag (source + drop zone), context_menu (right-click) and scroll (offered only when `Snapshot.canScroll`).
 - **C, planner.** Plans free-text goals once, replans failed subgoals (≤ 2), and refines later subgoals speculatively while Jev executes (speculation v1, ≤ 2 per run, applied only when the current subgoal succeeds and the plan did not change).
+- **D0, Jev box (one step, ADR 0020).** Wherever D1 would be tried, Jev itself first gets a masked JPEG screenshot and a `box` question (`jev-1.14.0`): "where is the control to use next?" with a presence noul, an effect choice, the control kind and the goal's text options. The box is clicked at its centre when the presence noul passes, the box is control-sized and it does not contradict the element table (one zoomed-in look otherwise); a located text field gets the chosen text typed. At most two attempts per screen; needs only a TypeSafe key. The capture Jev saw is kept as `step-NNN-d0.jpg`.
 - **D1, vision assist (one step).** For an unnamed target, or unnamed controls at q < 0.7, a vision model names the controls from their boxes and Jev picks again. After two "no target" answers on one screen, a grounded point is clicked on the same capture. Answers that are not in the page text are read off the screen.
 - **D2, vision drives (≤ 8 steps).** Starts after two poor observations (q < 0.4) or two D1 failures on a screen. Uses a provider computer tool and goes back to B as soon as q ≥ 0.7. Provider safety checks stop for a human.
 - **H, human.** Commits outside the allowed effects ask for approval. Without a vision provider, vision steps degrade to `escalate B → H` with the missing keys named in the reason.
@@ -91,7 +92,8 @@ flowchart LR
   A[A replay, 0 calls] -->|guard miss| B[B Jev-first]
   B -->|low confidence / none / stuck| W[writer hint]
   W -->|2 hand-offs| C[C planner + Jev]
-  B -->|unnamed target, poor surface| D1[D1 vision assist]
+  B -->|unnamed target, poor surface, none twice| D0[D0 Jev box]
+  D0 -->|no grounded box, 2 per screen| D1[D1 vision assist]
   D1 -->|fails twice| D2[D2 vision drives ≤ 8 steps]
   D1 & D2 -.->|q ≥ 0.7: de-escalate| B
   B & C & D2 -->|commit not approved, 3 stalls, no vision key| H[H human]
@@ -123,8 +125,8 @@ flowchart LR
 ```
 
 - **Discovery** contacts only configured URLs and the two loopback defaults. Discovered models are free, text-only and 32k until overridden.
-- **Grounding.** `VisionGrounder.groundTarget({screenshot, instruction})` returns `{captureId, x, y}` in capture pixels or `found: false`. Per model it uses the vendor computer tool (Anthropic, OpenAI) or a JSON answer on the model's grid; the vendor action is never executed and safety checks are never acknowledged.
-- **Decisions.** `decision.provider` picks the Jev carrier (`typesafe`, `openrouter`, `vercel`); `decision.fallback` adds failover on rate limits, overload, server, network and timeout errors only. The logprob emulation (`noul`/`choice` over a model with logprobs) is experimental and not wired into config.
+- **Grounding.** Mode D0 grounds with Jev's own `box` answer (`packages/core/src/jev-ground.ts`, no LLM). The LLM path remains: `VisionGrounder.groundTarget({screenshot, instruction})` returns `{captureId, x, y}` in capture pixels or `found: false`. Per model it uses the vendor computer tool (Anthropic, OpenAI) or a JSON answer on the model's grid; the vendor action is never executed and safety checks are never acknowledged.
+- **Decisions.** `decision.provider` picks the Jev carrier (`typesafe`, `openrouter`, `vercel`); `decision.fallback` adds failover on rate limits, overload, server, network and timeout errors only (never for a request with an image when the fallback carrier takes none). `decision.images` (`off|grounding|always`) and `decision.visionModel` (`jev-1.14.0`) control screenshots to Jev (ADR 0020); image requests go as multipart with the `TypeSafe-Danger-Zone-Images` header, and only the direct carrier accepts them. The logprob emulation (`noul`/`choice` over a model with logprobs) is experimental and not wired into config.
 - **Consultants.** Codex (default when installed and signed in) and Claude (opt-in, `consultant.claude.enabled` or `--planner claude`) plan through the user's own CLI logins. GhostHand never reads either CLI's credentials. The Claude path carries a policy risk: Anthropic's terms for subscription use by third-party tools can change, so an `ANTHROPIC_API_KEY` is the recommended way to use Claude models.
 - `ghosthand models list` shows catalog models with role badges, computer-use support and key state (`set`, `missing`, `local`); `ghosthand doctor` reports each provider key, local servers and the Claude CLI.
 

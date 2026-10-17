@@ -1,5 +1,7 @@
 # Jev via the direct TypeSafe API and `@typesafe-ai/sdk`: research notes
 
+> Superseded in part by `jev-1-14-images-box.md` (2026-10-17): SDK 0.7.0, image input, `box` questions and the long-context header. The "text only" statements below no longer hold; the text-request facts do.
+
 Researched 2026-09-30. Companion to `openrouter-jev.md`. Sources:
 
 - every page listed in https://docs.typesafe.ai/llms.txt (111 pages, downloaded as `.md`)

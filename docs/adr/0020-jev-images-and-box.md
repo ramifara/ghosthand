@@ -3,7 +3,7 @@
 
 # 0020. Jev 1.14: screenshots as decision evidence and `box` grounding
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-17
 
 ## Context
