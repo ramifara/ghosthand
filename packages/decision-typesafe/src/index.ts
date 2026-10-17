@@ -15,6 +15,14 @@ export {
 } from "./carrier-presets.ts";
 export { CostMeter, type CostMeterOptions, costUsd, DEFAULT_PRICE_INPUT_PER_M } from "./cost-meter.ts";
 export { FAILOVER_KINDS, FallbackDecisionProvider, intersectCapabilities } from "./fallback-provider.ts";
+export {
+  countRefUses,
+  estimateImageTokens,
+  IMAGES_HEADER,
+  readImageSize,
+  sniffImageType,
+  TYPESAFE_IMAGE_LIMITS,
+} from "./images.ts";
 export { type DecisionLogger, type LogFields, silentLogger } from "./logger.ts";
 export { kindForStatus, mapSdkError } from "./map-sdk-error.ts";
 export {
@@ -31,6 +39,7 @@ export {
   DEFAULT_MODEL,
   DEFAULT_RETRIES,
   DEFAULT_TIMEOUT_MS,
+  DEFAULT_VISION_MODEL,
   type FetchLike,
   PROVIDER_NAME,
   TYPESAFE_DIRECT_CAPABILITIES,
@@ -41,6 +50,7 @@ export {
   PROBABILITY_SUM_TOLERANCE,
   SCORE_MEAN_TOLERANCE,
   validateAnswers,
+  validateBoxAnswer,
   validateChoiceAnswer,
   validateNoulAnswer,
   validateScoreAnswer,

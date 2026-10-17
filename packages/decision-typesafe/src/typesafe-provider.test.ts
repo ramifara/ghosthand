@@ -78,6 +78,15 @@ describe("createTypeSafeDecisionProvider", () => {
       contextTokens: 64_000,
       perQuestionContextTokens: 32_000,
       zdr: false,
+      images: true,
+      box: true,
+      imageLimits: {
+        minSide: 280,
+        maxSide: 1568,
+        minPixels: 78_400,
+        maxPixels: 2_458_624,
+        maxBytes: 16_777_216,
+      },
     });
   });
 
@@ -373,5 +382,115 @@ describe("SDK 0.7.0 request and usage edge cases", () => {
     expect(r.usage.outputTokens).toBe(0);
     expect(r.costUsd).toBeCloseTo((r.usage.inputTokens * 0.042) / 1e6, 12);
     expect(lines.find((l) => l.msg === "decision.response")?.obj).toMatchObject({ usageSource: "estimate" });
+  });
+});
+
+describe("images and box questions (ADR 0020)", async () => {
+  const { fakePng } = await import("./fake-images.ts");
+  const png = fakePng(1280, 834, 2048);
+  const screen = {
+    ref: "<image:screen>" as const,
+    mimeType: "image/png" as const,
+    width: 1280,
+    height: 834,
+    data: png,
+    captureId: "c1",
+  };
+  const groundState = { goal: "Save the form", screen: "<image:screen>" };
+  const groundQuestions: Questions = {
+    present: { type: "noul", instructions: "Is the Save button visible in `screen`?" },
+    where: { type: "box", instructions: "The Save button in `screen`" },
+  };
+
+  it("advertises images, box and the image limits", () => {
+    expect(provider(undefined).capabilities).toMatchObject({
+      images: true,
+      box: true,
+      imageLimits: { minSide: 280, maxSide: 1568 },
+    });
+  });
+
+  it("sends a multipart request with the danger-zone header on the vision model and validates the box", async () => {
+    const rec = recordedFetch("systemone-box");
+    const r = expectOk(await provider(rec.fetch).ask(groundState, groundQuestions, { images: [screen] }));
+    expect(r.answers).toEqual({
+      present: { type: "noul", p: 1 },
+      where: { type: "box", box: { top: 0.76, bottom: 0.79, left: 0.19, right: 0.3 }, confidence: 0.96 },
+    });
+    expect(r.model).toBe("jev-1.14.0");
+    const call = rec.calls[0];
+    expect(call?.headers["typesafe-danger-zone-images"]).toBe("true");
+    expect(call?.headers["content-type"]).toMatch(/^multipart\/form-data; boundary=/);
+    expect(call?.body).toMatchObject({
+      model: "jev-1.14.0",
+      state: groundState,
+      assets: { "<image:screen>": { type: "image", part: expect.any(String) } },
+    });
+    const body = call?.body as { assets: Record<string, { part: string }> };
+    expect(call?.parts).toHaveLength(1);
+    expect(call?.parts[0]?.name).toBe(body.assets["<image:screen>"]?.part);
+    expect(call?.parts[0]?.bytes).toEqual(png);
+  });
+
+  it("keeps text-only requests on the text model without the header", async () => {
+    const rec = recordedFetch("systemone-all-types");
+    await provider(rec.fetch).ask(state, questions);
+    expect(rec.calls[0]?.headers["typesafe-danger-zone-images"]).toBeUndefined();
+    expect(rec.calls[0]?.body).toMatchObject({ model: "jev-1.13.0" });
+  });
+
+  it("honours a visionModel override", async () => {
+    const rec = recordedFetch("systemone-box");
+    await provider(rec.fetch, { visionModel: "jev-preview" }).ask(groundState, groundQuestions, {
+      images: [screen],
+    });
+    expect(rec.calls[0]?.body).toMatchObject({ model: "jev-preview" });
+  });
+
+  it("rejects an out-of-limit image before sending", async () => {
+    const rec = recordedFetch("systemone-box");
+    const e = expectErr(
+      await provider(rec.fetch).ask(groundState, groundQuestions, {
+        images: [{ ...screen, width: 1600, height: 1043, data: fakePng(1600, 1043) }],
+      }),
+    );
+    expect(e.kind).toBe("invalid");
+    expect(rec.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["error-400-image-header", "image_rejected"],
+    ["error-400-image-dimensions", "image_rejected"],
+    ["error-400-box-on-1.13", "image_rejected"],
+  ])("maps %s to %s", async (name, kind) => {
+    const rec = recordedFetch(name);
+    const e = expectErr(
+      await provider(rec.fetch, { skipPreflight: true }).ask(groundState, groundQuestions, {
+        images: [screen],
+      }),
+    );
+    expect(e).toMatchObject({ kind, status: 400 });
+  });
+
+  it("charges the image tokens in the budget pre-check", async () => {
+    const meter = new CostMeter({ capUsd: 0.00005 }); // ~1190 tokens; the image alone is ~3000
+    const rec = recordedFetch("systemone-box");
+    const e = expectErr(
+      await provider(rec.fetch, { costMeter: meter }).ask(groundState, groundQuestions, { images: [screen] }),
+    );
+    expect(e.kind).toBe("budget");
+    expect(rec.calls).toHaveLength(0);
+  });
+
+  it("logs image sizes, never image bytes", async () => {
+    const { logger, lines } = captureLogger();
+    const rec = recordedFetch("systemone-box");
+    await provider(rec.fetch, { logger }).ask(groundState, groundQuestions, { images: [screen] });
+    const request = lines.find((l) => l.msg === "decision.request");
+    expect(request?.obj).toMatchObject({
+      model: "jev-1.14.0",
+      images: [{ ref: "<image:screen>", width: 1280, height: 834, bytes: 2048 }],
+    });
+    expect(JSON.stringify(lines)).not.toContain('"data"');
   });
 });

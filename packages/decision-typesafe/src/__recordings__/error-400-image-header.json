@@ -1,0 +1,9 @@
+{
+  "description": "Live 2026-10-17: an image sent without the TypeSafe-Danger-Zone-Images header.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.14.0", "questions": ["present"] },
+  "response": {
+    "status": 400,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_b0x00000000000000000000000000002" },
+    "body": { "detail": { "error_type": "api_usage_error", "message": "Images are experimental. Send the header TypeSafe-Danger-Zone-Images: true to use them." } }
+  }
+}

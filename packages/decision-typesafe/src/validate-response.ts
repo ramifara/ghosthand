@@ -3,7 +3,8 @@
 // Fail-closed checks on provider answers (ADR 0004, plan §3.2). Pure: no I/O, no SDK imports.
 // Any answer that fails a check becomes `{type: 'abstain', reason}` so the loop can never act on it.
 import type { AbstainAnswer, Answer, ChoiceQuestion, Questions, ScoreQuestion } from "@ghosthand/protocol";
-import { WireChoiceAnswer, WireNoulAnswer, WireScoreAnswer } from "./wire.ts";
+import { isValidBox } from "@ghosthand/protocol";
+import { WireBoxAnswer, WireChoiceAnswer, WireNoulAnswer, WireScoreAnswer } from "./wire.ts";
 
 /** Probabilities must sum to 1 within this tolerance. */
 export const PROBABILITY_SUM_TOLERANCE = 0.025;
@@ -98,6 +99,21 @@ export function validateScoreAnswer(question: ScoreQuestion, raw: unknown): Answ
   return { type: "score", score, confidence, probabilities: { ...probabilities } };
 }
 
+/** A box must have ordered edges inside the unit square; confidence may be null (ADR 0020). */
+export function validateBoxAnswer(raw: unknown): Answer {
+  const parsed = WireBoxAnswer.safeParse(raw);
+  if (!parsed.success) return abstain("malformed box answer");
+  const { box, confidence } = parsed.data;
+  if (!isValidBox(box)) {
+    return abstain(
+      `box edges are not ordered inside [0, 1]: t=${box.top} b=${box.bottom} l=${box.left} r=${box.right}`,
+    );
+  }
+  if (confidence !== null && !isProbability(confidence))
+    return abstain(`confidence outside [0, 1]: ${confidence}`);
+  return { type: "box", box: { ...box }, confidence };
+}
+
 /**
  * Validates raw wire answers against the questions that were asked. The result has exactly the
  * question keys. If the answer keys differ from the question keys at all, every answer abstains,
@@ -134,6 +150,9 @@ export function validateAnswers(
         break;
       case "score":
         out[name] = validateScoreAnswer(question, raw);
+        break;
+      case "box":
+        out[name] = validateBoxAnswer(raw);
         break;
     }
   }

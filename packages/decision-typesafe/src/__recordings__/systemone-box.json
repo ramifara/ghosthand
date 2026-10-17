@@ -1,0 +1,20 @@
+{
+  "description": "Live 2026-10-17 (request id replaced): a 1280x834 screenshot in state.screen, a presence noul and a box on jev-1.14.0. Multipart request with the TypeSafe-Danger-Zone-Images header.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.14.0", "questions": ["present", "where"], "multipart": true },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-typesafe-request-id": "req_b0x00000000000000000000000000001",
+      "server": "cloudflare"
+    },
+    "body": {
+      "model": "jev-1.14.0",
+      "answers": {
+        "present": { "type": "noul", "noul": 1 },
+        "where": { "type": "box", "box": { "top": 0.76, "bottom": 0.79, "left": 0.19, "right": 0.3 }, "confidence": 0.96 }
+      },
+      "usage": { "input_tokens": 3079, "output_tokens": 110 }
+    }
+  }
+}

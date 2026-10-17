@@ -13,6 +13,12 @@ import {
 
 /** Over-context: measured 2026-10-01 as 400 `{"detail":{"error_type":"max_tokens_exceeded"}}`; 413/422 kept for safety. */
 const CONTEXT_MESSAGE = /max_tokens_exceeded|context|token|too long|too large|length/i;
+/**
+ * Image and asset rejections (measured 2026-10-17): "Invalid image dimensions.", "Images are experimental.
+ * Send the header …", unreferenced assets, and a box question on a model without box support, which the
+ * API reports as a bare "Invalid request.".
+ */
+const IMAGE_MESSAGE = /image|asset|dimension|experimental|multipart|^400 Invalid request\.$/i;
 
 export function kindForStatus(status: number, message: string): DecisionErrorKind {
   if (status === 401 || status === 403) return "auth";
@@ -20,7 +26,11 @@ export function kindForStatus(status: number, message: string): DecisionErrorKin
   if (status === 529) return "overloaded";
   if (status === 408) return "timeout";
   if (status === 413) return "too_large";
-  if (status === 400 || status === 422) return CONTEXT_MESSAGE.test(message) ? "too_large" : "invalid";
+  if (status === 400 || status === 422) {
+    if (CONTEXT_MESSAGE.test(message)) return "too_large";
+    if (status === 400 && IMAGE_MESSAGE.test(message)) return "image_rejected";
+    return "invalid";
+  }
   if (status === 404) return "invalid";
   if (status >= 500) return "server";
   return "unknown";

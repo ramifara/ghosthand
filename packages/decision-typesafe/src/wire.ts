@@ -26,6 +26,13 @@ export const WireScoreAnswer = z.object({
 export type WireScoreAnswer = z.infer<typeof WireScoreAnswer>;
 
 /** Token counts may be null when the API does not report them (SDK 0.7.0 `Usage`). */
+export const WireBoxAnswer = z.object({
+  type: z.literal("box"),
+  box: z.object({ top: z.number(), bottom: z.number(), left: z.number(), right: z.number() }),
+  confidence: z.number().nullable(),
+});
+export type WireBoxAnswer = z.infer<typeof WireBoxAnswer>;
+
 export const WireUsage = z.object({
   input_tokens: z.number().int().nonnegative().nullable(),
   output_tokens: z.number().int().nonnegative().nullable(),
