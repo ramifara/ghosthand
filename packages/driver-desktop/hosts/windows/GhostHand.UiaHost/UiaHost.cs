@@ -584,15 +584,30 @@ internal sealed class UiaHost
         }
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+        // ADR 0020: downscale to maxSide and/or encode as JPEG for the decision model.
+        int? maxSide = p["maxSide"]?.GetValue<int>();
+        bool jpeg = p["format"]?.GetValue<string>() == "jpeg";
+        long quality = p["quality"]?.GetValue<int>() ?? 80;
+        int longest = Math.Max(w, h);
+        double ratio = maxSide is int ms0 && longest > ms0 ? (double)ms0 / longest : 1;
+        int ow = Math.Max(1, (int)Math.Round(w * ratio)), oh = Math.Max(1, (int)Math.Round(h * ratio));
+        using var outBmp = ratio < 1 ? new Bitmap(bmp, new Size(ow, oh)) : bmp;
         using var ms = new MemoryStream();
-        bmp.Save(ms, ImageFormat.Png);
+        if (jpeg)
+        {
+            var codec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+            using var encParams = new EncoderParameters(1);
+            encParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+            outBmp.Save(ms, codec, encParams);
+        }
+        else outBmp.Save(ms, ImageFormat.Png);
         return new JsonObject
         {
             ["data"] = Convert.ToBase64String(ms.ToArray()),
-            ["mimeType"] = "image/png",
-            ["width"] = w,
-            ["height"] = h,
-            ["scale"] = 1,
+            ["mimeType"] = jpeg ? "image/jpeg" : "image/png",
+            ["width"] = ow,
+            ["height"] = oh,
+            ["scale"] = (double)ow / w,
         };
     }
 

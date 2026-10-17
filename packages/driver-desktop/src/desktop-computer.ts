@@ -32,6 +32,8 @@ import type {
   Rect,
   Result,
   RpcSnapshot,
+  ScreenshotOptions,
+  ScreenshotParams,
   Snapshot,
   SurfaceKind,
 } from "@ghosthand/protocol";
@@ -314,8 +316,17 @@ export class DesktopComputer implements Computer {
     return ok(snapshot);
   }
 
-  async screenshot(region?: Rect): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
-    const r = await this.#rpc.call("screenshot", region ? { region } : {}, { timeoutMs: 20_000 });
+  async screenshot(
+    region?: Rect,
+    opts: ScreenshotOptions = {},
+  ): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
+    const params: ScreenshotParams = {
+      ...(region ? { region } : {}),
+      ...(opts.maxSide !== undefined ? { maxSide: opts.maxSide } : {}),
+      ...(opts.format !== undefined ? { format: opts.format } : {}),
+      ...(opts.quality !== undefined ? { quality: opts.quality } : {}),
+    };
+    const r = await this.#rpc.call("screenshot", params, { timeoutMs: 20_000 });
     if (!r.ok)
       return err({ kind: r.error.kind === "closed" ? "closed" : "driver", message: r.error.message });
     const data = new Uint8Array(Buffer.from(r.value.data, "base64"));

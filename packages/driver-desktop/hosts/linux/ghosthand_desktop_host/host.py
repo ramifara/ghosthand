@@ -543,15 +543,25 @@ class Host:
         if self.capture is None or self.capture.method is None:
             raise RpcError("unsupported", "screenshots are unavailable on this host")
         data = self.capture.screenshot(params.get("region"))
-        from .x11_capture import png_size  # noqa: PLC0415
+        from .x11_capture import fit_image, png_size  # noqa: PLC0415
 
         w, h = png_size(data)
+        scale = self.screen.get("scale", 1)
+        max_side = params.get("maxSide")
+        fmt = params.get("format")
+        if max_side is not None or fmt == "jpeg":
+            data, mime, ow, oh = fit_image(data, max_side, fmt, params.get("quality", 80))
+            # Screenshot pixels per screen unit shrink with the image.
+            scale = scale * (ow / w) if w else scale
+            w, h = ow, oh
+        else:
+            mime = "image/png"
         return {
             "data": base64.b64encode(data).decode("ascii"),
-            "mimeType": "image/png",
+            "mimeType": mime,
             "width": w,
             "height": h,
-            "scale": self.screen.get("scale", 1),
+            "scale": scale,
         }
 
     def wait_idle(self, params):

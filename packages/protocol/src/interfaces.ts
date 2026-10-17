@@ -57,12 +57,30 @@ export interface PredicateResult {
   detail?: string;
 }
 
+/** How a screenshot is produced when it is meant for the decision model (ADR 0020). */
+export interface ScreenshotOptions {
+  /** Default PNG. JPEG costs the same tokens at a fraction of the bytes. */
+  format?: "png" | "jpeg";
+  /** JPEG quality 1–100. */
+  quality?: number;
+  /**
+   * Longest side in pixels. Web drivers capture at CSS scale (one image pixel per CSS pixel); desktop
+   * hosts downscale. A driver that cannot fit the image returns it as is and the caller skips it.
+   */
+  maxSide?: number;
+  /** `secrets` blacks out elements whose value is a secret and password fields. */
+  mask?: "secrets" | "none";
+}
+
 export interface Computer {
   capabilities(): ComputerCapabilities;
   doctor(): Promise<DoctorCheck[]>;
   open(target: string): Promise<Result<void, ComputerError>>;
   observe(scope?: ObserveScope): Promise<Result<Snapshot, ComputerError>>;
-  screenshot(region?: Rect): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>>;
+  screenshot(
+    region?: Rect,
+    opts?: ScreenshotOptions,
+  ): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>>;
   press(token: string): Promise<ActionResult>;
   setValue(token: string, value: FieldValue): Promise<ActionResult>;
   toggle(token: string, checked?: boolean): Promise<ActionResult>;

@@ -17,6 +17,7 @@ import type {
   PredicateResult,
   Rect,
   Result,
+  ScreenshotOptions,
   Snapshot,
 } from "@ghosthand/protocol";
 import type { PageA11y } from "@ghosthand/qa";
@@ -66,8 +67,8 @@ export class QaProbeComputer implements Computer {
     }
     return r;
   }
-  async screenshot(region?: Rect) {
-    const r = await this.inner.screenshot(region);
+  async screenshot(region?: Rect, opts?: ScreenshotOptions) {
+    const r = await this.inner.screenshot(region, opts);
     if (r.ok && region === undefined) this.latestScreenshot = r.value.data;
     return r;
   }

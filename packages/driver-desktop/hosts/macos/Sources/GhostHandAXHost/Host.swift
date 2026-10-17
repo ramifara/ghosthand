@@ -404,6 +404,34 @@ final class Host {
         guard proc.terminationStatus == 0, let data = try? Data(contentsOf: tmp), let image = NSImage(data: data),
               let rep = image.representations.first
         else { throw RpcError(kind: "driver", message: "screencapture failed (Screen Recording permission?)") }
+        // ADR 0020: downscale to `maxSide` and/or encode as JPEG for the decision model.
+        let maxSide = p["maxSide"] as? Int
+        let jpeg = (p["format"] as? String) == "jpeg"
+        let quality = Double(p["quality"] as? Int ?? 80) / 100
+        let longest = max(rep.pixelsWide, rep.pixelsHigh)
+        let ratio = (maxSide != nil && longest > maxSide!) ? Double(maxSide!) / Double(longest) : 1
+        if ratio < 1 || jpeg, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let w = max(1, Int((Double(rep.pixelsWide) * ratio).rounded()))
+            let h = max(1, Int((Double(rep.pixelsHigh) * ratio).rounded()))
+            if let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpaceCreateDeviceRGB(),
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                ctx.interpolationQuality = .high
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+                if let scaled = ctx.makeImage() {
+                    let out = NSBitmapImageRep(cgImage: scaled)
+                    let encoded = jpeg
+                        ? out.representation(using: .jpeg, properties: [.compressionFactor: quality])
+                        : out.representation(using: .png, properties: [:])
+                    if let encoded {
+                        return [
+                            "data": encoded.base64EncodedString(), "mimeType": jpeg ? "image/jpeg" : "image/png",
+                            "width": w, "height": h, "scale": scale * Double(w) / Double(rep.pixelsWide),
+                        ] as Json
+                    }
+                }
+            }
+        }
         return [
             "data": data.base64EncodedString(), "mimeType": "image/png",
             "width": rep.pixelsWide, "height": rep.pixelsHigh, "scale": scale,

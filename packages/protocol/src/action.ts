@@ -5,6 +5,7 @@ import { z } from "zod";
 /** Targets for actions. Tokens are preferred; coordinates are a fallback for vision routes. */
 export const TokenTarget = z.object({ token: z.string().min(1) });
 export const CaptureTarget = z.object({ captureId: z.string().min(1), x: z.number(), y: z.number() });
+export type CaptureTarget = z.infer<typeof CaptureTarget>;
 export const ScreenTarget = z.object({ screenX: z.number(), screenY: z.number() });
 export const PointerTarget = z.union([TokenTarget, CaptureTarget, ScreenTarget]);
 export type PointerTarget = z.infer<typeof PointerTarget>;
