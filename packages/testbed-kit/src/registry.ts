@@ -21,6 +21,7 @@ import { l3RichTextBio } from "./tasks/l3-rich-text-bio.ts";
 import { l3SettingsTabsSlider } from "./tasks/l3-settings-tabs-slider.ts";
 import { l3TagsMultiselect } from "./tasks/l3-tags-multiselect.ts";
 import { l4CanvasChart } from "./tasks/l4-canvas-chart.ts";
+import { l4CanvasTarget } from "./tasks/l4-canvas-target.ts";
 import { l4ClosedShadowPromo } from "./tasks/l4-closed-shadow-promo.ts";
 import { l4DndChecklist } from "./tasks/l4-dnd-checklist.ts";
 import { l4IframeCheckout } from "./tasks/l4-iframe-checkout.ts";
@@ -40,6 +41,7 @@ import { l6DarkZoomSettings } from "./tasks/l6-dark-zoom-settings.ts";
 import { l6DynamicIds } from "./tasks/l6-dynamic-ids.ts";
 import { l6FlakyPreferences } from "./tasks/l6-flaky-preferences.ts";
 import { l6IconToggleVision } from "./tasks/l6-icon-toggle-vision.ts";
+import { l6IconToolbar } from "./tasks/l6-icon-toolbar.ts";
 import { l6LayoutShift } from "./tasks/l6-layout-shift.ts";
 import { l6PoorA11y } from "./tasks/l6-poor-a11y.ts";
 import { l6PopupsProfile } from "./tasks/l6-popups-profile.ts";
@@ -68,6 +70,7 @@ export const tasks: readonly TestbedTask[] = Object.freeze([
   l4ShadowPreferences,
   l4ClosedShadowPromo,
   l4CanvasChart,
+  l4CanvasTarget,
   l4DndChecklist,
   l4KanbanMove,
   l4UploadContacts,
@@ -86,6 +89,7 @@ export const tasks: readonly TestbedTask[] = Object.freeze([
   l6DynamicIds,
   l6PoorA11y,
   l6IconToggleVision,
+  l6IconToolbar,
   l6RtlLocale,
   l6DarkZoomSettings,
 ]);

@@ -123,6 +123,9 @@ export async function runSuite(
             modelCalls: "modelCalls" in run.value.result ? run.value.result.modelCalls : 0,
             modeShares: run.value.summary?.modeShares ?? {},
             timings: "timings" in run.value.result ? run.value.result.timings : [],
+            imageTokens: run.value.summary?.imageTokens ?? 0,
+            imageCostUsd: ((run.value.summary?.imageTokens ?? 0) * rt.config.decision.priceInputPerM) / 1e6,
+            d0Steps: run.value.summary?.d0Steps ?? 0,
           })
         : EvalRow.parse({
             ...base,

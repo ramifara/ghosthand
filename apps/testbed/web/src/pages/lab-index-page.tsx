@@ -8,6 +8,8 @@ const PAGES = [
   { to: "/lab/preferences", label: "Notification preferences", note: "open shadow root" },
   { to: "/lab/promo", label: "Promo", note: "closed shadow root" },
   { to: "/lab/signups", label: "Sign-ups", note: "canvas chart" },
+  { to: "/lab/canvas-target", label: "Canvas targets", note: "clickable shapes that exist only as paint" },
+  { to: "/lab/toolbar", label: "Toolbar", note: "icon-only buttons (nameless under a11y=poor)" },
   { to: "/lab/checklist", label: "Release checklist", note: "HTML5 drag and drop" },
   { to: "/lab/board", label: "Board", note: "pointer-events kanban" },
   { to: "/lab/contacts", label: "Contacts", note: "file upload and CSV download" },

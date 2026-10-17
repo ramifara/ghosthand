@@ -108,3 +108,52 @@ describe("runSuite", () => {
     expect(summarize(report.value.rows).modeShares).toEqual({ B: 1 });
   });
 });
+
+describe("vision suite and image columns (ADR 0020)", () => {
+  it("selects exactly the tasks that need vision", () => {
+    const s = selectTasks("vision");
+    expect(s.ok && s.value.every((t) => t.needsVision)).toBe(true);
+    expect(s.ok && s.value.map((t) => t.id).sort()).toEqual([
+      "l4-canvas-chart",
+      "l4-canvas-target",
+      "l4-closed-shadow-promo",
+      "l6-icon-toggle-vision",
+      "l6-icon-toolbar",
+    ]);
+  });
+
+  it("sums image tokens, image cost and D0 steps in the summary; old rows default to zero", async () => {
+    const { EvalRow } = await import("./eval-row.ts");
+    const base = {
+      suite: "vision",
+      task: "l4-canvas-target@1",
+      attempt: 1,
+      mode: "blind" as const,
+      model: "typesafe:jev-1.13.0",
+      decisionProvider: "typesafe",
+      gitSha: null,
+      runId: "r",
+      outcome: "success" as const,
+      pass: true,
+      oraclePass: true,
+      reason: "done",
+      steps: 2,
+      wallMs: 1000,
+      costUsd: 0.0002,
+      decisionCalls: 3,
+      modelCalls: 0,
+      modeShares: { B: 0.5, D0: 0.5 },
+      timings: [],
+    };
+    const old = EvalRow.parse(base);
+    expect(old.imageTokens).toBe(0);
+    expect(old.d0Steps).toBe(0);
+    const rows = [EvalRow.parse({ ...base, imageTokens: 3099, imageCostUsd: 0.00013, d0Steps: 1 }), old];
+    const s = summarize(rows);
+    expect(s.imageTokens).toBe(3099);
+    expect(s.d0Steps).toBe(1);
+    expect(s.imageCostUsd).toBeCloseTo(0.00013, 8);
+    const { formatSummaryMarkdown } = await import("./summarize.ts");
+    expect(formatSummaryMarkdown(s)).toMatch(/image tokens/i);
+  });
+});

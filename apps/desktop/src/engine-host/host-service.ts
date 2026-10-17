@@ -3,7 +3,6 @@
 // The engine host's command handlers. It runs inside the Electron utilityProcess with @ghosthand/engine:
 // one active run at a time, run history from the SQLite index, testbed tasks, doctor, models and
 // profiles. Run events, approvals, status and screencast frames go to the renderer over the port.
-import { readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";

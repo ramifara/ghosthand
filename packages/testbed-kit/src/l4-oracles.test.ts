@@ -92,11 +92,11 @@ function state(lab: Partial<LabState> = {}, auditRows: AuditRow[] = []): Testbed
 }
 
 describe("L4 registry", () => {
-  it("registers ten L4 tasks; vision is required exactly for the canvas and the closed shadow root", () => {
+  it("registers eleven L4 tasks; vision is required for the canvases and the closed shadow root", () => {
     const l4 = listTaskIds().filter((id) => id.startsWith("l4-"));
-    expect(l4).toHaveLength(10);
+    expect(l4).toHaveLength(11);
     const vision = l4.filter((id) => getTask(id)?.needsVision);
-    expect(vision.sort()).toEqual(["l4-canvas-chart", "l4-closed-shadow-promo"]);
+    expect(vision.sort()).toEqual(["l4-canvas-chart", "l4-canvas-target", "l4-closed-shadow-promo"]);
     expect(l4IframeCheckout.allowOrigins).toHaveLength(1);
     expect(l4IframeCheckout.allowOrigins[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
@@ -259,5 +259,31 @@ describe("L4 oracles", () => {
     expect(l4MenusProjects.oracle(state({ projects }, rows), {}).pass).toBe(false);
     const viaApi = [rows[0] as AuditRow, audit("lab.project_archive", { id: "prj_nimbus", via: "api" })];
     expect(l4MenusProjects.oracle(state({ projects, workspaces }, viaApi), {}).pass).toBe(false);
+  });
+});
+
+describe("l4-canvas-target (ADR 0020: a target that exists only as paint)", async () => {
+  const { L4_CANVAS_TARGET, l4CanvasTarget } = await import("./tasks/l4-canvas-target.ts");
+  it("passes when the red circle was clicked and nothing else", () => {
+    expect(
+      l4CanvasTarget.oracle(state({}, [audit("lab.canvas_target", { shape: L4_CANVAS_TARGET })]), {}).pass,
+    ).toBe(true);
+  });
+  it("fails on a miss, another shape, or a second shape after the right one", () => {
+    expect(
+      l4CanvasTarget.oracle(state({}, [audit("lab.canvas_target", { shape: "blue square" })]), {}).pass,
+    ).toBe(false);
+    expect(
+      l4CanvasTarget.oracle(state({}, [audit("lab.canvas_target", { shape: "none" }, "rejected")]), {}).pass,
+    ).toBe(false);
+    expect(
+      l4CanvasTarget.oracle(
+        state({}, [
+          audit("lab.canvas_target", { shape: L4_CANVAS_TARGET }),
+          audit("lab.canvas_target", { shape: "green triangle" }),
+        ]),
+        {},
+      ).pass,
+    ).toBe(false);
   });
 });

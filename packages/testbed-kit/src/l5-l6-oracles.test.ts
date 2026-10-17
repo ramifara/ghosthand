@@ -69,7 +69,7 @@ describe("L5 and L6 tasks", () => {
     expect(getTask("l5-totp-login")?.secrets).toEqual(["TESTBED_PASSWORD", "TESTBED_TOTP"]);
     expect(l5SsoIdp.allowOrigins).toEqual([IDP_ORIGIN]);
     for (const t of tasks.filter((x) => x.level >= 5)) {
-      expect(t.needsVision).toBe(t.id === "l6-icon-toggle-vision");
+      expect(t.needsVision).toBe(t.id === "l6-icon-toggle-vision" || t.id === "l6-icon-toolbar");
       expect(t.oracle(state(), {}).pass).toBe(false);
     }
   });
@@ -172,5 +172,27 @@ describe("L6 oracles", () => {
     ).toBe(false);
     const upgraded = [...good, row("promo.accept")];
     expect(l6PopupsProfile.oracle(state({ variant: v, users, audit: upgraded }), {}).pass).toBe(false);
+  });
+});
+
+describe("l6-icon-toolbar (ADR 0020: icon-only toolbar under a11y poor)", async () => {
+  const { l6IconToolbar, L6_TOOLBAR_PANE } = await import("./tasks/l6-icon-toolbar.ts");
+  const row = (pane: string, id: number) => ({
+    id,
+    at: "2026-03-02T09:00:00.000Z",
+    actor: ALICE_EMAIL,
+    method: "POST",
+    path: "/api/lab/toolbar",
+    action: "lab.toolbar_open",
+    outcome: "ok" as const,
+    detail: { pane },
+  });
+  it("passes when the filters pane was opened and no other pane", () => {
+    expect(l6IconToolbar.setup.variant.a11y).toBe("poor");
+    expect(l6IconToolbar.oracle({ ...state(), audit: [row(L6_TOOLBAR_PANE, 1)] }, {}).pass).toBe(true);
+    expect(
+      l6IconToolbar.oracle({ ...state(), audit: [row("export", 1), row(L6_TOOLBAR_PANE, 2)] }, {}).pass,
+    ).toBe(false);
+    expect(l6IconToolbar.oracle(state(), {}).pass).toBe(false);
   });
 });

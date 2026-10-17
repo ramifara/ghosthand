@@ -4,6 +4,7 @@
 // the canvas chart data, drag-and-drop lists, contacts upload/download, the feed, inventory and projects.
 import {
   BOARD_COLUMNS,
+  CANVAS_TARGET_SHAPES,
   CardMoveInput,
   ChecklistOrderInput,
   ContactsImportInput,
@@ -17,6 +18,7 @@ import {
   PROMO_CODES,
   PrefsInput,
   parseContactsCsv,
+  TOOLBAR_PANES,
   WEEKDAYS,
   Workspace,
 } from "@ghosthand/testbed-kit";
@@ -145,6 +147,39 @@ export function registerLabRoutes(app: Hono<Env>, testbed: Testbed): void {
   app.get("/lab/signups", (c) => {
     if (!c.get("user")) return signedOut(c);
     return c.json({ days: WEEKDAYS, counts: labSignups(testbed.seed) });
+  });
+
+  // ---- canvas target (ADR 0020: a control that exists only as paint) -------------------------------
+
+  app.post("/lab/canvas-target", async (c) => {
+    const action = "lab.canvas_target";
+    const user = c.get("user");
+    if (!user) return unauthenticated(c, action);
+    const body = await readJson(c.req.raw);
+    const shape = typeof body.shape === "string" ? body.shape : "";
+    if (!(CANVAS_TARGET_SHAPES as readonly string[]).includes(shape)) {
+      c.set("audit", { action, detail: { shape: shape.slice(0, 40), reason: "miss" } });
+      return c.json({ error: LAB_MESSAGES.canvasMiss }, 400);
+    }
+    c.set("audit", { action, detail: { shape } });
+    return c.json({ shape, message: LAB_MESSAGES.canvasHit(shape) });
+  });
+
+  // ---- icon toolbar (ADR 0020: icon-only buttons; no names under a11y poor) -------------------------
+
+  app.post("/lab/toolbar", async (c) => {
+    const action = "lab.toolbar_open";
+    const user = c.get("user");
+    if (!user) return unauthenticated(c, action);
+    const body = await readJson(c.req.raw);
+    const pane = typeof body.pane === "string" ? body.pane : "";
+    if (!Object.hasOwn(TOOLBAR_PANES, pane)) {
+      c.set("audit", { action, detail: { pane: pane.slice(0, 40), reason: "unknown_pane" } });
+      return c.json({ error: "Unknown pane." }, 400);
+    }
+    const title = TOOLBAR_PANES[pane as keyof typeof TOOLBAR_PANES];
+    c.set("audit", { action, detail: { pane } });
+    return c.json({ pane, message: LAB_MESSAGES.paneOpened(title) });
   });
 
   // ---- release checklist (HTML5 drag and drop) -----------------------------------------------------

@@ -208,6 +208,27 @@ describe("L4 oracles", () => {
     await expectPass("l4-canvas-chart", `There were ${n} sign-ups on Thursday.`);
   });
 
+  test("l4-canvas-target", async () => {
+    await expectFail("l4-canvas-target");
+    // A miss is rejected and does not count as a click on a shape.
+    expect((await send(app, "POST", "/api/lab/canvas-target", { shape: "nothing" })).status).toBe(400);
+    await expectFail("l4-canvas-target");
+    expect((await send(app, "POST", "/api/lab/canvas-target", { shape: "red circle" })).status).toBe(200);
+    await expectPass("l4-canvas-target");
+    // Any other shape afterwards fails the task.
+    expect((await send(app, "POST", "/api/lab/canvas-target", { shape: "blue square" })).status).toBe(200);
+    await expectFail("l4-canvas-target");
+  });
+
+  test("l6-icon-toolbar", async () => {
+    await expectFail("l6-icon-toolbar");
+    expect((await send(app, "POST", "/api/lab/toolbar", { pane: "nope" })).status).toBe(400);
+    expect((await send(app, "POST", "/api/lab/toolbar", { pane: "filters" })).status).toBe(200);
+    await expectPass("l6-icon-toolbar");
+    await send(app, "POST", "/api/lab/toolbar", { pane: "export" });
+    await expectFail("l6-icon-toolbar");
+  });
+
   test("l4-dnd-checklist", async () => {
     await expectFail("l4-dnd-checklist");
     const res = await send(app, "PUT", "/api/lab/checklist", { order: L4_CHECKLIST_EXPECTED });

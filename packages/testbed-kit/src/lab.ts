@@ -42,7 +42,23 @@ export const LAB_MESSAGES = {
   discontinued: (id: string) => `${id} marked as discontinued.`,
   workspace: (name: string) => `Switched to workspace ${name}.`,
   archived: (name: string) => `Project ${name} archived.`,
+  canvasHit: (shape: string) => `Selected the ${shape}.`,
+  canvasMiss: "Nothing there. Click one of the shapes.",
+  paneOpened: (title: string) => `${title} pane opened.`,
 } as const;
+
+/** Shapes painted on the canvas-target page (ADR 0020): names the agent is given, never DOM nodes. */
+export const CANVAS_TARGET_SHAPES = ["red circle", "blue square", "green triangle"] as const;
+export type CanvasTargetShape = (typeof CANVAS_TARGET_SHAPES)[number];
+
+/** Panes behind the icon-only toolbar on the toolbar page; under `a11y: "poor"` the icons have no names. */
+export const TOOLBAR_PANES = {
+  search: "Search",
+  filters: "Filters",
+  export: "Export",
+  settings: "Settings",
+} as const;
+export type ToolbarPane = keyof typeof TOOLBAR_PANES;
 
 // ---- notification preferences (open shadow root) --------------------------------------------------
 
