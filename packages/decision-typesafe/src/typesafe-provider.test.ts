@@ -161,7 +161,9 @@ describe("createTypeSafeDecisionProvider", () => {
 
   it("returns a server error for a malformed 200 body", async () => {
     const rec = recordedFetch("systemone-malformed");
-    const e = expectErr(await provider(rec.fetch).ask(state, { goal_done: { type: "noul" } }));
+    const e = expectErr(
+      await provider(rec.fetch).ask(state, { goal_done: { type: "noul", instructions: "Done?" } }),
+    );
     expect(e).toMatchObject({ kind: "server", requestId: "req_aaaabbbbccccddddeeeeffff00001111" });
   });
 
@@ -330,5 +332,46 @@ describe("createTypeSafeDecisionProvider", () => {
       expect(dump).not.toContain("Sign in button");
       expect(dump).not.toContain(TEST_KEY);
     });
+  });
+});
+
+describe("request compression (SDK 0.7.0)", () => {
+  const big = { ...state, filler: "y".repeat(3000) };
+
+  it("zstd-compresses bodies of 1 KiB or more by default, and the recorded transport decodes them", async () => {
+    const rec = recordedFetch("systemone-all-types");
+    await provider(rec.fetch).ask(big, questions);
+    expect(rec.calls[0]?.headers["content-encoding"]).toBe("zstd");
+    expect(rec.calls[0]?.body).toMatchObject({ model: "jev-1.13.0", state: big });
+  });
+
+  it("sends plain JSON when compression is off", async () => {
+    const rec = recordedFetch("systemone-all-types");
+    await provider(rec.fetch, { compression: false }).ask(big, questions);
+    expect(rec.calls[0]?.headers["content-encoding"]).toBeUndefined();
+    expect(rec.calls[0]?.body).toMatchObject({ model: "jev-1.13.0", state: big });
+  });
+});
+
+describe("SDK 0.7.0 request and usage edge cases", () => {
+  it("rejects a null state as invalid without sending (the API requires a state)", async () => {
+    const rec = recordedFetch("systemone-all-types");
+    const e = expectErr(await provider(rec.fetch).ask(null, questions));
+    expect(e.kind).toBe("invalid");
+    expect(rec.calls).toHaveLength(0);
+  });
+
+  it("falls back to the preflight estimate when usage token counts are null", async () => {
+    const { logger, lines } = captureLogger();
+    const rec = recordedFetch("systemone-usage-null");
+    const r = expectOk(
+      await provider(rec.fetch, { logger }).ask(state, {
+        goal_done: { type: "noul", instructions: "Done?" },
+      }),
+    );
+    expect(r.usage.inputTokens).toBeGreaterThan(0);
+    expect(r.usage.outputTokens).toBe(0);
+    expect(r.costUsd).toBeCloseTo((r.usage.inputTokens * 0.042) / 1e6, 12);
+    expect(lines.find((l) => l.msg === "decision.response")?.obj).toMatchObject({ usageSource: "estimate" });
   });
 });

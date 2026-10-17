@@ -25,9 +25,10 @@ export const WireScoreAnswer = z.object({
 });
 export type WireScoreAnswer = z.infer<typeof WireScoreAnswer>;
 
+/** Token counts may be null when the API does not report them (SDK 0.7.0 `Usage`). */
 export const WireUsage = z.object({
-  input_tokens: z.number().int().nonnegative(),
-  output_tokens: z.number().int().nonnegative(),
+  input_tokens: z.number().int().nonnegative().nullable(),
+  output_tokens: z.number().int().nonnegative().nullable(),
   /** OpenRouter: billed cost in USD. */
   cost: z.number().nonnegative().optional().catch(undefined),
 });

@@ -59,6 +59,11 @@ export interface TypeSafeDecisionProviderOptions {
   baseUrl?: string;
   /** Custom fetch (tests, Electron `net.fetch`). Must support `Response.clone()` and stream bodies. */
   fetch?: FetchLike;
+  /**
+   * Request body compression. Default: the SDK's (zstd for bodies of 1 KiB or more on Node 22.15+).
+   * Carriers set `false`: gateway support for compressed bodies is unverified.
+   */
+  compression?: "zstd" | false;
   /** USD per million input tokens. Default 0.042. */
   priceInputPerM?: number;
   logger?: DecisionLogger;
@@ -161,6 +166,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
         logLevel: "warn",
         logger: sdkLoggerFor(logger, provider),
         ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        ...(opts.compression !== undefined ? { compression: opts.compression } : {}),
       });
       return ok(client);
     } catch (e) {
@@ -175,6 +181,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
   ): Promise<Result<DecisionResponse, DecisionError>> {
     const { signal } = askOpts;
     if (signal?.aborted) return err({ kind: "aborted", provider, message: "aborted before sending" });
+    if (state === null) return err({ kind: "invalid", provider, message: "state must not be null" });
 
     let estimate: TokenEstimate;
     if (opts.skipPreflight) {
@@ -244,8 +251,10 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
     }
 
     const answers = validateAnswers(questions, body.answers);
-    const inputTokens = body.usage.input_tokens;
-    const outputTokens = body.usage.output_tokens;
+    // The API may omit token counts (SDK 0.7.0 `Usage`); bill the preflight estimate then.
+    const usageSource = body.usage.input_tokens === null ? "estimate" : "api";
+    const inputTokens = body.usage.input_tokens ?? estimate.total;
+    const outputTokens = body.usage.output_tokens ?? 0;
     // OpenRouter (`usage.cost`) and Vercel (`provider_metadata.gateway.cost`) report the billed cost.
     const reported = reportedCostUsd(body);
     const cost = opts.costMeter
@@ -264,6 +273,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
         estimatedTokens: estimate.total,
         costUsd: cost,
         costSource: reported === undefined ? "price" : "carrier",
+        usageSource,
         abstained,
       },
       "decision.response",

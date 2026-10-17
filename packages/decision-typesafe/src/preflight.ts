@@ -74,7 +74,12 @@ export function preflight(
 
   for (const [name, q] of entries) {
     if (name.length === 0) return invalid(provider, "question names must be non-empty");
-    if (q.type === "choice") {
+    if (q.type === "noul") {
+      const described = q.criteria?.true != null || q.criteria?.false != null;
+      if (q.instructions == null && !described) {
+        return invalid(provider, `noul "${name}" needs instructions or a described outcome`);
+      }
+    } else if (q.type === "choice") {
       const keys = Object.keys(q.criteria);
       if (keys.length < 2) return invalid(provider, `choice "${name}" needs at least 2 options`);
       if (keys.length > caps.maxOptions) {

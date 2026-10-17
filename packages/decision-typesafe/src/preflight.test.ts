@@ -16,7 +16,10 @@ describe("estimateTokens", () => {
   });
 
   it("sums the state with all questions and with the longest question", () => {
-    const q: Questions = { a: { type: "noul", instructions: "x".repeat(30) }, b: { type: "noul" } };
+    const q: Questions = {
+      a: { type: "noul", instructions: "x".repeat(30) },
+      b: { type: "noul", criteria: { true: "yes" } },
+    };
     const e = estimateRequestTokens("y".repeat(300), q);
     expect(e.state).toBe(150);
     expect(e.total).toBe(150 + (e.questions.a ?? 0) + (e.questions.b ?? 0));
@@ -69,7 +72,7 @@ describe("preflight", () => {
   });
 
   it("rejects state + longest question over 32k as too_large", () => {
-    const r = preflight("x".repeat(33_000 * 2), { done: { type: "noul" } }, caps);
+    const r = preflight("x".repeat(33_000 * 2), { done: { type: "noul", instructions: "done?" } }, caps);
     expect(r.ok ? undefined : r.error).toMatchObject({
       kind: "too_large",
       message: expect.stringMatching(/longest question/),
@@ -94,5 +97,18 @@ describe("preflight", () => {
       { ...caps, maxOptions: 1000 },
     );
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("noul shape (SDK 0.7.0 rejects a noul with neither instructions nor a described outcome)", () => {
+  const caps = { maxOptions: 255, maxLevels: 10, contextTokens: 64_000, perQuestionContextTokens: 32_000 };
+  it("rejects a bare noul before sending", () => {
+    const r = preflight("s", { done: { type: "noul" } }, caps);
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.error).toMatchObject({ kind: "invalid", message: expect.stringMatching(/noul "done"/) });
+  });
+  it("accepts a noul described only by criteria", () => {
+    expect(preflight("s", { done: { type: "noul", criteria: { true: "finished" } } }, caps).ok).toBe(true);
   });
 });
