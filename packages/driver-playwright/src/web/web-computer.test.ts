@@ -198,6 +198,34 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expect(px3.r + px3.g + px3.b).toBeLessThan(60);
   });
 
+  it("I3: masks a field holding a registered secret even when the element table was capped", async () => {
+    const c = await open("dense.html");
+    await c.page.fill("input[name=apikey]", PASSWORD);
+    const observed = await c.observe({ maxElements: 20 });
+    if (!observed.ok) throw new Error(observed.error.message);
+    expect(observed.value.elements.some((e) => e.name === "API key")).toBe(false); // beyond the cap
+    const box = await c.page.locator("input[name=apikey]").boundingBox();
+    if (!box) throw new Error("no box");
+    await c.page.locator("input[name=apikey]").scrollIntoViewIfNeeded();
+    const b2 = await c.page.locator("input[name=apikey]").boundingBox();
+    if (!b2) throw new Error("no box");
+    const shot = await c.screenshot(undefined, {
+      format: "jpeg",
+      quality: 80,
+      maxSide: 1568,
+      mask: "secrets",
+    });
+    if (!shot.ok) throw new Error(shot.error.message);
+    const px = await pixelAt(
+      c,
+      shot.value.data,
+      "image/jpeg",
+      Math.round(b2.x + b2.width / 2),
+      Math.round(b2.y + b2.height / 2),
+    );
+    expect(px.r + px.g + px.b).toBeLessThan(60);
+  });
+
   it("captures at CSS scale on a DPR-2 context so capture pixels map back to clicks", async () => {
     context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
     const created = await createWebComputer({

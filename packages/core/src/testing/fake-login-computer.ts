@@ -67,6 +67,7 @@ export class FakeLoginComputer implements Computer {
       pointer: false,
       screenshots: true,
       recording: false,
+      secretMasking: true,
     };
   }
   async doctor() {

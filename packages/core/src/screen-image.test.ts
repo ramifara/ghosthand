@@ -77,3 +77,14 @@ describe("boxCentre", () => {
     expect(t).toEqual({ captureId: "c1", x: Math.round(0.245 * 1100), y: Math.round(0.77 * 717) });
   });
 });
+
+describe("secretOnScreen", async () => {
+  const { secretOnScreen } = await import("./screen-image.ts");
+  const el = (value?: string) => ({ value }) as never;
+  it("sees secret placeholders in element values, unregistered passwords, and page text", () => {
+    expect(secretOnScreen({ elements: [el("[input:TOKEN]")], text: "" })).toBe(true);
+    expect(secretOnScreen({ elements: [el("<filled>")], text: "" })).toBe(true);
+    expect(secretOnScreen({ elements: [el("hello")], text: "Your key: [input:API_KEY]" })).toBe(true);
+    expect(secretOnScreen({ elements: [el("hello"), el()], text: "plain" })).toBe(false);
+  });
+});

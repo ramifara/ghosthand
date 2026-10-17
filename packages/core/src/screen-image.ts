@@ -10,6 +10,7 @@ import type {
   ImageRef,
   Result,
   ScreenshotOptions,
+  Snapshot,
 } from "@ghosthand/protocol";
 import { type CaptureTarget, err, ok } from "@ghosthand/protocol";
 import { readImageSize, sniffImageType } from "./image-header.ts";
@@ -94,6 +95,17 @@ export function boxCentre(box: Box, capture: Pick<Capture, "id" | "width" | "hei
     x: Math.round(((box.left + box.right) / 2) * capture.width),
     y: Math.round(((box.top + box.bottom) / 2) * capture.height),
   };
+}
+
+/**
+ * A secret value is visible on this screen: a field holding a registered secret (`[input:NAME]`) or an
+ * unregistered password (`<filled>`). A computer that cannot mask must not screenshot it for the model.
+ */
+export function secretOnScreen(snapshot: Pick<Snapshot, "elements" | "text">): boolean {
+  if (snapshot.text.includes("[input:")) return true;
+  return snapshot.elements.some(
+    (e) => e.value !== undefined && (e.value.includes("[input:") || e.value === "<filled>"),
+  );
 }
 
 /** Fraction of the image a box covers. */

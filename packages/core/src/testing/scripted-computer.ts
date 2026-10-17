@@ -35,6 +35,8 @@ export interface ScriptedComputerOptions {
   screens: Record<string, ScriptedScreen>;
   start: string;
   transition: ScriptedTransition;
+  /** Whether decision screenshots mask secrets (default true; desktop hosts report false). */
+  secretMasking?: boolean;
 }
 
 export function fakeElement(
@@ -99,6 +101,7 @@ export class ScriptedComputer implements Computer {
       pointer: true,
       screenshots: true,
       recording: false,
+      secretMasking: this.#opts.secretMasking ?? true,
     };
   }
   async doctor() {

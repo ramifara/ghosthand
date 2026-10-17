@@ -79,6 +79,7 @@ import {
   estimateImageTokens,
   prepareForDecision,
   SCREEN_REF,
+  secretOnScreen,
 } from "./screen-image.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
@@ -684,9 +685,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     };
     // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
     const d1Failures = new Map<string, number>();
-    const d0Failures = new Map<string, number>();
+    const d0Attempts = new Map<string, number>();
     /** Step on which a secret was last typed: the next step sends no screenshot (ADR 0020). */
     let secretWrittenStep = -1;
+    /** The API rejected an image this run: no more screenshots with act requests. */
+    const imageRejected = { value: false };
     let driving: { remaining: number } | undefined;
     const noneStreak = { screen: "", count: 0 };
     let poorStreak = 0;
@@ -738,9 +741,14 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // here so the act request can carry it. Not on the step after a secret was typed.
       let stepImage: DecisionImageData | undefined;
       let imageSkipped: string | undefined;
+      if (cfg.images === "always" && deps.decision.capabilities.images !== true)
+        imageSkipped = "provider_no_images";
       if (cfg.images === "always" && deps.decision.capabilities.images === true) {
-        if (secretWrittenStep === current - 1) imageSkipped = "secret_written";
+        if (imageRejected.value) imageSkipped = "image_rejected";
+        else if (secretWrittenStep === current - 1) imageSkipped = "secret_written";
         else if (!deps.computer.capabilities().screenshots) imageSkipped = "no_screenshots";
+        else if (deps.computer.capabilities().secretMasking !== true && secretOnScreen(snapshot))
+          imageSkipped = "secret_on_screen";
         else {
           const ts = clock.now();
           const shot = await deps.computer.screenshot(undefined, DECISION_SCREENSHOT_OPTIONS);
@@ -900,7 +908,8 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         acted,
         screenKey: fingerprint.key,
         d1Failures,
-        d0Failures,
+        d0Attempts,
+        imageRejected,
         noneStreak,
         ...(stepImage ? { stepImage } : {}),
         ...(imageSkipped ? { imageSkipped } : {}),
@@ -1247,8 +1256,10 @@ interface DecideContext {
   screenKey: string;
   /** D1 attempts that changed nothing, per screen key. */
   d1Failures: Map<string, number>;
-  /** D0 (Jev box) attempts that clicked nothing, per screen key. */
-  d0Failures: Map<string, number>;
+  /** D0 (Jev box) attempts per screen key (every look counts, clicked or not). */
+  d0Attempts: Map<string, number>;
+  /** The API rejected an image this run: act requests carry none from then on. */
+  imageRejected: { value: boolean };
   /** D0 was already tried this step. */
   jevTried?: boolean;
   /** The step screenshot, prepared for the decision model (images = always). */
@@ -1331,9 +1342,16 @@ async function jevGround(
   if (ctx.jevTried || ctx.visionTried) return undefined;
   if (cfg.images === "off" || deps.decision.capabilities.box !== true) return undefined;
   if (!deps.computer.capabilities().screenshots) return undefined;
-  if ((ctx.d0Failures.get(ctx.screenKey) ?? 0) >= D0_ATTEMPTS_PER_SCREEN) return undefined;
+  // A computer that cannot mask secrets (desktop hosts) sends no screenshot while a secret value shows.
+  if (deps.computer.capabilities().secretMasking !== true && secretOnScreen(ctx.snapshot)) {
+    ctx.history.push({ step: ctx.step, text: "no Jev grounding: a secret value is on screen" });
+    return undefined;
+  }
+  if (ctx.imageRejected.value) return undefined;
+  if ((ctx.d0Attempts.get(ctx.screenKey) ?? 0) >= D0_ATTEMPTS_PER_SCREEN) return undefined;
   if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
   ctx.jevTried = true;
+  ctx.d0Attempts.set(ctx.screenKey, (ctx.d0Attempts.get(ctx.screenKey) ?? 0) + 1);
   deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D0", reason: why });
   const t = ctx.clock.now();
   const r = await jevGroundAndClick(
@@ -1354,8 +1372,8 @@ async function jevGround(
     ctx.subgoal.allowedEffects,
   );
   ctx.timing.actMs = ctx.clock.now() - t;
+  if (r.typedSecret) ctx.noteSecretWrite();
   if (!r.result || r.result.effect === "suspected_noop" || r.result.effect === "refused") {
-    ctx.d0Failures.set(ctx.screenKey, (ctx.d0Failures.get(ctx.screenKey) ?? 0) + 1);
     ctx.history.push({ step: ctx.step, text: `Jev grounding failed: ${r.reason}` });
     if (!r.result) return undefined;
   }
@@ -1642,6 +1660,19 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       { step, scale: ctx.requestScale.value, error: r.error.message },
       "decision request too large; asking again with a smaller page table",
     );
+    pending = startAct(ctx);
+    r = await pending.response;
+  }
+  // The API refused the screenshot (a tightened danger-zone policy, a retired vision model): drop the image
+  // for the rest of the run and ask again without it, instead of refusing every step.
+  if (!r.ok && r.error.kind === "image_rejected" && ctx.stepImage) {
+    ctx.log.warn(
+      { step, error: r.error.message },
+      "the decision model rejected the screenshot; continuing without images",
+    );
+    ctx.imageRejected.value = true;
+    delete ctx.stepImage;
+    ctx.imageSkipped = "image_rejected";
     pending = startAct(ctx);
     r = await pending.response;
   }

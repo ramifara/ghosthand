@@ -363,3 +363,178 @@ describe("D0 on a text field", () => {
     expect(c.actions.some((a) => a.type === "type_text")).toBe(false);
   });
 });
+
+describe("D0 on a computer that cannot mask secrets", () => {
+  it("does not send a screenshot while a secret value is on screen", async () => {
+    const screens: Record<string, ScriptedScreen> = {
+      form: {
+        url: "u",
+        title: "Form",
+        elements: [
+          fakeElement("e1", {
+            role: "textbox",
+            name: "Token",
+            value: "[input:API_TOKEN]",
+            actions: ["set_value"],
+          }),
+        ],
+      },
+    };
+    const computer = new ScriptedComputer({
+      screens,
+      start: "form",
+      secretMasking: false,
+      transition: () => undefined,
+    });
+    const decision = provider({ present: 0.98, box: { top: 0.4, bottom: 0.5, left: 0.3, right: 0.38 } });
+    const s = sink();
+    await runTask(task("Press the Save button", "Saved"), deps(computer, decision, s));
+    expect(s.events.some((e) => e.type === "escalate" && e.to === "D0")).toBe(false);
+    expect(decision.requests.every((q) => q.images.length === 0)).toBe(true);
+  });
+});
+
+describe("review fixes (D0)", () => {
+  const field = (value?: string) =>
+    fakeElement("e1", { role: "textbox", name: "", actions: ["set_value"], ...(value ? { value } : {}) });
+  const promoScreens = (): Record<string, ScriptedScreen> => ({
+    promo: { url: "u", title: "Promo", elements: [] },
+    typed: { url: "u", title: "Promo", text: "Code typed", elements: [field("[input:CODE]")] },
+    done: { url: "u", title: "Promo", text: "applied", elements: [] },
+  });
+  const secretTask = TaskSpec.parse({
+    id: "d0s",
+    instruction: "Enter the stored code in the promo box and apply it",
+    startUrl: "http://127.0.0.1:4400/lab",
+    budget: { steps: 8, seconds: 60, usd: 0.25 },
+    secrets: ["CODE"],
+    plan: {
+      source: "task",
+      subgoals: [
+        {
+          id: "s",
+          goal: "Enter the stored code in the promo box and apply it",
+          doneWhen: { all: [{ kind: "text", text: "applied" }], none: [] },
+          allowedEffects: ["advance", "commit"],
+          maxSteps: 6,
+        },
+      ],
+    },
+  });
+
+  it("I1: typing a secret through D0 keeps the screenshot off the next request", async () => {
+    const computer = new ScriptedComputer({
+      screens: promoScreens(),
+      start: "promo",
+      transition: (a, screen) =>
+        a.type === "type_text" ? "typed" : a.type === "click" && screen === "typed" ? "done" : undefined,
+    });
+    let grounds = 0;
+    const decision = new FnDecisionProvider((q) => {
+      if (q.operation) return noTarget(q);
+      if (q.where?.type === "box") {
+        grounds++;
+        const secretKey =
+          q.text?.type === "choice"
+            ? Object.keys(q.text.criteria).find((k) => k.startsWith("sec_"))
+            : undefined;
+        return {
+          present: noulOf(0.97),
+          where: boxAnswer({ top: 0.2, bottom: 0.26, left: 0.12, right: 0.32 }),
+          effect: choiceOf(q, "effect", "advance"),
+          kind: choiceOf(q, "kind", grounds === 1 ? "text_field" : "button"),
+          ...(q.text && secretKey ? { text: choiceOf(q, "text", grounds === 1 ? secretKey : "none") } : {}),
+        };
+      }
+      return {};
+    });
+    const s = sink();
+    await runTask(secretTask, {
+      computer,
+      decision,
+      events: s,
+      secrets: new SecretsRegistry([["CODE", "s3cret-code"]]),
+      config: { screenshots: false, images: "always" },
+    });
+    const typed = s.events.find((e) => e.type === "action" && e.action.type === "type_text");
+    expect(typed?.type === "action" && typed.action.type === "type_text" && typed.action.text).toEqual({
+      secretRef: "CODE",
+    });
+    const step = typed?.type === "action" ? typed.step : -1;
+    const next = s.events.find(
+      (e) => e.type === "decision.request" && e.purpose === "act" && e.step === step + 1,
+    );
+    expect(next?.type === "decision.request" && next.imageSkipped).toBe("secret_written");
+  });
+
+  it("I4: does not type the only text option when Jev confidently says none (but does when unsure)", async () => {
+    const { jevGroundAndClick } = await import("./jev-ground.ts");
+    const { systemClock } = await import("./logger.ts");
+    const run = async (textAnswer: "none" | undefined) => {
+      const computer = new ScriptedComputer({
+        screens: promoScreens(),
+        start: "promo",
+        transition: () => undefined,
+      });
+      const ask: Parameters<typeof jevGroundAndClick>[0]["ask"] = async (_state, questions) => ({
+        ok: true,
+        value: {
+          answers: {
+            present: noulOf(0.97),
+            where: boxAnswer({ top: 0.2, bottom: 0.26, left: 0.12, right: 0.32 }),
+            effect: choiceOf(questions, "effect", "advance"),
+            kind: choiceOf(questions, "kind", "text_field"),
+            ...(textAnswer ? { text: choiceOf(questions, "text", textAnswer) } : {}),
+          },
+          model: "fn",
+          provider: "fn",
+          usage: { inputTokens: 1, outputTokens: 0 },
+          costUsd: 0,
+          latencyMs: 1,
+          calibration: "native",
+        },
+      });
+      await jevGroundAndClick(
+        {
+          computer,
+          events: sink(),
+          clock: systemClock,
+          step: 1,
+          goal: "g",
+          elements: [],
+          gates: { boxPresent: 0.7, boxMaxArea: 0.25 },
+          history: [],
+          textOptions: [{ key: "lit_1", kind: "literal", text: "ABC-1" }],
+          ask,
+        },
+        "the field",
+        "advance",
+        ["advance", "commit"],
+      );
+      return computer.actions.some((a) => a.type === "type_text");
+    };
+    expect(await run("none")).toBe(false);
+    expect(await run(undefined)).toBe(true);
+  });
+
+  it("I5: D0 gets two attempts per screen even when its clicks are confirmed but change nothing useful", async () => {
+    // Two identical screens: a confirmed click flips between them, the fingerprint stays the same.
+    const el = fakeElement("e1", { role: "button", name: "Help", actions: ["press"] });
+    const computer = new ScriptedComputer({
+      screens: {
+        a: { url: "u", title: "Chart", text: "view A", elements: [el] },
+        b: { url: "u", title: "Chart", text: "view B", elements: [el] },
+      },
+      start: "a",
+      transition: (act, screen) =>
+        act.type === "click" && "captureId" in act.target ? (screen === "a" ? "b" : "a") : undefined,
+    });
+    const decision = provider({ present: 0.98, box: { top: 0.4, bottom: 0.5, left: 0.3, right: 0.38 } });
+    const s = sink();
+    await runTask(task("Select the Q3 bar in the chart", "Q3 selected"), deps(computer, decision, s));
+    expect(s.events.filter((e) => e.type === "escalate" && e.to === "D0")).toHaveLength(
+      D0_ATTEMPTS_PER_SCREEN,
+    );
+    expect(s.events.filter((e) => e.type === "step.end").length).toBeGreaterThan(D0_ATTEMPTS_PER_SCREEN + 1);
+  });
+});

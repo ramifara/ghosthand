@@ -148,6 +148,8 @@ interface LatestSnapshot {
   refs: Map<string, string>;
   ancestors: Map<string, string[]>;
   secretTokens: Set<string>;
+  /** aria refs of every secret-bearing element on the page, capped or not (decision screenshot masks). */
+  maskRefs: Set<string>;
   invalidated: boolean;
 }
 
@@ -537,7 +539,14 @@ export class WebComputer implements Computer {
   // ---- Computer: basics ------------------------------------------------------------------------
 
   capabilities(): ComputerCapabilities {
-    return { surface: "web", semanticActions: true, pointer: true, screenshots: true, recording: true };
+    return {
+      surface: "web",
+      semanticActions: true,
+      pointer: true,
+      screenshots: true,
+      recording: true,
+      secretMasking: true,
+    };
   }
 
   async doctor(): Promise<DoctorCheck[]> {
@@ -707,11 +716,16 @@ export class WebComputer implements Computer {
       const ref = c.refs.get(el.token);
       if (ref !== undefined) refs.set(el.token, ref);
     }
-    // Password-like fields plus any field whose (redacted) value carries a secret placeholder: both are
-    // masked in decision screenshots (ADR 0020).
+    // Password-like fields plus any field whose (redacted) value carries a secret placeholder, over every
+    // element the page has (not only the capped table): all are masked in decision screenshots (ADR 0020).
     const secretTokens = new Set(c.secretTokens);
-    for (const el of capped.elements) if (el.value?.includes("[input:")) secretTokens.add(el.token);
-    this.#latest = { id, refs, ancestors: c.ancestors, secretTokens, invalidated: false };
+    for (const el of c.elements) if (el.value?.includes("[input:")) secretTokens.add(el.token);
+    const maskRefs = new Set<string>();
+    for (const token of secretTokens) {
+      const ref = c.refs.get(token);
+      if (ref !== undefined) maskRefs.add(ref);
+    }
+    this.#latest = { id, refs, ancestors: c.ancestors, secretTokens, maskRefs, invalidated: false };
     this.#lastStats = {
       ...c.timings,
       totalMs: Date.now() - t0,
@@ -731,13 +745,7 @@ export class WebComputer implements Computer {
    */
   #secretMask(): Locator[] {
     const masks: Locator[] = [this.#page.locator("input[type=password]")];
-    const latest = this.#latest;
-    if (latest) {
-      for (const token of latest.secretTokens) {
-        const ref = latest.refs.get(token);
-        if (ref !== undefined) masks.push(this.#page.locator(`aria-ref=${ref}`));
-      }
-    }
+    for (const ref of this.#latest?.maskRefs ?? []) masks.push(this.#page.locator(`aria-ref=${ref}`));
     // Registered and generated values (TOTP codes included); the scope already drops short ones.
     for (const [, value] of this.#scope.values()) masks.push(this.#page.getByText(value));
     return masks;

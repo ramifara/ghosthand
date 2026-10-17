@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // `images: "always"` (ADR 0020): the step screenshot rides with act, narrow and verify requests as
 // `state.screen`, except right after a secret was typed.
-import { RunEvent, type RunEventDraft, TaskSpec } from "@ghosthand/protocol";
+import { type DecisionProvider, err, RunEvent, type RunEventDraft, TaskSpec } from "@ghosthand/protocol";
 import { describe, expect, it } from "vitest";
 import { runTask } from "./loop.ts";
 import { estimateImageTokens } from "./screen-image.ts";
@@ -163,5 +163,84 @@ describe("decision.images = always", () => {
     const r = await runTask(task, { ...base(c, d), config: { screenshots: false } });
     expect(r.outcome).toBe("success");
     expect(d.requests.filter((q) => q.questions.operation).every((q) => q.images.length === 0)).toBe(true);
+  });
+});
+
+describe("a computer that cannot mask secrets (desktop hosts)", () => {
+  it("sends no image while a secret value is on screen, and says why", async () => {
+    // The password field already holds the stored secret when the run starts.
+    const filled: Record<string, ScriptedScreen> = {
+      login: {
+        url: "http://127.0.0.1:4400/login",
+        title: "Sign in",
+        elements: [
+          fakeElement("e1", {
+            role: "textbox",
+            name: "Password",
+            value: "[input:PASSWORD]",
+            actions: ["set_value"],
+          }),
+          fakeElement("e2", { role: "button", name: "Sign in", actions: ["press"] }),
+        ],
+      },
+      home: { url: "http://127.0.0.1:4400/", title: "Home", text: "Welcome back", elements: [] },
+    };
+    const c = new ScriptedComputer({
+      screens: filled,
+      start: "login",
+      secretMasking: false,
+      transition: (a) => (a.type === "press" && a.token === "e2" ? "home" : undefined),
+    });
+    const d = provider();
+    const s = sink();
+    const r = await runTask(task, { ...base(c, d, s), config: { screenshots: false, images: "always" } });
+    expect(r.outcome).toBe("success");
+    const onLogin = s.events.filter(
+      (e) => e.type === "decision.request" && e.purpose === "act" && e.step === 1,
+    );
+    expect(onLogin.length).toBeGreaterThan(0);
+    for (const e of onLogin) {
+      expect(e.type === "decision.request" && e.images).toBeUndefined();
+      expect(e.type === "decision.request" && e.imageSkipped).toBe("secret_on_screen");
+    }
+    // Requests that did carry an image never showed a field holding a secret value.
+    const withImages = d.requests.filter((q) => q.images.length > 0);
+    expect(withImages.length).toBeGreaterThan(0);
+    for (const q of withImages) {
+      const elements = (q.state as { elements?: Array<{ value?: string }> }).elements ?? [];
+      expect(elements.some((e) => e.value?.includes("[input:"))).toBe(false);
+    }
+  });
+});
+
+describe("I2: the API rejects the image", () => {
+  it("drops the screenshot, re-asks once, and keeps going without images for the rest of the run", async () => {
+    const c = computer();
+    const inner = provider();
+    let rejected = 0;
+    const d: DecisionProvider = {
+      id: inner.id,
+      capabilities: inner.capabilities,
+      ask: async (state, questions, opts) => {
+        if (opts?.images && opts.images.length > 0) {
+          rejected++;
+          return err({ kind: "image_rejected", provider: "fn", message: "400 Invalid image dimensions." });
+        }
+        return inner.ask(state, questions, opts);
+      },
+    };
+    const s = sink();
+    const r = await runTask(task, {
+      ...base(c, inner, s),
+      decision: d,
+      config: { screenshots: false, images: "always" },
+    });
+    expect(r.outcome).toBe("success");
+    expect(rejected).toBe(1);
+    const acts = s.events.filter((e) => e.type === "decision.request" && e.purpose === "act");
+    expect(acts.length).toBeGreaterThanOrEqual(2);
+    const afterFirst = acts.slice(1);
+    for (const e of afterFirst)
+      expect(e.type === "decision.request" && e.imageSkipped).toBe("image_rejected");
   });
 });

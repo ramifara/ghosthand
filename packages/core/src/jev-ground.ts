@@ -192,6 +192,8 @@ export interface JevGroundOutcome {
   result?: ActionResult;
   reason: string;
   box?: Box;
+  /** A stored secret was typed into the located field: the next step must send no screenshot. */
+  typedSecret?: boolean;
 }
 
 interface Look {
@@ -219,8 +221,11 @@ interface Located {
   confidence: number | null;
   effect: EffectClass | undefined;
   kind: "text_field" | "button" | "other" | undefined;
-  /** Key of the text option Jev chose for the field, when it chose one with enough confidence. */
-  textKey: string | undefined;
+  /**
+   * Jev's text pick: an option key, `"none"` when it confidently said nothing belongs there, or undefined
+   * when it did not answer or was not sure. Only the last case falls back to the single option.
+   */
+  textPick: string | "none" | undefined;
 }
 
 /** Jev's text pick counts only when it clearly beats "none" (the same bar as the act text head). */
@@ -236,11 +241,11 @@ async function locate(env: JevGroundEnv, description: string, l: Look): Promise<
   const eff = r.value.answers.effect;
   const kind = r.value.answers.kind;
   const text = r.value.answers.text;
-  const textKey =
-    text?.type === "choice" &&
-    text.choice !== NONE &&
-    (text.probabilities[text.choice] ?? 0) >= MIN_TEXT_CONFIDENCE
-      ? text.choice
+  const textPick =
+    text?.type === "choice" && (text.probabilities[text.choice] ?? 0) >= MIN_TEXT_CONFIDENCE
+      ? text.choice === NONE
+        ? "none"
+        : text.choice
       : undefined;
   return {
     box: where.box,
@@ -248,7 +253,7 @@ async function locate(env: JevGroundEnv, description: string, l: Look): Promise<
     confidence: where.confidence,
     effect: eff?.type === "choice" ? (eff.choice as EffectClass) : undefined,
     kind: kind?.type === "choice" ? (kind.choice as Located["kind"]) : undefined,
-    textKey,
+    textPick,
   };
 }
 
@@ -317,10 +322,10 @@ export async function jevGroundAndClick(
   });
   // A click on a text field only focuses it: when the goal says what to type, type it now. The text is
   // the option Jev picked, or the only one there is; never text read off the page.
-  if (located.kind === "text_field" && result.effect !== "refused") {
+  if (located.kind === "text_field" && result.effect !== "refused" && located.textPick !== "none") {
     const option =
-      env.textOptions.find((o) => o.key === located.textKey) ??
-      (env.textOptions.length === 1 ? env.textOptions[0] : undefined);
+      env.textOptions.find((o) => o.key === located.textPick) ??
+      (located.textPick === undefined && env.textOptions.length === 1 ? env.textOptions[0] : undefined);
     if (option) {
       const text = option.kind === "literal" ? option.text : { secretRef: option.name };
       const typing: Action = { type: "type_text", text };
@@ -332,7 +337,12 @@ export async function jevGroundAndClick(
         step: env.step,
         text: `typed ${label} into the field Jev located (${typed.effect})`,
       });
-      return { result: typed, reason: `clicked and typed in ${env.clock.now() - t} ms`, box: located.box };
+      return {
+        result: typed,
+        reason: `clicked and typed in ${env.clock.now() - t} ms`,
+        box: located.box,
+        ...(option.kind === "secret" ? { typedSecret: true } : {}),
+      };
     }
   }
   return { result, reason: `clicked in ${env.clock.now() - t} ms`, box: located.box };

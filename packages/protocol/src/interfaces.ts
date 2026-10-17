@@ -24,6 +24,11 @@ export interface ComputerCapabilities {
   pointer: boolean;
   screenshots: boolean;
   recording: boolean;
+  /**
+   * Screenshots taken with `mask: "secrets"` black out secret values (ADR 0020). Absent or false: the
+   * loop sends no screenshot to the decision model while a secret value is on screen.
+   */
+  secretMasking?: boolean;
 }
 
 export interface DoctorCheck {
