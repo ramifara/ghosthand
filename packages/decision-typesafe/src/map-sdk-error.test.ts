@@ -61,3 +61,19 @@ describe("mapSdkError", () => {
     expect(mapSdkError(undefined).kind).toBe("unknown");
   });
 });
+
+describe("image errors (Jev 1.14)", () => {
+  it.each([
+    "Invalid image dimensions.",
+    "Images are experimental. Send the header TypeSafe-Danger-Zone-Images: true to use them.",
+    "Asset <image:screen> is not referenced.",
+  ])("maps 400 %j to image_rejected", (message) => {
+    expect(mapSdkError(apiError(400, message)).kind).toBe("image_rejected");
+  });
+
+  it("keeps max_tokens_exceeded as too_large", () => {
+    expect(mapSdkError(apiError(400, '{"detail":{"error_type":"max_tokens_exceeded"}}')).kind).toBe(
+      "too_large",
+    );
+  });
+});

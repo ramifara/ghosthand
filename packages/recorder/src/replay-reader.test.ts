@@ -133,6 +133,8 @@ describe("runSummary", () => {
       gitSha: null,
       modeShares: { B: 1 },
       eventCount: 10,
+      imageTokens: 0,
+      d0Steps: 0,
     });
   });
 
@@ -147,5 +149,35 @@ describe("runSummary", () => {
       wallMs: 8,
       eventCount: 9,
     });
+  });
+});
+
+describe("Jev 1.14 events", () => {
+  it("parses a run with a ground request, a box answer and a D0 action", () => {
+    const r = parseEvents(readFileSync(join(import.meta.dirname, "__fixtures__", "events-d0.jsonl"), "utf8"));
+    expect(r.ok ? r.value.map((e) => e.type) : r.error).toEqual([
+      "run.start",
+      "observe",
+      "decision.request",
+      "decision.answer",
+      "action",
+      "step.end",
+      "run.end",
+    ]);
+  });
+});
+
+describe("run summary: image tokens and D0 steps (ADR 0020)", () => {
+  it("counts image tokens and D0 steps from the events, and zero for old runs", () => {
+    const d0 = parseEvents(
+      readFileSync(join(import.meta.dirname, "__fixtures__", "events-d0.jsonl"), "utf8"),
+    );
+    if (!d0.ok) throw new Error(d0.error.message);
+    const s = runSummary(d0.value);
+    expect(s.imageTokens).toBe(3099);
+    expect(s.d0Steps).toBe(1);
+    const old = runSummary(fixtureEvents());
+    expect(old.imageTokens).toBe(0);
+    expect(old.d0Steps).toBe(0);
   });
 });

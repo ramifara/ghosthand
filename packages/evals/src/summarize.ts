@@ -43,6 +43,10 @@ export interface EvalSummary {
   modelCalls: number;
   /** LLM/consultant calls as a share of all model-ish calls. */
   llmShare: number;
+  /** Screenshots sent to Jev (ADR 0020). */
+  imageTokens: number;
+  imageCostUsd: number;
+  d0Steps: number;
   modeShares: Record<string, number>;
   gitSha: string | null;
   model: string;
@@ -62,7 +66,8 @@ export function summarize(rows: EvalRow[]): EvalSummary {
       modeSteps[m] = (modeSteps[m] ?? 0) + share * r.steps;
   const modeShares: Record<string, number> = {};
   for (const [m, n] of Object.entries(modeSteps)) modeShares[m] = steps > 0 ? n / steps : 0;
-  const phase = (k: keyof StepTiming) => median(timings.map((t) => t[k]));
+  const phase = (k: keyof StepTiming) =>
+    median(timings.map((t) => t[k]).filter((v): v is number => v !== undefined));
   return {
     suite: rows[0]?.suite ?? "",
     runs: rows.length,
@@ -90,6 +95,9 @@ export function summarize(rows: EvalRow[]): EvalSummary {
     decisionCalls,
     modelCalls,
     llmShare: decisionCalls + modelCalls > 0 ? modelCalls / (decisionCalls + modelCalls) : 0,
+    imageTokens: rows.reduce((a, r) => a + r.imageTokens, 0),
+    imageCostUsd: rows.reduce((a, r) => a + r.imageCostUsd, 0),
+    d0Steps: rows.reduce((a, r) => a + r.d0Steps, 0),
     modeShares,
     gitSha: rows[0]?.gitSha ?? null,
     model: rows[0]?.model ?? "",
@@ -120,6 +128,7 @@ export function formatSummaryMarkdown(s: EvalSummary): string {
     `| Median split (settle / observe / decide / act / verify) | ${ms(s.split.settleMs)} / ${ms(s.split.observeMs)} / ${ms(s.split.decideMs)} / ${ms(s.split.actMs)} / ${ms(s.split.verifyMs)} |`,
     `| Cost total / per step | ${usd(s.costUsd)} / ${usd(s.costPerStepUsd)} |`,
     `| Jev calls / LLM calls / LLM share | ${s.decisionCalls} / ${s.modelCalls} / ${pct(s.llmShare)} |`,
+    `| Image tokens / image cost / D0 steps | ${s.imageTokens} / $${s.imageCostUsd.toFixed(5)} / ${s.d0Steps} |`,
     `| Who did the work | ${
       Object.entries(s.modeShares)
         .map(([m, v]) => `${m} ${pct(v)}`)

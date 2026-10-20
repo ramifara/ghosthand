@@ -254,3 +254,19 @@ describe("splitCommand", () => {
     expect(splitCommand("  ")).toEqual([]);
   });
 });
+
+describe("screenshot options (ADR 0020)", () => {
+  it("forwards maxSide, format and quality to the host and records the returned size and scale", async () => {
+    const { t, computer } = setup();
+    const params: unknown[] = [];
+    t.on("screenshot", (p) => {
+      params.push(p);
+      return { data: "/9j/", mimeType: "image/jpeg", width: 1568, height: 882, scale: 1568 / 1920 };
+    });
+    const shot = await computer.screenshot(undefined, { maxSide: 1568, format: "jpeg", quality: 80 });
+    if (!shot.ok) throw new Error(shot.error.message);
+    expect(params[0]).toEqual({ maxSide: 1568, format: "jpeg", quality: 80 });
+    expect(shot.value.capture).toMatchObject({ mimeType: "image/jpeg", width: 1568, height: 882 });
+    expect(shot.value.capture.scale).toBeCloseTo(1568 / 1920, 6);
+  });
+});

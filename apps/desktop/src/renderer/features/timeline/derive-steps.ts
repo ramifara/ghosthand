@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Rami Fara and GhostHand contributors
 // Folds a run's events into per-step rows for the timeline (live and replay use the same code).
-import type { Answer, Rect, RouterMode, RunEvent, StepTiming } from "@ghosthand/protocol";
+import type { Answer, Box, Rect, RouterMode, RunEvent, StepTiming } from "@ghosthand/protocol";
 
 type EventOf<T extends RunEvent["type"]> = Extract<RunEvent, { type: T }>;
 
@@ -36,7 +36,7 @@ export interface StepView {
   action?: {
     type: string;
     summary: string;
-    target?: { role: string; name: string; bounds?: Rect; confidence?: number };
+    target?: { role: string; name: string; bounds?: Rect; confidence?: number; box?: Box };
   };
   effect?: { effect: string; route: string; error?: string; durationMs: number };
   verify?: { state: string; decidedBy: string };
@@ -86,6 +86,17 @@ function answerView(head: string, a: Answer): AnswerView {
         value: a.type === "choice" ? a.choice : String(Math.round(a.score * 100) / 100),
         confidence: a.confidence,
         top,
+      };
+    }
+    case "box": {
+      const b = a.box;
+      const pct = (x: number) => `${Math.round(x * 100)}%`;
+      return {
+        head,
+        kind: "box",
+        value: `${pct(b.left)}–${pct(b.right)} × ${pct(b.top)}–${pct(b.bottom)}`,
+        ...(a.confidence === null ? {} : { confidence: a.confidence }),
+        top: [],
       };
     }
     case "abstain":
@@ -218,6 +229,7 @@ export function deriveRun(events: readonly RunEvent[]): { header: RunHeader; ste
                   name: e.target.name,
                   ...(e.target.bounds ? { bounds: e.target.bounds } : {}),
                   ...(e.target.confidence !== undefined ? { confidence: e.target.confidence } : {}),
+                  ...(e.target.box ? { box: e.target.box } : {}),
                 },
               }
             : {}),

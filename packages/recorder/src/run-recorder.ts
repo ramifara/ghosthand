@@ -36,7 +36,8 @@ export type RunRecorder = {
   /** Assigns t, seq and runId, validates, redacts and appends one line. Returns the validated (unredacted) event. */
   emit(draft: RunEventDraft): Result<RunEvent, RecorderError>;
   /** Writes `screenshots/step-NNN.png` and returns the file name (`step-NNN.png`). */
-  writeScreenshot(step: number, bytes: Uint8Array): Result<string, RecorderError>;
+  /** Writes `screenshots/step-NNN.png|jpg` (the type comes from the bytes); `label` names an extra capture. */
+  writeScreenshot(step: number, bytes: Uint8Array, label?: string): Result<string, RecorderError>;
   /** Writes `states/step-NNN-<purpose>.json` (key- and value-redacted) and returns the file name. */
   writeState(step: number, purpose: string, state: unknown): Result<string, RecorderError>;
   /** Summary of the events emitted so far. */
@@ -138,8 +139,9 @@ export function createRunRecorder(opts: RunRecorderOptions): Result<RunRecorder,
       return ok(event);
     },
 
-    writeScreenshot(step, bytes) {
-      const name = screenshotName(step);
+    writeScreenshot(step, bytes, label) {
+      const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      const name = screenshotName(step, jpeg ? "image/jpeg" : "image/png", label);
       try {
         writeFileSync(join(paths.screenshotsDir, name), bytes, { mode: 0o600 });
       } catch (e) {

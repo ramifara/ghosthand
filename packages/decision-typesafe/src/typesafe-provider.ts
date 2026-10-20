@@ -6,6 +6,7 @@ import type {
   DecisionAskOptions,
   DecisionCapabilities,
   DecisionError,
+  DecisionImageData,
   DecisionProvider,
   DecisionResponse,
   Entry,
@@ -19,9 +20,10 @@ import type {
   Question as SdkQuestion,
   Questions as SdkQuestions,
 } from "@typesafe-ai/sdk";
-import { TypeSafeClient } from "@typesafe-ai/sdk";
+import { image as sdkImage, TypeSafeClient } from "@typesafe-ai/sdk";
 import type { CostMeter } from "./cost-meter.ts";
 import { costUsd, DEFAULT_PRICE_INPUT_PER_M } from "./cost-meter.ts";
+import { IMAGES_HEADER, TYPESAFE_IMAGE_LIMITS } from "./images.ts";
 import type { DecisionLogger } from "./logger.ts";
 import { silentLogger } from "./logger.ts";
 import { mapSdkError } from "./map-sdk-error.ts";
@@ -32,6 +34,8 @@ import { reportedCostUsd, WireResponse } from "./wire.ts";
 
 export const PROVIDER_NAME = "typesafe";
 export const DEFAULT_MODEL = "jev-1.13.0";
+/** Model for requests with an image or a box question (box needs Jev 1.14; ADR 0020). */
+export const DEFAULT_VISION_MODEL = "jev-1.14.0";
 export const DEFAULT_BASE_URL = "https://api.typesafe.ai";
 export const DEFAULT_TIMEOUT_MS = 2500;
 export const DEFAULT_RETRIES = 1;
@@ -43,14 +47,19 @@ export const TYPESAFE_DIRECT_CAPABILITIES: DecisionCapabilities = {
   contextTokens: 64_000,
   perQuestionContextTokens: 32_000,
   zdr: false,
+  images: true,
+  box: true,
+  imageLimits: TYPESAFE_IMAGE_LIMITS,
 };
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface TypeSafeDecisionProviderOptions {
   apiKey: string;
-  /** Pinned model ID. Default `jev-1.13.0`. */
+  /** Pinned model ID for text-only requests. Default `jev-1.13.0`. */
   model?: string;
+  /** Pinned model ID for requests with images or box questions. Default `jev-1.14.0`. */
+  visionModel?: string;
   /** Per-attempt timeout. Default 2500 ms. */
   timeoutMs?: number;
   /** Retries after the first attempt on 408/429/5xx, timeouts and connection errors. Default 1. */
@@ -59,6 +68,11 @@ export interface TypeSafeDecisionProviderOptions {
   baseUrl?: string;
   /** Custom fetch (tests, Electron `net.fetch`). Must support `Response.clone()` and stream bodies. */
   fetch?: FetchLike;
+  /**
+   * Request body compression. Default: the SDK's (zstd for bodies of 1 KiB or more on Node 22.15+).
+   * Carriers set `false`: gateway support for compressed bodies is unverified.
+   */
+  compression?: "zstd" | false;
   /** USD per million input tokens. Default 0.042. */
   priceInputPerM?: number;
   logger?: DecisionLogger;
@@ -114,6 +128,11 @@ function toSdkQuestion(q: Question): SdkQuestion {
       if (q.instructions !== undefined) out.instructions = q.instructions;
       return out;
     }
+    case "box": {
+      const out: SdkQuestion = { type: "box" };
+      if (q.instructions !== undefined) out.instructions = q.instructions;
+      return out;
+    }
   }
 }
 
@@ -121,6 +140,11 @@ function toSdkQuestions(questions: Questions): SdkQuestions {
   const out: SdkQuestions = {};
   for (const [name, q] of Object.entries(questions)) out[name] = toSdkQuestion(q);
   return out;
+}
+
+/** Image refs and sizes only. Never bytes. */
+function describeImages(images: readonly DecisionImageData[]): Array<Record<string, unknown>> {
+  return images.map((i) => ({ ref: i.ref, width: i.width, height: i.height, bytes: i.data.byteLength }));
 }
 
 /** Question names, types and sizes only. Never instructions, criteria text or state. */
@@ -133,7 +157,8 @@ function describeQuestions(questions: Questions): Array<Record<string, unknown>>
 }
 
 export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOptions): DecisionProvider {
-  const model = opts.model ?? DEFAULT_MODEL;
+  const textModel = opts.model ?? DEFAULT_MODEL;
+  const visionModel = opts.visionModel ?? DEFAULT_VISION_MODEL;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const retries = opts.retries ?? DEFAULT_RETRIES;
   const price = opts.priceInputPerM ?? DEFAULT_PRICE_INPUT_PER_M;
@@ -154,13 +179,14 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
       client = new TypeSafeClient({
         apiKey: opts.apiKey,
         baseURL: opts.baseUrl ?? DEFAULT_BASE_URL,
-        defaultModel: model,
+        defaultModel: textModel,
         timeout: timeoutMs,
         retry: { maxRetries: retries, backoffInitialMs: 200, backoffMaxMs: 800, maxRetryAfterMs: 1000 },
         // Never `debug`: it logs full request bodies (the screen state). Explicit, so env can't override.
         logLevel: "warn",
         logger: sdkLoggerFor(logger, provider),
         ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        ...(opts.compression !== undefined ? { compression: opts.compression } : {}),
       });
       return ok(client);
     } catch (e) {
@@ -174,13 +200,17 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
     askOpts: DecisionAskOptions = {},
   ): Promise<Result<DecisionResponse, DecisionError>> {
     const { signal } = askOpts;
+    const images = askOpts.images ?? [];
     if (signal?.aborted) return err({ kind: "aborted", provider, message: "aborted before sending" });
+    if (state === null) return err({ kind: "invalid", provider, message: "state must not be null" });
+    const visual = images.length > 0 || Object.values(questions).some((q) => q.type === "box");
+    const model = visual ? visionModel : textModel;
 
     let estimate: TokenEstimate;
     if (opts.skipPreflight) {
-      estimate = estimateRequestTokens(state, questions);
+      estimate = estimateRequestTokens(state, questions, images);
     } else {
-      const pre = preflight(state, questions, capabilities, provider);
+      const pre = preflight(state, questions, capabilities, provider, images);
       if (!pre.ok) {
         logger.warn(
           { provider, model, kind: pre.error.kind, questions: describeQuestions(questions) },
@@ -206,21 +236,46 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
     if (!c.ok) return c;
 
     logger.debug(
-      { provider, model, questions: describeQuestions(questions), estimatedTokens: estimate.total },
+      {
+        provider,
+        model,
+        questions: describeQuestions(questions),
+        estimatedTokens: estimate.total,
+        ...(images.length > 0 ? { images: describeImages(images), imageTokens: estimate.imageTokens } : {}),
+      },
       "decision.request",
     );
+
+    // Images go in `assets` under the ref the state already uses; the SDK sends them as multipart parts.
+    const assets = Object.fromEntries(images.map((i) => [i.ref, sdkImage(i.data)]));
+    const requestOptions = {
+      ...(signal ? { signal } : {}),
+      ...(visual ? { headers: { [IMAGES_HEADER]: "true" } } : {}),
+    };
 
     const started = now();
     let data: unknown;
     let requestId: string | undefined;
     try {
       const res = await c.value
-        .systemOne({ state, questions: toSdkQuestions(questions), model }, signal ? { signal } : {})
+        .systemOne(
+          {
+            state,
+            questions: toSdkQuestions(questions),
+            model,
+            ...(images.length > 0 ? { assets } : {}),
+          },
+          requestOptions,
+        )
         .withResponse();
       data = res.data;
       requestId = res.requestId;
     } catch (e) {
       const error = mapSdkError(e, provider);
+      // A pinned version that was retired (or a typo) comes back as a 400/404 naming the model.
+      if ((error.status === 404 || error.status === 400) && /model/i.test(error.message)) {
+        error.message = `${error.message} (model "${model}" unavailable? set decision.model or decision.visionModel to a current version)`;
+      }
       const latencyMs = Math.round(now() - started);
       logger.warn(
         { provider, model, kind: error.kind, status: error.status, requestId: error.requestId, latencyMs },
@@ -244,8 +299,10 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
     }
 
     const answers = validateAnswers(questions, body.answers);
-    const inputTokens = body.usage.input_tokens;
-    const outputTokens = body.usage.output_tokens;
+    // The API may omit token counts (SDK 0.7.0 `Usage`); bill the preflight estimate then.
+    const usageSource = body.usage.input_tokens === null ? "estimate" : "api";
+    const inputTokens = body.usage.input_tokens ?? estimate.total;
+    const outputTokens = body.usage.output_tokens ?? 0;
     // OpenRouter (`usage.cost`) and Vercel (`provider_metadata.gateway.cost`) report the billed cost.
     const reported = reportedCostUsd(body);
     const cost = opts.costMeter
@@ -264,6 +321,7 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
         estimatedTokens: estimate.total,
         costUsd: cost,
         costSource: reported === undefined ? "price" : "carrier",
+        usageSource,
         abstained,
       },
       "decision.response",
@@ -290,5 +348,5 @@ export function createTypeSafeDecisionProvider(opts: TypeSafeDecisionProviderOpt
     return ok(response);
   }
 
-  return { id: `${provider}:${model}`, capabilities, ask };
+  return { id: `${provider}:${textModel}`, capabilities, ask };
 }

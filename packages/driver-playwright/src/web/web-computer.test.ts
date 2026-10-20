@@ -113,6 +113,151 @@ describe.skipIf(skip)("WebComputer on fixture pages", { timeout: 30_000 }, () =>
     expect(r.evidence.some((e) => e.kind === "none")).toBe(false);
   }
 
+  // ---- screenshots for decisions (ADR 0020) ---------------------------------------------------------
+
+  /** Reads one pixel of an image by drawing it on a canvas inside the page. */
+  async function pixelAt(c: WebComputer, data: Uint8Array, mime: string, x: number, y: number) {
+    const url = `data:${mime};base64,${Buffer.from(data).toString("base64")}`;
+    return c.page.evaluate(
+      async ([src, px, py]) => {
+        const img = new Image();
+        img.src = src as string;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(px as number, py as number, 1, 1).data;
+        return {
+          r: d[0] ?? 0,
+          g: d[1] ?? 0,
+          b: d[2] ?? 0,
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        };
+      },
+      [url, x, y] as const,
+    );
+  }
+
+  it("masks secret fields in a JPEG screenshot for the decision model", async () => {
+    const c = await open("login.html");
+    let s = await observe(c);
+    expectConfirmed(await act(c.setValue(find(s, "Password", "textbox").token, { secretRef: "PASSWORD" })));
+    s = await observe(c);
+    expectConfirmed(
+      await act(c.setValue(find(s, "Account name", "textbox").token, { secretRef: "PASSWORD" })),
+    );
+    await c.page.check("#reveal");
+    s = await observe(c);
+    const pw = find(s, "Password", "textbox");
+    const b = pw.visibleBounds;
+    if (!b) throw new Error("no bounds");
+    const shot = await c.screenshot(undefined, {
+      format: "jpeg",
+      quality: 80,
+      maxSide: 1568,
+      mask: "secrets",
+    });
+    if (!shot.ok) throw new Error(shot.error.message);
+    expect(shot.value.capture.mimeType).toBe("image/jpeg");
+    expect(shot.value.data.slice(0, 3)).toEqual(new Uint8Array([0xff, 0xd8, 0xff]));
+    const px = await pixelAt(
+      c,
+      shot.value.data,
+      "image/jpeg",
+      Math.round(b.x + b.width / 2),
+      Math.round(b.y + b.height / 2),
+    );
+    expect(px.width).toBe(1280);
+    expect(px.r + px.g + px.b).toBeLessThan(60);
+    // The "Show password" preview and the account field also hold the secret value: masked too.
+    const preview = find(s, "Account name", "textbox");
+    const pb = preview.visibleBounds;
+    if (!pb) throw new Error("no bounds");
+    const px2 = await pixelAt(
+      c,
+      shot.value.data,
+      "image/jpeg",
+      Math.round(pb.x + pb.width / 2),
+      Math.round(pb.y + pb.height / 2),
+    );
+    expect(px2.r + px2.g + px2.b).toBeLessThan(60);
+    // Page text that echoes the secret ("Your password: …") is masked as well.
+    const previewBox = await c.page.locator("#preview").boundingBox();
+    if (!previewBox) throw new Error("no preview");
+    const px3 = await pixelAt(
+      c,
+      shot.value.data,
+      "image/jpeg",
+      Math.round(previewBox.x + 8),
+      Math.round(previewBox.y + previewBox.height / 2),
+    );
+    expect(px3.r + px3.g + px3.b).toBeLessThan(60);
+  });
+
+  it("I3: masks a field holding a registered secret even when the element table was capped", async () => {
+    const c = await open("dense.html");
+    await c.page.fill("input[name=apikey]", PASSWORD);
+    const observed = await c.observe({ maxElements: 20 });
+    if (!observed.ok) throw new Error(observed.error.message);
+    expect(observed.value.elements.some((e) => e.name === "API key")).toBe(false); // beyond the cap
+    const box = await c.page.locator("input[name=apikey]").boundingBox();
+    if (!box) throw new Error("no box");
+    await c.page.locator("input[name=apikey]").scrollIntoViewIfNeeded();
+    const b2 = await c.page.locator("input[name=apikey]").boundingBox();
+    if (!b2) throw new Error("no box");
+    const shot = await c.screenshot(undefined, {
+      format: "jpeg",
+      quality: 80,
+      maxSide: 1568,
+      mask: "secrets",
+    });
+    if (!shot.ok) throw new Error(shot.error.message);
+    const px = await pixelAt(
+      c,
+      shot.value.data,
+      "image/jpeg",
+      Math.round(b2.x + b2.width / 2),
+      Math.round(b2.y + b2.height / 2),
+    );
+    expect(px.r + px.g + px.b).toBeLessThan(60);
+  });
+
+  it("captures at CSS scale on a DPR-2 context so capture pixels map back to clicks", async () => {
+    context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
+    const created = await createWebComputer({
+      context,
+      secrets: new SecretsRegistry([]),
+      allowOrigins: [server.origin],
+    });
+    if (!created.ok) throw new Error(created.error.message);
+    computer = created.value;
+    const c = computer;
+    const opened = await c.open(`${server.origin}/controls.html`);
+    if (!opened.ok) throw new Error(opened.error.message);
+    const s = await observe(c);
+    const shot = await c.screenshot(undefined, {
+      format: "jpeg",
+      quality: 80,
+      maxSide: 1568,
+      mask: "secrets",
+    });
+    if (!shot.ok) throw new Error(shot.error.message);
+    expect(shot.value.capture).toMatchObject({ width: 1280, height: 720, scale: 1 });
+    const counter = find(s, "Clicked 0 times");
+    const b = counter.visibleBounds;
+    if (!b) throw new Error("no bounds");
+    expectConfirmed(
+      await act(c.click({ captureId: shot.value.capture.id, x: b.x + b.width / 2, y: b.y + b.height / 2 })),
+    );
+    const native = await c.screenshot();
+    if (!native.ok) throw new Error(native.error.message);
+    expect(native.value.capture).toMatchObject({ width: 2560, height: 1440, scale: 2 });
+  });
+
   // ---- observation -------------------------------------------------------------------------------
 
   it("paces secret and Unicode input without duplicates or leaked evidence, then clicks once", async () => {

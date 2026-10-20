@@ -30,6 +30,10 @@ export const RunSummary = z.object({
   /** "Who did the work": share of steps per router mode, from run.end. */
   modeShares: z.record(z.string(), z.number()).nullable(),
   eventCount: count,
+  /** Image tokens sent to the decision model (ADR 0020), summed from decision.request events. */
+  imageTokens: count.default(0),
+  /** Steps acted on by Jev box grounding (mode D0). */
+  d0Steps: count.default(0),
 });
 export type RunSummary = z.infer<typeof RunSummary>;
 
@@ -37,6 +41,6 @@ export const RunRecord = z.object({ ...RunFields, folder: z.string().min(1) });
 export type RunRecord = z.infer<typeof RunRecord>;
 
 export function toRunRecord(summary: RunSummary, folder: string): RunRecord {
-  const { modeShares: _shares, eventCount: _count, ...fields } = summary;
+  const { modeShares: _shares, eventCount: _count, imageTokens: _img, d0Steps: _d0, ...fields } = summary;
   return { ...fields, folder };
 }

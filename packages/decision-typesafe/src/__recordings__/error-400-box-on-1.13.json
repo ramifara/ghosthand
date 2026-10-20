@@ -1,0 +1,9 @@
+{
+  "description": "Live 2026-10-17: a box question sent to jev-1.13.0, which has no box support.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.13.0", "questions": ["where"] },
+  "response": {
+    "status": 400,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_b0x00000000000000000000000000004" },
+    "body": { "detail": { "error_type": "api_usage_error", "message": "Invalid request." } }
+  }
+}

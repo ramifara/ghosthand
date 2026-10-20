@@ -14,6 +14,7 @@ import { runSuite } from "@ghosthand/evals";
 import type { DecisionProvider, Guidance, TaskSpec } from "@ghosthand/protocol";
 import { fail, out } from "../io.ts";
 import { type ExtrasFlags, setupRunExtras } from "../run-extras.ts";
+import type { JevFlags } from "./run-flags.ts";
 
 export interface EvalFlags {
   suite: string;
@@ -27,6 +28,8 @@ export interface EvalFlags {
   planner?: PlannerChoice;
   writer?: WriterChoice;
   guidance?: Guidance;
+  /** Screenshots to Jev and the vision model pin (ADR 0020). */
+  jev?: JevFlags;
   extras: ExtrasFlags;
   /** Experiment: start every task at this path. */
   startPath?: string;
@@ -35,7 +38,10 @@ export interface EvalFlags {
 }
 
 export async function evalCommand(flags: EvalFlags): Promise<number> {
-  const opened = await openRuntime({ logLevel: "warn" });
+  const opened = await openRuntime({
+    logLevel: "warn",
+    ...(flags.jev ? { overrides: { decision: flags.jev } } : {}),
+  });
   if (!opened.ok) return fail(opened.error.message);
   const rt = opened.value;
   let makeDecision: (task: TaskSpec) => DecisionProvider;

@@ -135,3 +135,18 @@ describe("createCarrierDecisionProvider", () => {
     ).toBe("openrouter:~typesafe/jev-latest");
   });
 });
+
+describe("carrier compression", () => {
+  it("sends uncompressed bodies to gateways (zstd support there is unverified)", async () => {
+    const big = { screen: "e1 Save ".repeat(400) };
+    const http = serve(200, {
+      model: "typesafe/jev-1.13-20260917",
+      answers,
+      usage: { input_tokens: 476, output_tokens: 70, cost: 0.00002 },
+    });
+    const p = createOpenRouterDecisionProvider({ apiKey: "sk-or-test", fetch: http.fetch, retries: 0 });
+    const r = await p.ask(big, questions);
+    expect(r.ok).toBe(true);
+    expect(http.seen[0]?.body.state).toEqual(big);
+  });
+});

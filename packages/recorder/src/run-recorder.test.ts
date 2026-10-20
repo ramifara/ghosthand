@@ -203,3 +203,18 @@ describe("createRunRecorder", () => {
     idx.value.close();
   });
 });
+
+describe("screenshots for the decision model (ADR 0020)", () => {
+  it("writes JPEG bytes as .jpg and labelled captures beside the step screenshot", () => {
+    const r = createRunRecorder({ runsDir: tmp.dir, runId: "run-img", redact: (t) => t });
+    if (!r.ok) throw new Error(r.error.message);
+    const rec = r.value;
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(rec.writeScreenshot(1, jpeg)).toEqual({ ok: true, value: "step-001.jpg" });
+    expect(rec.writeScreenshot(1, png)).toEqual({ ok: true, value: "step-001.png" });
+    expect(rec.writeScreenshot(1, jpeg, "d0")).toEqual({ ok: true, value: "step-001-d0.jpg" });
+    expect(rec.writeScreenshot(1, jpeg, "d0 region")).toEqual({ ok: true, value: "step-001-d0-region.jpg" });
+    expect(existsSync(join(rec.paths.screenshotsDir, "step-001-d0-region.jpg"))).toBe(true);
+  });
+});

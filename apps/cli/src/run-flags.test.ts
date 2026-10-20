@@ -92,3 +92,26 @@ describe("ghosthand run --surface", () => {
     expect(() => runFlags(parse(["run", "--surface", "x11", "--runtime", "vm", "x"]))).toThrow(/--runtime/);
   });
 });
+
+describe("Jev image flags (ADR 0020)", async () => {
+  const { jevFlags } = await import("./main.ts");
+  it("maps --jev-images and --jev-vision-model to decision config overrides", () => {
+    const v = parse([
+      "run",
+      "--jev-images",
+      "always",
+      "--jev-vision-model",
+      "jev-preview",
+      "--url",
+      "https://a.test",
+      "go",
+    ]).values;
+    expect(jevFlags(v)).toEqual({ images: "always", visionModel: "jev-preview" });
+  });
+  it("ignores an unknown level and leaves the defaults", () => {
+    expect(
+      jevFlags(parse(["run", "--jev-images", "sometimes", "--url", "https://a.test", "go"]).values),
+    ).toEqual({});
+    expect(jevFlags(parse(["eval"]).values)).toEqual({});
+  });
+});

@@ -24,5 +24,10 @@ export const EvalRow = z.object({
   modelCalls: z.number().int().nonnegative(),
   modeShares: z.record(z.string(), z.number()),
   timings: z.array(StepTiming),
+  /** Image tokens sent to the decision model (ADR 0020). */
+  imageTokens: z.number().int().nonnegative().default(0),
+  imageCostUsd: z.number().nonnegative().default(0),
+  /** Steps acted on by Jev box grounding. */
+  d0Steps: z.number().int().nonnegative().default(0),
 });
 export type EvalRow = z.infer<typeof EvalRow>;

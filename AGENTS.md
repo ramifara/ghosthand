@@ -34,8 +34,8 @@ GhostHand is a computer-use agent. A fast decision model (TypeSafe Jev) picks ea
 ## Where things are
 
 - `packages/protocol`: Zod schemas and types for everything crossing a process boundary, plus the `Result` helpers. No runtime deps beyond Zod.
-- `packages/core`: step loop, question builders, gates, budgets, stall detection. Pure logic behind interfaces.
-- `packages/decision-typesafe`: `DecisionProvider` over `@typesafe-ai/sdk`. The only importer of that SDK.
+- `packages/core`: step loop, question builders, gates, budgets, stall detection, mode D0 Jev-box grounding (`jev-ground.ts`), screenshot preparation for the decision model (`screen-image.ts`, `image-header.ts`). Pure logic behind interfaces.
+- `packages/decision-typesafe`: `DecisionProvider` over `@typesafe-ai/sdk` 0.7.0, with image assets, `box` questions and the image preflight (ADR 0020). The only importer of that SDK.
 - `packages/consultants`: Codex app-server consultant and the Claude consultant (the user's own `claude` CLI, opt-in; ADR 0007).
 - `packages/models`: AI SDK providers (OpenAI, Anthropic, Google, OpenRouter, local OpenAI-compatible), catalog, role chains, `VisionGrounder`.
 - `packages/driver-playwright`: the web `Computer` (browser detection, profiles, observe, act, settle, origin guard).
@@ -72,6 +72,7 @@ Dependency direction: `protocol → core → {decision-typesafe, models, consult
 ## Don't
 
 - Paste or log secrets. Call `chatgpt.com/backend-api`. Bypass CLI permission prompts. Auto-acknowledge provider safety checks.
+- Send a screenshot to Jev without the driver's secret masking, send the `TypeSafe-Danger-Zone-Long-Context` header, or pin a Jev alias (`jev-latest`, `jev-preview`) in a production path (ADR 0020).
 - Retry a mutating action. Treat a model's "done" as success (oracles and deterministic checks decide).
 - Touch the T3 Code Tailscale route (`https://outpostone.tail19dab3.ts.net/` on 443) or `t3code.service`. Use Tailscale Funnel.
 - Add a dependency with a disallowed license (GPL-2.0-only, SSPL, BSL, Elastic, non-commercial, closed SDKs such as `@anthropic-ai/claude-agent-sdk`).

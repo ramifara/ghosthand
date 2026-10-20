@@ -4,6 +4,7 @@
 import { Route, Routes } from "react-router";
 import { LabActivityPage } from "./lab-activity-page.tsx";
 import { LabBoardPage } from "./lab-board-page.tsx";
+import { LabCanvasTargetPage } from "./lab-canvas-target-page.tsx";
 import { LabChecklistPage } from "./lab-checklist-page.tsx";
 import { LabCheckoutPage } from "./lab-checkout-page.tsx";
 import { LabContactsPage } from "./lab-contacts-page.tsx";
@@ -12,6 +13,7 @@ import { LabInventoryPage } from "./lab-inventory-page.tsx";
 import { LabProjectsPage } from "./lab-projects-page.tsx";
 import { LabPreferencesPage, LabPromoPage } from "./lab-shadow-pages.tsx";
 import { LabSignupsPage } from "./lab-signups-page.tsx";
+import { LabToolbarPage } from "./lab-toolbar-page.tsx";
 import { NotFoundPage } from "./not-found-page.tsx";
 
 export function LabRoutes() {
@@ -22,6 +24,8 @@ export function LabRoutes() {
       <Route path="preferences" element={<LabPreferencesPage />} />
       <Route path="promo" element={<LabPromoPage />} />
       <Route path="signups" element={<LabSignupsPage />} />
+      <Route path="canvas-target" element={<LabCanvasTargetPage />} />
+      <Route path="toolbar" element={<LabToolbarPage />} />
       <Route path="checklist" element={<LabChecklistPage />} />
       <Route path="board" element={<LabBoardPage />} />
       <Route path="contacts" element={<LabContactsPage />} />

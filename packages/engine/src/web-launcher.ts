@@ -6,6 +6,7 @@ import { CONTROL_ORIGIN } from "@ghosthand/testbed-kit";
 import type { ComputerLauncher } from "./run-agent.ts";
 import type { EngineRuntime } from "./runtime.ts";
 import type { BrowserCookie } from "./testbed.ts";
+import { clampViewportForImages } from "./viewport.ts";
 
 export interface WebLaunchOptions {
   startUrl: string;
@@ -29,7 +30,8 @@ export async function launchWeb(
     profile: opts.profile ?? b.profile,
     channel: b.channel,
     headless: opts.headless ?? b.headless,
-    viewport: b.viewport,
+    // Screenshots for Jev must fit its image limits; the web driver captures the viewport as is (ADR 0020).
+    viewport: clampViewportForImages(b.viewport, rt.config.decision.images),
     behavior: b.behavior,
     network: b.network,
     secrets: rt.secrets,

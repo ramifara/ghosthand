@@ -15,7 +15,7 @@
     ],
     "catalog": {
       "zod": "4.6.5",
-      "@typesafe-ai/sdk": "0.6.0",
+      "@typesafe-ai/sdk": "0.7.0",
       "pino": "10.3.1",
       "playwright-core": "1.63.0",
       "@playwright/test": "1.63.0",

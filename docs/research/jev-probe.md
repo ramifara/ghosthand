@@ -90,3 +90,62 @@ Measured 5.60 characters per token on the filler text (the preflight assumes 3).
 - Measured ~5.6 characters per token on English filler (the ~30k case: 56k estimated vs 30.2k billed). The preflight's chars/3 over-counts by ~1.9×, so it is conservative: the 20k-token state guard trips at roughly 10–11k real tokens of prose (JSON element tables tokenize less densely, so the real margin is smaller). Kept as is; revisit if narrowing triggers too often.
 - Determinism: 10/10 identical choices, max probability drift 0.03; the fail-closed probability checks are unaffected.
 - Latency p50 225 ms / p95 313 ms direct, matching the research notes' ~180–250 ms.
+
+### Run 2026-10-17T17:21:50.800Z
+
+Model `jev-1.13.0`, direct API, Node v26.4.0. Spend cap $0.100000.
+
+#### Question types (one request, production settings)
+
+| question | type | answer |
+|---|---|---|
+| goal_done | noul | p=0.09 |
+| target | choice | e3 (conf 0.95; e3=0.96, e1=0.02, e2=0.01, none=0.01, e4=0, e5=0) |
+| risk | score | 0.91 (conf 0.82; 1=0.88, 0=0.11, 2=0.01) |
+
+Request `req_01a14ae2433f71958c39604194f9af08`, 609 input tokens, 654 ms, $0.000026.
+
+#### Latency (5 sequential calls, 3 questions, 2.5 s timeout, 1 retry)
+
+| ok | errors | p50 ms | p95 ms | min ms | max ms | mean input tokens |
+|---|---|---|---|---|---|---|
+| 5 | 0 | 254 | 308 | 214 | 308 | 609 |
+
+#### Limits (preflight disabled, no retry)
+
+| case | expected | outcome | HTTP | est. tokens (chars/3) | input tokens | ms | detail |
+|---|---|---|---|---|---|---|---|
+| choice with 255 options | accept | accepted | 200 | 2489 | 4916 | 263 | o17 (conf 0.99; o17=0.99, o99=0.01, o0=0, o1=0, o2=0, o3=0, … 249 more) |
+| choice with 256 options | reject | rejected: invalid | 422 | 2499 | - | 206 | 422 questions.pick.choice.criteria: Dictionary should have at most 255 items after validation, not 256 |
+| score with 10 levels | accept | accepted | 200 | 101 | 370 | 210 | 6.88 (conf 0.87; 7=0.9, 8=0.02, 0=0.01, 1=0.01, 2=0.01, 3=0.01, 4=0.01, 5=0.01, 6=0.01, 9=0.01) |
+| score with 11 levels | reject | rejected: invalid | 422 | 107 | - | 184 | 422 questions.level.score.criteria: List should have at most 10 items after validation, not 11 |
+| score with a null level | unknown | rejected: invalid | 422 | 45 | - | 183 | 422 questions.level.score.criteria.1.str: Input should be a valid string; questions.level.score.criteria.1.dict[any,any]: Input should be a valid dictionary; qu |
+| ~30k-token state | accept | accepted | 200 | 84067 | 30173 | 554 | p=0.52 |
+| ~40k-token state (over the 32k state+question rule) | reject | rejected: too_large | 400 | 112078 | - | 377 | 400 {"detail":{"error_type":"max_tokens_exceeded"}} |
+| ~70k-token state (over 64k) | reject | rejected: too_large | 400 | 196112 | - | 217 | 400 {"detail":{"error_type":"max_tokens_exceeded"}} |
+
+Measured 5.60 characters per token on the filler text (the preflight assumes 3).
+
+#### Determinism (3 identical requests)
+
+| ok | errors | identical answers | fraction | same choice | max probability drift |
+|---|---|---|---|---|---|
+| 3 | 0 | 1 | 0.33 | 3/3 | 0.0300 |
+
+#### Images and box (Jev 1.14, ADR 0020)
+
+Image `docs/reports/phase-2-screens/settings-models.png`: image/png, 1100×717, 101254 bytes; estimated 2289 image tokens per use.
+
+| case | model / outcome | est. tokens | input tokens | ms | answers |
+|---|---|---|---|---|---|
+| noul + box on the vision model | jev-1.14.0 | 2523 | 2447 | 272 | present: p=0.99; where: box t=0.75 b=0.79 l=0.19 r=0.3 (conf 0.88) |
+| absent target: noul + box | jev-1.14.0 | 2525 | 2447 | 280 | present: p=0.01; where: box t=0.76 b=0.79 l=0.2 r=0.3 (conf 0.73) |
+| image-only noul (no box) | jev-1.14.0 | 2426 | 2408 | 333 | present: p=0.99 |
+| box on jev-1.13.0 (expect image_rejected) | error: image_rejected | 2363 | - | 217 | 400 400 Invalid request. |
+
+#### Cost
+
+| calls | input tokens | cost (USD) |
+|---|---|---|
+| 17 | 54147 | $0.002274 |
+

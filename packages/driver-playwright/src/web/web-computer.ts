@@ -6,7 +6,13 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } fr
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { Logger } from "@ghosthand/core";
-import { evaluateDeterministic, noopLogger, SecretsRegistry, secretPlaceholder } from "@ghosthand/core";
+import {
+  evaluateDeterministic,
+  noopLogger,
+  readImageSize,
+  SecretsRegistry,
+  secretPlaceholder,
+} from "@ghosthand/core";
 import type {
   ActionErrorKind,
   ActionResult,
@@ -25,6 +31,7 @@ import type {
   PredicateResult,
   Rect,
   Result,
+  ScreenshotOptions,
   Snapshot,
 } from "@ghosthand/protocol";
 import { BrowserBehavior, err, ok, Region } from "@ghosthand/protocol";
@@ -141,6 +148,8 @@ interface LatestSnapshot {
   refs: Map<string, string>;
   ancestors: Map<string, string[]>;
   secretTokens: Set<string>;
+  /** aria refs of every secret-bearing element on the page, capped or not (decision screenshot masks). */
+  maskRefs: Set<string>;
   invalidated: boolean;
 }
 
@@ -226,11 +235,6 @@ const norm = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase();
 function firstLine(e: unknown): string {
   const message = e instanceof Error ? e.message : String(e);
   return (message.split("\n")[0] ?? "").slice(0, 300);
-}
-
-function pngSize(data: Uint8Array): { width: number; height: number } {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -535,7 +539,14 @@ export class WebComputer implements Computer {
   // ---- Computer: basics ------------------------------------------------------------------------
 
   capabilities(): ComputerCapabilities {
-    return { surface: "web", semanticActions: true, pointer: true, screenshots: true, recording: true };
+    return {
+      surface: "web",
+      semanticActions: true,
+      pointer: true,
+      screenshots: true,
+      recording: true,
+      secretMasking: true,
+    };
   }
 
   async doctor(): Promise<DoctorCheck[]> {
@@ -705,7 +716,16 @@ export class WebComputer implements Computer {
       const ref = c.refs.get(el.token);
       if (ref !== undefined) refs.set(el.token, ref);
     }
-    this.#latest = { id, refs, ancestors: c.ancestors, secretTokens: c.secretTokens, invalidated: false };
+    // Password-like fields plus any field whose (redacted) value carries a secret placeholder, over every
+    // element the page has (not only the capped table): all are masked in decision screenshots (ADR 0020).
+    const secretTokens = new Set(c.secretTokens);
+    for (const el of c.elements) if (el.value?.includes("[input:")) secretTokens.add(el.token);
+    const maskRefs = new Set<string>();
+    for (const token of secretTokens) {
+      const ref = c.refs.get(token);
+      if (ref !== undefined) maskRefs.add(ref);
+    }
+    this.#latest = { id, refs, ancestors: c.ancestors, secretTokens, maskRefs, invalidated: false };
     this.#lastStats = {
       ...c.timings,
       totalMs: Date.now() - t0,
@@ -719,29 +739,58 @@ export class WebComputer implements Computer {
     return ok(snapshot);
   }
 
-  async screenshot(region?: Rect): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
+  /**
+   * Locators for everything a decision screenshot must not show: password inputs, fields whose value is
+   * a secret, and any element whose text echoes a registered secret value (a "show password" preview).
+   */
+  #secretMask(): Locator[] {
+    const masks: Locator[] = [this.#page.locator("input[type=password]")];
+    for (const ref of this.#latest?.maskRefs ?? []) masks.push(this.#page.locator(`aria-ref=${ref}`));
+    // Registered and generated values (TOTP codes included); the scope already drops short ones.
+    for (const [, value] of this.#scope.values()) masks.push(this.#page.getByText(value));
+    return masks;
+  }
+
+  /**
+   * A PNG of the viewport at device pixels by default. With `opts` (a screenshot for the decision model,
+   * ADR 0020) the image is taken at CSS scale, so one image pixel is one CSS pixel and `scale` is 1, as
+   * JPEG when asked, with secret fields blacked out. Playwright cannot downscale, so `maxSide` is met by
+   * keeping the viewport within it; an oversized capture is returned as is and the caller skips it.
+   */
+  async screenshot(
+    region?: Rect,
+    opts?: ScreenshotOptions,
+  ): Promise<Result<{ capture: Capture; data: Uint8Array }, ComputerError>> {
     try {
       const metrics = Metrics.parse(await this.#page.evaluate(viewportMetrics));
+      const prepared = opts !== undefined;
+      const jpeg = opts?.format === "jpeg";
       const buf = await this.#page.screenshot({
-        type: "png",
+        type: jpeg ? "jpeg" : "png",
+        ...(jpeg && opts?.quality !== undefined ? { quality: opts.quality } : {}),
+        ...(prepared ? { scale: "css" as const } : {}),
+        ...(opts?.mask === "secrets" ? { mask: this.#secretMask(), maskColor: "#000000" } : {}),
         timeout: this.#timeout,
         ...(region ? { clip: { x: region.x, y: region.y, width: region.width, height: region.height } } : {}),
       });
       const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-      const { width, height } = pngSize(data);
+      const size = readImageSize(data);
+      if (!size) return err({ kind: "driver", message: "screenshot header is unreadable" });
+      const { width, height } = size;
+      const scale = prepared ? 1 : metrics.dpr;
       const id = `c${++this.#captureSeq}`;
       const capture: Capture = {
         id,
         ...(this.#latest ? { snapshotId: this.#latest.id } : {}),
         takenAt: Date.now(),
-        mimeType: "image/png",
+        mimeType: jpeg ? "image/jpeg" : "image/png",
         width,
         height,
-        scale: metrics.dpr,
+        scale,
         ...(region ? { region } : {}),
       };
       this.#captures.set(id, {
-        scale: metrics.dpr,
+        scale,
         region,
         scrollX: metrics.scrollX,
         scrollY: metrics.scrollY,

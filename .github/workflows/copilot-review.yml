@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Rami Fara and GhostHand contributors
 # Copilot code review on request. Automatic review is off because every review
 # on a private repo bills GitHub Actions minutes. Comment `/copilot-review` on a
 # pull request when the work on it is finished to request one review.

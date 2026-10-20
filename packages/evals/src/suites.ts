@@ -14,6 +14,8 @@ export const SUITES: Record<string, (t: TestbedTask) => boolean> = {
   l5: (t) => t.level === 5,
   l6: (t) => t.level === 6,
   "l4-l6": (t) => t.level >= 4 && t.level <= 6,
+  /** Tasks whose target exists only as pixels (mode D0 with a TypeSafe key, else LLM vision). */
+  vision: (t) => t.needsVision,
   all: () => true,
 };
 

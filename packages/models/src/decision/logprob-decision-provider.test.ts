@@ -181,3 +181,16 @@ describe("logprob helpers", () => {
     expect(prompt).toContain("B: x");
   });
 });
+
+describe("box questions", () => {
+  it("rejects box questions as invalid (no image emulation)", async () => {
+    const provider = { generateText: async () => ({ text: "", logprobs: [] }) } as never;
+    const r = await createLogprobDecisionProvider({ provider, model: "m" }).ask("s", {
+      where: { type: "box", instructions: "x" },
+    });
+    expect(r.ok ? undefined : r.error).toMatchObject({
+      kind: "invalid",
+      message: expect.stringMatching(/box/),
+    });
+  });
+});

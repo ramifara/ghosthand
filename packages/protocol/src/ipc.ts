@@ -11,6 +11,7 @@
 import { z } from "zod";
 import { BrowserBehavior } from "./browser-behavior.ts";
 import { BrowserNetwork } from "./browser-network.ts";
+import { DecisionImages } from "./config.ts";
 import { RunEvent, RunOutcome } from "./events.ts";
 import { Rect } from "./geometry.ts";
 import { Budget, EffectClass } from "./task.ts";
@@ -98,6 +99,10 @@ export const Settings = z
     /** Keep secrets on disk even when Linux has no keyring (safeStorage `basic_text`). */
     persistWithoutKeyring: z.boolean().default(false),
     roleBindings: RoleBindingsInput.default({}),
+    /** Screenshots to Jev (experimental, ADR 0020). */
+    decisionImages: DecisionImages.default("grounding"),
+    /** Pinned model for image and box requests; the engine default is `jev-1.14.0`. */
+    decisionVisionModel: z.string().min(1).optional(),
   })
   .strict();
 export type Settings = z.infer<typeof Settings>;

@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic per the SDK 0.7.0 Usage type: a 200 whose token counts are null. Tokens fall back to the preflight estimate.",
+  "request": { "method": "POST", "path": "/v1/systemone", "model": "jev-1.13.0", "questions": ["goal_done"] },
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json", "x-typesafe-request-id": "req_0000000000000000000000000000usag" },
+    "body": {
+      "model": "jev-1.13.0",
+      "answers": { "goal_done": { "type": "noul", "noul": 0.5 } },
+      "usage": { "input_tokens": null, "output_tokens": null }
+    }
+  }
+}

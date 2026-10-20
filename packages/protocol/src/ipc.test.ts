@@ -146,3 +146,16 @@ describe("engine and push messages", () => {
     expect(r.source.kind).toBe("goal");
   });
 });
+
+describe("settings: Jev images", () => {
+  it("defaults decisionImages to grounding and accepts a vision model pin", async () => {
+    const { Settings } = await import("./index.ts");
+    const s = Settings.parse({});
+    expect(s.decisionImages).toBe("grounding");
+    expect(s.decisionVisionModel).toBeUndefined();
+    expect(Settings.parse({ decisionImages: "always", decisionVisionModel: "jev-1.14.0" })).toMatchObject({
+      decisionImages: "always",
+      decisionVisionModel: "jev-1.14.0",
+    });
+  });
+});

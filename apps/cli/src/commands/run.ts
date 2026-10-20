@@ -33,7 +33,10 @@ export async function runCommand(flags: RunFlags): Promise<number> {
   if (!flags.task && !flags.url) return fail("--url is required with a free-text goal", 2);
   const opened = await openRuntime({
     ...(flags.config ? { configPath: flags.config } : {}),
-    ...(flags.browserBehavior ? { overrides: { browser: { behavior: flags.browserBehavior } } } : {}),
+    overrides: {
+      ...(flags.browserBehavior ? { browser: { behavior: flags.browserBehavior } } : {}),
+      ...(flags.jev ? { decision: flags.jev } : {}),
+    },
   });
   if (!opened.ok) return fail(opened.error.message);
   const rt: EngineRuntime = opened.value;

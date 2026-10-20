@@ -196,7 +196,8 @@ describe("D1 ground", () => {
     });
     expect(r.outcome).toBe("success");
     expect(vision.calls).toEqual(["ground"]);
-    expect(computer.actions.at(-1)).toEqual({ type: "click", target: { captureId: "c1", x: 400, y: 300 } });
+    // D0 (Jev box) looked first on c1 and found no box; D1 grounded on its own capture.
+    expect(computer.actions.at(-1)).toEqual({ type: "click", target: { captureId: "c2", x: 400, y: 300 } });
     expect(r.modeShares.D1).toBeCloseTo(1 / 2);
   });
 });

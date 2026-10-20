@@ -35,3 +35,4 @@ export {
 } from "./run-recorder.ts";
 export { emptySummary, foldSummary, runSummary } from "./run-summary.ts";
 export { defaultRunsDir, type RunsDirEnv } from "./runs-dir.ts";
+export { findScreenshot, listScreenshotSteps } from "./screenshot-files.ts";

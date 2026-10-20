@@ -7,6 +7,8 @@ import type {
   ActionResult,
   Answer,
   Computer,
+  DecisionImageData,
+  DecisionImages,
   DecisionProvider,
   EffectClass,
   Element,
@@ -14,6 +16,7 @@ import type {
   FieldValue,
   GateName,
   Guidance,
+  JsonValue,
   Plan,
   Questions,
   Result,
@@ -43,6 +46,7 @@ import type { EventSink } from "./event-sink.ts";
 import { focusTerms } from "./focus-terms.ts";
 import { allPassed, choiceConfidence, combineEffect, evaluateGates } from "./gates.ts";
 import { detectHumanWall } from "./human-wall.ts";
+import { D0_ATTEMPTS_PER_SCREEN, jevGroundAndClick } from "./jev-ground.ts";
 import { buildTextOptions, type TextOption } from "./literals.ts";
 import { type Clock, type Logger, noopLogger, systemClock } from "./logger.ts";
 import { runModeA } from "./mode-a.ts";
@@ -70,6 +74,13 @@ import type { RecipeBook, RecipeMatch, ReplayReport } from "./recipe.ts";
 import { explainRefusal } from "./refusal-explain.ts";
 import { FIT_PER_HEAD, fitRequest, jevTokens, requestLimits, SHRINK_FACTOR } from "./request-fit.ts";
 import { type ScreenFingerprint, screenFingerprint } from "./screen-fingerprint.ts";
+import {
+  DECISION_SCREENSHOT_OPTIONS,
+  estimateImageTokens,
+  prepareForDecision,
+  SCREEN_REF,
+  secretOnScreen,
+} from "./screen-image.ts";
 import type { SecretsRegistry } from "./secrets.ts";
 import { StallDetector, screenSignature } from "./stall.ts";
 import {
@@ -113,7 +124,13 @@ export interface LoopConfig {
     sureTarget: number;
     advanceTarget: number;
     advanceChoiceFactor: number;
+    /** D0: the presence noul must be at least this likely for a box to be clicked (ADR 0020). */
+    boxPresent: number;
+    /** D0: a box covering at least this fraction of the image is not a control. */
+    boxMaxArea: number;
   };
+  /** When a screenshot goes to Jev (ADR 0020): never, for D0 grounding only, or with every request. */
+  images: DecisionImages;
   /** How often the writer is called (ADR 0017): never, after refusals, when unsure, or before every decision. */
   guidance: Guidance;
   /** Per-step deadline for the decision call, ms. */
@@ -143,7 +160,10 @@ export const DEFAULT_LOOP_CONFIG: LoopConfig = {
     sureTarget: 0.9,
     advanceTarget: 0.2,
     advanceChoiceFactor: 1.5,
+    boxPresent: 0.7,
+    boxMaxArea: 0.25,
   },
+  images: "grounding",
   guidance: "unsure",
   decisionDeadlineMs: 6000,
   screenshots: true,
@@ -665,6 +685,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
     };
     // Mode D state: D1 failures per screen, the active D2 segment, consecutive "none" answers per screen.
     const d1Failures = new Map<string, number>();
+    const d0Attempts = new Map<string, number>();
+    /** Step on which a secret was last typed: the next step sends no screenshot (ADR 0020). */
+    let secretWrittenStep = -1;
+    /** The API rejected an image this run: no more screenshots with act requests. */
+    const imageRejected = { value: false };
     let driving: { remaining: number } | undefined;
     const noneStreak = { screen: "", count: 0 };
     let poorStreak = 0;
@@ -712,10 +737,38 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       previousText = snapshot.text;
       const fingerprint = screenFingerprint(snapshot);
       deps.onSnapshot?.(snapshot, fingerprint, current);
+      // images = always (ADR 0020): the step screenshot goes with every request as `state.screen`, awaited
+      // here so the act request can carry it. Not on the step after a secret was typed.
+      let stepImage: DecisionImageData | undefined;
+      let imageSkipped: string | undefined;
+      if (cfg.images === "always" && deps.decision.capabilities.images !== true)
+        imageSkipped = "provider_no_images";
+      if (cfg.images === "always" && deps.decision.capabilities.images === true) {
+        if (imageRejected.value) imageSkipped = "image_rejected";
+        else if (secretWrittenStep === current - 1) imageSkipped = "secret_written";
+        else if (!deps.computer.capabilities().screenshots) imageSkipped = "no_screenshots";
+        else if (deps.computer.capabilities().secretMasking !== true && secretOnScreen(snapshot))
+          imageSkipped = "secret_on_screen";
+        else {
+          const ts = clock.now();
+          const shot = await deps.computer.screenshot(undefined, DECISION_SCREENSHOT_OPTIONS);
+          timing.screenshotMs = clock.now() - ts;
+          if (!shot.ok) imageSkipped = "screenshot_failed";
+          else {
+            const prepared = prepareForDecision(shot.value);
+            if (prepared.ok) stepImage = prepared.value;
+            else imageSkipped = prepared.error.kind;
+          }
+        }
+      }
       let screenshot: string | undefined;
       // With a reserved name the capture runs in parallel with verify/decide and is written at step end.
       let pendingShot: Promise<void> | undefined;
-      if (cfg.screenshots && deps.events.writeScreenshot) {
+      if (cfg.screenshots && deps.events.writeScreenshot && stepImage) {
+        // The prepared capture is the step screenshot: one capture serves the record and the model.
+        screenshot = deps.events.writeScreenshot(current, stepImage.data);
+        stepImage.file = screenshot;
+      } else if (cfg.screenshots && deps.events.writeScreenshot) {
         const write = deps.events.writeScreenshot.bind(deps.events);
         if (deps.events.screenshotName) {
           screenshot = deps.events.screenshotName(current);
@@ -789,6 +842,11 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       // P1-06: a page too large for one request is narrowed to a region before the act decision.
       const oversized = needsNarrowing(snapshot, task, subgoal, current, history, cfg, deps);
 
+      const stepImages = stepImage ? [stepImage] : [];
+      const stepImageTokens = stepImage ? estimateImageTokens(stepImage.width, stepImage.height) : 0;
+      const withScreen = (state: Record<string, JsonValue>): Record<string, JsonValue> =>
+        stepImage ? { ...state, screen: SCREEN_REF } : state;
+
       // done_when (deterministic and oracle every step; model predicates only when the goal looks done)
       t = clock.now();
       // With deterministic predicates, model predicates only run once those pass (early exit inside).
@@ -797,24 +855,27 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
       checkAfterReplay = false;
       const verifyState = fitVerifyState(
         (elements) =>
-          buildState(
-            {
-              instruction: task.instruction,
-              goal: subgoal.goal,
-              step: current,
-              phase: "verify",
-              snapshot,
-              elements,
-              history,
-              inputs: task.secrets,
-              focus: subgoalFocus,
-              newText,
-            },
-            deps.secrets,
+          withScreen(
+            buildState(
+              {
+                instruction: task.instruction,
+                goal: subgoal.goal,
+                step: current,
+                phase: "verify",
+                snapshot,
+                elements,
+                history,
+                inputs: task.secrets,
+                focus: subgoalFocus,
+                newText,
+              },
+              deps.secrets,
+            ),
           ),
         snapshot.elements,
         requestLimits(deps.decision.capabilities, requestScale.value).statePlusLongest -
-          VERIFY_QUESTION_RESERVE,
+          VERIFY_QUESTION_RESERVE -
+          stepImageTokens,
       );
       const ctx: DecideContext = {
         deps,
@@ -847,7 +908,14 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         acted,
         screenKey: fingerprint.key,
         d1Failures,
+        d0Attempts,
+        imageRejected,
         noneStreak,
+        ...(stepImage ? { stepImage } : {}),
+        ...(imageSkipped ? { imageSkipped } : {}),
+        noteSecretWrite: () => {
+          secretWrittenStep = current;
+        },
         mode: { current: "B" },
         noteVisionNeeded: (why, missing, blocking) => noteVisionNeeded(current, why, missing, blocking),
         newText,
@@ -883,6 +951,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
         {
           decision: deps.decision,
           state: verifyState,
+          ...(stepImages.length > 0 ? { images: stepImages } : {}),
           ...(deps.oracle ? { oracle: deps.oracle } : {}),
           ...(deps.signal ? { signal: deps.signal } : {}),
         },
@@ -923,6 +992,7 @@ export async function runTask(task: TaskSpec, deps: LoopDeps): Promise<RunResult
           {
             decision: deps.decision,
             state: verifyState,
+            ...(stepImages.length > 0 ? { images: stepImages } : {}),
             ...(deps.oracle ? { oracle: deps.oracle } : {}),
             ...(deps.signal ? { signal: deps.signal } : {}),
           },
@@ -1186,6 +1256,18 @@ interface DecideContext {
   screenKey: string;
   /** D1 attempts that changed nothing, per screen key. */
   d1Failures: Map<string, number>;
+  /** D0 (Jev box) attempts per screen key (every look counts, clicked or not). */
+  d0Attempts: Map<string, number>;
+  /** The API rejected an image this run: act requests carry none from then on. */
+  imageRejected: { value: boolean };
+  /** D0 was already tried this step. */
+  jevTried?: boolean;
+  /** The step screenshot, prepared for the decision model (images = always). */
+  stepImage?: DecisionImageData;
+  /** Why no step image rides with this step's requests although images = always. */
+  imageSkipped?: string;
+  /** A secret was typed on this step: the next step sends no screenshot. */
+  noteSecretWrite: () => void;
   /** Consecutive steps on one screen where Jev found no target. */
   noneStreak: { screen: string; count: number };
   /** The mode this step ends up in (B, or D1 when vision assisted). */
@@ -1235,6 +1317,69 @@ function modeDEnv(ctx: DecideContext, vision: VisionAssist): ModeDEnv {
     ...(ctx.deps.signal ? { signal: ctx.deps.signal } : {}),
     onModelCall: ctx.onModelCall,
   };
+}
+
+/**
+ * What D0 looks for: the writer's hint when there is one, else the goal itself, with the last few steps so a
+ * second look aims at the next control (the Apply button after the code was typed).
+ */
+function groundDescription(ctx: DecideContext): string {
+  const base = (ctx.hint ?? `the control to use next for this goal: ${ctx.subgoal.goal}`).slice(0, 200);
+  const recent = ctx.history.slice(-3).map((h) => `${h.step}. ${h.text}`);
+  return recent.length > 0 ? `${base}\nRecent steps: ${recent.join("; ")}`.slice(0, 500) : base;
+}
+
+/**
+ * Mode D0 (ADR 0020): Jev locates the control on a screenshot and the loop clicks it. Tried before the LLM
+ * vision modes whenever they would be, at most `D0_ATTEMPTS_PER_SCREEN` times per screen.
+ */
+async function jevGround(
+  ctx: DecideContext,
+  why: string,
+  effect: EffectClass,
+): Promise<DecideOutcome | undefined> {
+  const { deps, cfg } = ctx;
+  if (ctx.jevTried || ctx.visionTried) return undefined;
+  if (cfg.images === "off" || deps.decision.capabilities.box !== true) return undefined;
+  if (!deps.computer.capabilities().screenshots) return undefined;
+  // A computer that cannot mask secrets (desktop hosts) sends no screenshot while a secret value shows.
+  if (deps.computer.capabilities().secretMasking !== true && secretOnScreen(ctx.snapshot)) {
+    ctx.history.push({ step: ctx.step, text: "no Jev grounding: a secret value is on screen" });
+    return undefined;
+  }
+  if (ctx.imageRejected.value) return undefined;
+  if ((ctx.d0Attempts.get(ctx.screenKey) ?? 0) >= D0_ATTEMPTS_PER_SCREEN) return undefined;
+  if (effect === "forbidden" || !ctx.subgoal.allowedEffects.includes(effect)) return undefined;
+  ctx.jevTried = true;
+  ctx.d0Attempts.set(ctx.screenKey, (ctx.d0Attempts.get(ctx.screenKey) ?? 0) + 1);
+  deps.events.emit({ type: "escalate", step: ctx.step, from: "B", to: "D0", reason: why });
+  const t = ctx.clock.now();
+  const r = await jevGroundAndClick(
+    {
+      computer: deps.computer,
+      events: deps.events,
+      clock: ctx.clock,
+      step: ctx.step,
+      goal: ctx.subgoal.goal,
+      elements: ctx.snapshot.elements,
+      gates: { boxPresent: cfg.gates.boxPresent, boxMaxArea: cfg.gates.boxMaxArea },
+      history: ctx.history,
+      textOptions: buildTextOptions(textGoal(ctx), ctx.task.secrets, deps.secrets),
+      ask: (state, questions, images) => ask(ctx, "ground", state, questions, images),
+    },
+    groundDescription(ctx),
+    effect,
+    ctx.subgoal.allowedEffects,
+  );
+  ctx.timing.actMs = ctx.clock.now() - t;
+  if (r.typedSecret) ctx.noteSecretWrite();
+  if (!r.result || r.result.effect === "suspected_noop" || r.result.effect === "refused") {
+    ctx.history.push({ step: ctx.step, text: `Jev grounding failed: ${r.reason}` });
+    if (!r.result) return undefined;
+  }
+  ctx.mode.current = "D0";
+  if (r.result && r.result.effect !== "suspected_noop" && r.result.effect !== "refused") ctx.acted.count++;
+  return { kind: "continue" };
 }
 
 /** D1 screen-to-text: vision names unlabeled controls, then Jev is asked again on the named table. */
@@ -1305,23 +1450,41 @@ type DecideOutcome = StepOutcome | { kind: "continue"; refused: true };
 
 async function ask(
   ctx: DecideContext,
-  purpose: "act" | "narrow",
+  purpose: "act" | "narrow" | "ground",
   state: Entry,
   questions: Parameters<DecisionProvider["ask"]>[1],
+  images: DecisionImageData[] = [],
 ) {
   const { deps, step, cfg } = ctx;
   const stateFile = deps.events.writeState?.(ctx.step, purpose, state);
+  const imageTokens = images.reduce((sum, i) => sum + estimateImageTokens(i.width, i.height), 0);
   deps.events.emit({
     type: "decision.request",
     step,
     purpose,
     questions,
     ...(stateFile ? { stateFile } : {}),
-    stateTokens: estimateTokens(state),
+    stateTokens: estimateTokens(state) + imageTokens,
+    ...(images.length === 0 && purpose !== "ground" && ctx.imageSkipped
+      ? { imageSkipped: ctx.imageSkipped }
+      : {}),
+    ...(images.length > 0
+      ? {
+          images: images.map((i) => ({
+            ref: i.ref,
+            mimeType: i.mimeType,
+            width: i.width,
+            height: i.height,
+            ...(i.captureId ? { captureId: i.captureId } : {}),
+            ...(i.file ? { file: i.file } : {}),
+            tokens: estimateImageTokens(i.width, i.height),
+          })),
+        }
+      : {}),
   });
   const deadline = AbortSignal.timeout(cfg.decisionDeadlineMs);
   const signal = deps.signal ? AbortSignal.any([deps.signal, deadline]) : deadline;
-  const r = await deps.decision.ask(state, questions, { signal });
+  const r = await deps.decision.ask(state, questions, { signal, ...(images.length > 0 ? { images } : {}) });
   if (r.ok) {
     ctx.onDecision(r.value.costUsd);
     deps.events.emit({
@@ -1385,6 +1548,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         candidates,
         textOptions,
         forbidden: task.forbidden,
+        withScreen: ctx.stepImage !== undefined,
       });
       // Elements shown in state: everything offered in any head (deduplicated), plus context while it fits.
       const offeredTokens = new Set(offered.flatMap((op) => candidates[op].map((e) => e.token)));
@@ -1394,7 +1558,7 @@ function prepareAct(ctx: DecideContext): PreparedAct {
           (round === 0 && (e.roleClass === "heading" || e.roleClass === "text")) ||
           (round === 1 && e.roleClass === "heading"),
       );
-      const state = buildState(
+      const built = buildState(
         {
           instruction: task.instruction,
           goal: subgoal.goal,
@@ -1410,9 +1574,11 @@ function prepareAct(ctx: DecideContext): PreparedAct {
         },
         deps.secrets,
       );
+      const state = ctx.stepImage ? { ...built, screen: SCREEN_REF } : built;
       return { questions, offered, state, maxPerHead };
     },
     requestLimits(deps.decision.capabilities, ctx.requestScale.value),
+    ctx.stepImage ? estimateImageTokens(ctx.stepImage.width, ctx.stepImage.height) : 0,
   );
   if (fitted.round > 0)
     ctx.log.debug(
@@ -1435,7 +1601,7 @@ function startAct(ctx: DecideContext): SpeculativeAct {
   const prepared = prepareAct(ctx);
   return {
     prepared,
-    response: ask(ctx, "act", prepared.state, prepared.questions),
+    response: ask(ctx, "act", prepared.state, prepared.questions, ctx.stepImage ? [ctx.stepImage] : []),
     startedAt: ctx.clock.now(),
   };
 }
@@ -1497,6 +1663,19 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     pending = startAct(ctx);
     r = await pending.response;
   }
+  // The API refused the screenshot (a tightened danger-zone policy, a retired vision model): drop the image
+  // for the rest of the run and ask again without it, instead of refusing every step.
+  if (!r.ok && r.error.kind === "image_rejected" && ctx.stepImage) {
+    ctx.log.warn(
+      { step, error: r.error.message },
+      "the decision model rejected the screenshot; continuing without images",
+    );
+    ctx.imageRejected.value = true;
+    delete ctx.stepImage;
+    ctx.imageSkipped = "image_rejected";
+    pending = startAct(ctx);
+    r = await pending.response;
+  }
   const { offered } = pending.prepared;
   ctx.timing.decideMs = clock.now() - t;
   if (deps.signal?.aborted) {
@@ -1547,14 +1726,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
     if (widened) return widened;
     // "Nothing to do" on a page that looks done is not a vision case.
     const streak = noteNone(ctx, op === BLOCKED && goalDone < 0.5);
-    const viaVision =
-      streak >= 2
-        ? await visionGround(
-            ctx,
-            `no listed element fits (${streak} times on this screen)`,
-            answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance",
-          )
-        : undefined;
+    const noneEffect = answers.effect?.type === "choice" ? (answers.effect.choice as EffectClass) : "advance";
+    const noneWhy = `no listed element fits (${streak} times on this screen)`;
+    const viaJev = streak >= 2 ? await jevGround(ctx, noneWhy, noneEffect) : undefined;
+    if (viaJev) return viaJev;
+    const viaVision = streak >= 2 ? await visionGround(ctx, noneWhy, noneEffect) : undefined;
     if (viaVision) return viaVision;
     const why = `the agent chose ${op ?? "no valid operation"}`;
     return (await guide(ctx, why)) ?? (await handOff(ctx, why)) ?? (await backtrack(ctx, why)) ?? refuse();
@@ -1775,6 +1951,19 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
       const unnamedChosen = element !== undefined && !isNamed(element);
       const poorTable = snapshot.quality.score < QUALITY_GOOD && unnamedTargets(snapshot).length > 0;
       const streak = noteNone(ctx, targetToken === NONE);
+      const viaJev =
+        unnamedChosen || poorTable || streak >= 2
+          ? await jevGround(
+              ctx,
+              unnamedChosen
+                ? "the chosen target has no name"
+                : poorTable
+                  ? `unnamed controls (q=${snapshot.quality.score.toFixed(2)})`
+                  : `no listed element fits (${streak} times on this screen)`,
+              effect,
+            )
+          : undefined;
+      if (viaJev) return viaJev;
       const viaVision =
         unnamedChosen || poorTable
           ? await visionName(
@@ -1839,6 +2028,11 @@ async function decideAndAct(ctx: DecideContext, speculative?: SpeculativeAct): P
   const result = await execute(deps.computer, action);
   ctx.timing.actMs = clock.now() - t;
   deps.events.emit({ type: "effect", step, result });
+  if (
+    (action.type === "set_value" && typeof action.value === "object") ||
+    (action.type === "type_text" && typeof action.text === "object")
+  )
+    ctx.noteSecretWrite();
   // A target something covered (an overlay that opened as the click landed) is not a dead end: it stays
   // in the table at its rank, and the history says why it did not work.
   // The page moved on while we acted (a timer, a redirect): nothing is learned about the target.
@@ -2441,7 +2635,7 @@ async function narrow(ctx: DecideContext): Promise<Snapshot | undefined> {
   const regions = live.length >= 2 ? live : all;
   let chosen = regions.find((r) => r.kind === "dialog")?.id;
   if (chosen === undefined) {
-    const state = buildNarrowState(
+    const built = buildNarrowState(
       {
         instruction: ctx.task.instruction,
         goal: ctx.subgoal.goal,
@@ -2453,7 +2647,14 @@ async function narrow(ctx: DecideContext): Promise<Snapshot | undefined> {
       },
       deps.secrets,
     );
-    const r = await ask(ctx, "narrow", state, { region: regionQuestion(regions) });
+    const state = ctx.stepImage ? { ...built, screen: SCREEN_REF } : built;
+    const r = await ask(
+      ctx,
+      "narrow",
+      state,
+      { region: regionQuestion(regions) },
+      ctx.stepImage ? [ctx.stepImage] : [],
+    );
     const a = r.ok ? r.value.answers.region : undefined;
     if (a?.type !== "choice" || a.choice === NONE || choiceConfidence(a) < ctx.cfg.gates.operation) {
       ctx.log.debug({ step: ctx.step }, "no region chosen; the act state will be truncated");

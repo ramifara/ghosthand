@@ -44,8 +44,9 @@ export function requestLimits(
   };
 }
 
-export function requestSize(state: Entry, questions: Questions): RequestSize {
-  const s = jevTokens(state);
+/** `extraStateTokens`: tokens the state carries beyond its text (a screenshot, ADR 0020). */
+export function requestSize(state: Entry, questions: Questions, extraStateTokens = 0): RequestSize {
+  const s = jevTokens(state) + extraStateTokens;
   let sum = 0;
   let longest = 0;
   for (const q of Object.values(questions)) {
@@ -73,11 +74,12 @@ export const MAX_FIT_ROUNDS = 8;
 export function fitRequest<T extends { state: Entry; questions: Questions }>(
   build: (round: number) => T,
   limits: RequestLimits,
+  extraStateTokens = 0,
 ): T & { size: RequestSize; round: number } {
   let round = 0;
   for (;;) {
     const request = build(round);
-    const size = requestSize(request.state, request.questions);
+    const size = requestSize(request.state, request.questions, extraStateTokens);
     if (fitsLimits(size, limits) || round >= MAX_FIT_ROUNDS) return { ...request, size, round };
     round++;
   }

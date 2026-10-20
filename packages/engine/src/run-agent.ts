@@ -96,8 +96,8 @@ export function openSession(
       hooks.onEvent?.(r.value);
     },
     screenshotName: (step) => screenshotName(step),
-    writeScreenshot(step, bytes) {
-      const r = recorder.writeScreenshot(step, bytes);
+    writeScreenshot(step, bytes, label) {
+      const r = recorder.writeScreenshot(step, bytes, label);
       return r.ok ? r.value : "";
     },
     writeState(step, purpose, state) {
@@ -236,6 +236,7 @@ export async function runAgent(
       secrets: rt.secrets,
       config: {
         gates: rt.config.gates,
+        images: rt.config.decision.images,
         ...(opts.guidance ? { guidance: opts.guidance } : {}),
         ...(opts.autonomy === "unattended" ? UNATTENDED_LOOP : {}),
         ...opts.loop?.config,

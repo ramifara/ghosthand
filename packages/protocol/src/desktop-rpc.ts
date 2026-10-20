@@ -257,7 +257,14 @@ export const InputResult = z.object({
 });
 export type InputResult = z.infer<typeof InputResult>;
 
-export const ScreenshotParams = z.object({ region: Rect.optional() });
+export const ScreenshotParams = z.object({
+  region: Rect.optional(),
+  /** Downscale so the longest side is at most this many pixels; `scale` reports the result. */
+  maxSide: z.number().int().positive().optional(),
+  format: z.enum(["png", "jpeg"]).optional(),
+  quality: z.number().int().min(1).max(100).optional(),
+});
+export type ScreenshotParams = z.infer<typeof ScreenshotParams>;
 export const ScreenshotResult = z.object({
   /** Base64 image bytes. */
   data: z.string().min(1),

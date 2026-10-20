@@ -67,6 +67,6 @@ AX actions first (`AXPress`, `AXConfirm`, `AXPick`, settable `AXValue`, `AXSelec
 | `observe` | the app's (or desktop's) accessible nodes with native facts; `transient` reads keep the latest snapshot |
 | `act` | `press`, `set_value`, `toggle`, `select_option`, `focus`, `scroll_into_view`, `select_text` on a ref of the latest snapshot, with before/after read-backs |
 | `input` | `click`, `move`, `drag`, `scroll`, `type`, `key` in screen units, with window/focus read-backs |
-| `screenshot`, `wait_idle`, `record_start`, `record_stop`, `close` | capture, settle, video, shutdown |
+| `screenshot`, `wait_idle`, `record_start`, `record_stop`, `close` | capture (`maxSide`, `format`, `quality` downscale and re-encode for the decision model, ADR 0020; `scale` reports pixels per screen unit), settle, video, shutdown |
 
 A new host only has to implement these methods. `node scripts/desktop-host-smoke.ts --host <binary> [--app <cmd>] [--strict] [-- args]` checks one.

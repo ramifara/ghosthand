@@ -9,6 +9,13 @@ import { Budget, DEFAULT_BUDGET } from "./task.ts";
 export const DecisionCarrier = z.enum(["typesafe", "openrouter", "vercel"]);
 export type DecisionCarrier = z.infer<typeof DecisionCarrier>;
 
+/**
+ * When a screenshot goes to Jev (ADR 0020): never; only for D0 grounding requests; or also with every
+ * act, narrow and verify request.
+ */
+export const DecisionImages = z.enum(["off", "grounding", "always"]);
+export type DecisionImages = z.infer<typeof DecisionImages>;
+
 /** An env-file variable name (the key itself never goes in config). */
 const EnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
 
@@ -21,6 +28,9 @@ export const GhostHandConfig = z.object({
        * (OpenRouter), `typesafe-ai/jev` (Vercel).
        */
       model: z.string().optional(),
+      /** Model for requests that carry an image or a box question. Default `jev-1.14.0` on TypeSafe. */
+      visionModel: z.string().optional(),
+      images: DecisionImages.default("grounding"),
       /** Env var holding the key. Default per carrier: TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY. */
       apiKeyEnv: EnvName.optional(),
       /**
@@ -53,6 +63,10 @@ export const GhostHandConfig = z.object({
        */
       advanceTarget: z.number().min(0).max(1).default(0.2),
       advanceChoiceFactor: z.number().min(0).default(1.5),
+      /** A D0 box is used only when the paired presence noul is at least this likely. */
+      boxPresent: z.number().min(0).max(1).default(0.7),
+      /** A D0 box covering more of the image than this fraction is not a control. */
+      boxMaxArea: z.number().min(0).max(1).default(0.25),
     })
     .prefault({}),
   browser: z

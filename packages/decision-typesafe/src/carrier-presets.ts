@@ -54,6 +54,8 @@ export type CarrierProviderOptions = Omit<TypeSafeDecisionProviderOptions, "prov
 
 function fromPreset(preset: CarrierPreset, opts: CarrierProviderOptions): DecisionProvider {
   return createTypeSafeDecisionProvider({
+    // Gateways are not known to accept zstd request bodies; send plain JSON.
+    compression: false,
     ...opts,
     providerName: preset.carrier,
     model: opts.model ?? preset.model,

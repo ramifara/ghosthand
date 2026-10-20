@@ -23,6 +23,8 @@ export function emptySummary(id = "", startedAt = 0): RunSummary {
     gitSha: null,
     modeShares: null,
     eventCount: 0,
+    imageTokens: 0,
+    d0Steps: 0,
   };
 }
 
@@ -43,6 +45,12 @@ export function foldSummary(acc: RunSummary, e: RunEvent): RunSummary {
       s.startUrl = e.task.startUrl;
       s.decisionModel = e.decisionModel;
       s.gitSha = e.gitSha ?? null;
+      break;
+    case "decision.request":
+      for (const img of e.images ?? []) s.imageTokens += img.tokens;
+      break;
+    case "action":
+      if (e.mode === "D0") s.d0Steps += 1;
       break;
     case "decision.answer":
       if (s.outcome === null) {

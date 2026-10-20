@@ -84,6 +84,13 @@ export const labApi = {
     request(Message.extend({ code: z.string() }), "/api/lab/promo", { method: "POST", body: { code } }),
   signups: () =>
     request(z.object({ days: z.array(z.string()), counts: z.array(z.number()) }), "/api/lab/signups"),
+  canvasTarget: (shape: string) =>
+    request(Message.extend({ shape: z.string() }), "/api/lab/canvas-target", {
+      method: "POST",
+      body: { shape },
+    }),
+  openPane: (pane: string) =>
+    request(Message.extend({ pane: z.string() }), "/api/lab/toolbar", { method: "POST", body: { pane } }),
   checklist: () => request(Checklist, "/api/lab/checklist"),
   saveChecklist: (order: string[]) =>
     request(Checklist.extend(Message.shape), "/api/lab/checklist", { method: "PUT", body: { order } }),

@@ -191,3 +191,28 @@ describe("validateAnswers", () => {
     expect(out.done?.type).toBe("abstain");
   });
 });
+
+describe("validateBoxAnswer", async () => {
+  const { validateBoxAnswer } = await import("./validate-response.ts");
+  const good = { type: "box", box: { top: 0.75, bottom: 0.79, left: 0.19, right: 0.3 }, confidence: 0.95 };
+
+  it("accepts ordered edges in the unit square and a null confidence", () => {
+    expect(validateBoxAnswer(good)).toEqual({ type: "box", box: good.box, confidence: 0.95 });
+    expect(validateBoxAnswer({ ...good, confidence: null })).toMatchObject({ type: "box", confidence: null });
+  });
+
+  it.each([
+    ["inverted vertical edges", { ...good, box: { ...good.box, top: 0.8 } }],
+    ["inverted horizontal edges", { ...good, box: { ...good.box, left: 0.5 } }],
+    ["edge outside [0, 1]", { ...good, box: { ...good.box, right: 1.2 } }],
+    ["confidence outside [0, 1]", { ...good, confidence: 1.5 }],
+    ["missing edge", { type: "box", box: { top: 0.1, bottom: 0.2, left: 0.3 }, confidence: 0.5 }],
+  ])("abstains on %s", (_name, raw) => {
+    expect(validateBoxAnswer(raw).type).toBe("abstain");
+  });
+
+  it("is routed by validateAnswers", () => {
+    const out = validateAnswers({ where: { type: "box", instructions: "x" } }, { where: good });
+    expect(out.where).toMatchObject({ type: "box" });
+  });
+});

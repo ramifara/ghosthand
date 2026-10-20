@@ -3,6 +3,7 @@
 // Paid probe of TypeSafe Jev over the direct API (plan P0-04). Never run in CI.
 //
 //   node scripts/probe-jev.ts [--out run.md] [--calls 30] [--repeats 10] [--cap-usd 0.10] [--base-url URL]
+//                             [--images screenshot.png]   # Jev 1.14 image input and box questions (ADR 0020)
 //
 // Reads TYPESAFE_API_KEY from the environment or ~/.config/ghosthand/env. Measures: all three question
 // types, latency p50/p95, the option/level/context limits, determinism and cost. A shared CostMeter caps
@@ -12,10 +13,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { TypeSafeDecisionProviderOptions } from "@ghosthand/decision-typesafe";
-import { CostMeter, createTypeSafeDecisionProvider, estimateTokens } from "@ghosthand/decision-typesafe";
+import {
+  CostMeter,
+  createTypeSafeDecisionProvider,
+  estimateImageTokens,
+  estimateTokens,
+  readImageSize,
+  sniffImageType,
+} from "@ghosthand/decision-typesafe";
 import type {
   Answer,
   DecisionError,
+  DecisionImageData,
   DecisionProvider,
   DecisionResponse,
   Entry,
@@ -31,6 +40,8 @@ const { values: args } = parseArgs({
     "cap-usd": { type: "string", default: "0.10" },
     /** API root override, e.g. a gateway or a local mock for a dry run. */
     "base-url": { type: "string" },
+    /** A PNG or JPEG screenshot (280–1568 px per side) for the image and box section. */
+    images: { type: "string" },
   },
 });
 const CALLS = Number(args.calls);
@@ -164,6 +175,8 @@ function describeAnswer(a: Answer | undefined): string {
       return `${a.choice} (conf ${a.confidence}; ${top(a.probabilities)})`;
     case "score":
       return `${a.score} (conf ${a.confidence}; ${top(a.probabilities, 10)})`;
+    case "box":
+      return `box t=${a.box.top} b=${a.box.bottom} l=${a.box.left} r=${a.box.right} (conf ${a.confidence})`;
     case "abstain":
       return `ABSTAIN: ${a.reason}`;
   }
@@ -367,6 +380,101 @@ const sameChoice = first
     ).length
   : 0;
 
+// --- 6. images and box (optional) --------------------------------------------------------------
+
+interface ImageRow {
+  name: string;
+  outcome: string;
+  estTokens: number;
+  inputTokens: string;
+  latency: string;
+  detail: string;
+}
+const imageRows: ImageRow[] = [];
+let imageNote = "";
+if (args.images !== undefined) {
+  log("6/6 images and box");
+  const bytes = new Uint8Array(readFileSync(args.images));
+  const mimeType = sniffImageType(bytes);
+  const size = readImageSize(bytes);
+  if (mimeType === undefined || size === undefined) {
+    imageNote = `\`${args.images}\` is not a readable PNG or JPEG; section skipped.`;
+  } else {
+    const screen: DecisionImageData = { ref: "<image:screen>", mimeType, ...size, data: bytes };
+    imageNote = `Image \`${args.images}\`: ${mimeType}, ${size.width}×${size.height}, ${bytes.byteLength} bytes; estimated ${estimateImageTokens(size.width, size.height)} image tokens per use.`;
+    const imgState = { task: "Find the main action button on the screen", screen: "<image:screen>" };
+    const imageCases: Array<{ name: string; p: DecisionProvider; questions: Questions }> = [
+      {
+        name: "noul + box on the vision model",
+        p: prod,
+        questions: {
+          present: { type: "noul", instructions: `Is a button visible in \`screen\`? ${injection}` },
+          where: { type: "box", instructions: `The most prominent button in \`screen\`. ${injection}` },
+        },
+      },
+      {
+        name: "absent target: noul + box",
+        p: prod,
+        questions: {
+          present: { type: "noul", instructions: `Is a purple elephant visible in \`screen\`? ${injection}` },
+          where: { type: "box", instructions: `The purple elephant in \`screen\`. ${injection}` },
+        },
+      },
+      {
+        name: "image-only noul (no box)",
+        p: prod,
+        questions: {
+          present: { type: "noul", instructions: `Does \`screen\` show a user interface? ${injection}` },
+        },
+      },
+      {
+        name: "box on jev-1.13.0 (expect image_rejected)",
+        p: createTypeSafeDecisionProvider({
+          ...base,
+          retries: 0,
+          visionModel: "jev-1.13.0",
+          skipPreflight: true,
+        }),
+        questions: { where: { type: "box", instructions: `The most prominent button in \`screen\`.` } },
+      },
+    ];
+    for (const c of imageCases) {
+      log(`  ${c.name}`);
+      const started = performance.now();
+      const r = await c.p.ask(imgState, c.questions, {
+        images: [screen],
+        signal: AbortSignal.timeout(90_000),
+      });
+      const elapsed = performance.now() - started;
+      const estTokens =
+        estimateTokens(imgState) +
+        Object.values(c.questions).reduce((s, q) => s + estimateTokens(q), 0) +
+        estimateImageTokens(size.width, size.height);
+      if (r.ok) {
+        imageRows.push({
+          name: c.name,
+          outcome: `${r.value.model}`,
+          estTokens,
+          inputTokens: String(r.value.usage.inputTokens),
+          latency: ms(r.value.latencyMs),
+          detail: Object.entries(r.value.answers)
+            .map(([k, a]) => `${k}: ${describeAnswer(a)}`)
+            .join("; "),
+        });
+      } else {
+        imageRows.push({
+          name: c.name,
+          outcome: `error: ${r.error.kind}`,
+          estTokens,
+          inputTokens: "-",
+          latency: ms(elapsed),
+          detail: `${r.error.status ?? "-"} ${r.error.message}`,
+        });
+      }
+    }
+  }
+}
+
 // --- report ------------------------------------------------------------------------------------
 
 const lines: string[] = [];
@@ -427,6 +535,22 @@ lines.push(
   `| ${runs.length} | ${detErrors} | ${identical} | ${runs.length ? (identical / runs.length).toFixed(2) : "n/a"} | ${sameChoice}/${runs.length} | ${maxDrift.toFixed(4)} |`,
   "",
 );
+
+if (args.images !== undefined) {
+  lines.push("#### Images and box (Jev 1.14, ADR 0020)", "", imageNote, "");
+  if (imageRows.length > 0) {
+    lines.push(
+      "| case | model / outcome | est. tokens | input tokens | ms | answers |",
+      "|---|---|---|---|---|---|",
+    );
+    for (const r of imageRows) {
+      lines.push(
+        `| ${r.name} | ${r.outcome} | ${r.estTokens} | ${r.inputTokens} | ${r.latency} | ${cell(r.detail)} |`,
+      );
+    }
+    lines.push("");
+  }
+}
 
 lines.push("#### Cost", "");
 lines.push("| calls | input tokens | cost (USD) |", "|---|---|---|");
