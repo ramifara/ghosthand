@@ -3,6 +3,7 @@
 // Greps the repo, run folders and logs for registered secret values and well-known key formats.
 // Registered values come from ~/.config/ghosthand/env (local), GHOSTHAND_SECRETS_FILE (KEY=VALUE lines)
 // and the testbed's fixture credentials, which must never appear in run artifacts.
+// Pass --history before a public release to scan blobs reachable from local refs too.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -49,6 +50,12 @@ function* walk(dir: string): Generator<string> {
 }
 
 const findings: string[] = [];
+function scanText(label: string, text: string, values: Map<string, string>, usePatterns: boolean): void {
+  for (const [name, value] of values) if (text.includes(value)) findings.push(`${label}: value of ${name}`);
+  if (usePatterns)
+    for (const [name, re] of patterns) if (re.test(text)) findings.push(`${label}: looks like ${name}`);
+}
+
 function scan(file: string, values: Map<string, string>, usePatterns: boolean): void {
   let buf: Buffer;
   try {
@@ -57,15 +64,42 @@ function scan(file: string, values: Map<string, string>, usePatterns: boolean): 
   } catch {
     return;
   }
-  const text = buf.toString("latin1");
-  for (const [name, value] of values) if (text.includes(value)) findings.push(`${file}: value of ${name}`);
-  if (usePatterns)
-    for (const [name, re] of patterns) if (re.test(text)) findings.push(`${file}: looks like ${name}`);
+  scanText(file, buf.toString("utf8"), values, usePatterns);
 }
 
-// 1. Tracked repo files: real secrets and key formats. Fixture values are allowed in source.
-const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+// 1. Tracked and new, nonignored files: real secrets and key formats. Fixture values are allowed in source.
+const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+  encoding: "utf8",
+})
+  .split("\0")
+  .filter(Boolean);
 for (const f of tracked) if (existsSync(f)) scan(f, registered, true);
+
+// Opt-in history audit. Scan each blob once, including deleted files. Report only object IDs and
+// secret names, never matching content. This covers local refs; fetch all remote refs before release.
+let historyBlobs = 0;
+if (process.argv.includes("--history")) {
+  const objects = execFileSync("git", ["rev-list", "--objects", "--all", "--no-object-names"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const metadata = execFileSync("git", ["cat-file", "--batch-check"], {
+    input: objects,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  for (const line of metadata.trim().split("\n")) {
+    const [oid, type, size] = line.split(" ");
+    if (!oid || type !== "blob") continue;
+    if (Number(size) > 50 * 1024 * 1024) {
+      findings.push(`git blob ${oid}: exceeds 50 MiB; inspect separately before publishing`);
+      continue;
+    }
+    const content = execFileSync("git", ["cat-file", "blob", oid], { maxBuffer: 50 * 1024 * 1024 });
+    scanText(`git blob ${oid}`, content.toString("utf8"), registered, true);
+    historyBlobs++;
+  }
+}
 
 // 2. Run folders and logs: nothing registered may appear, fixture values included.
 const runRoots = [process.env.GHOSTHAND_RUNS_DIR ?? "runs", join(homedir(), ".local/share/ghosthand/runs")];
@@ -78,5 +112,5 @@ if (findings.length > 0) {
   process.exit(1);
 }
 console.log(
-  `secrets:check: clean (${tracked.length} tracked files, ${registered.size + fixtureValues.size} registered values)`,
+  `secrets:check: clean (${tracked.length} repository files, ${historyBlobs} historical blobs, ${registered.size + fixtureValues.size} registered values)`,
 );

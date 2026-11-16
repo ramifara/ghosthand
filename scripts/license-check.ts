@@ -69,6 +69,10 @@ function* packageDirs(root: string): Generator<string> {
 
 const bad: Finding[] = [];
 let count = 0;
+if (!existsSync("node_modules")) {
+  console.error("license:check: dependencies are missing; run bun install --frozen-lockfile first");
+  process.exit(1);
+}
 for (const dir of packageDirs("node_modules")) {
   const file = join(dir, "package.json");
   if (!existsSync(file)) continue;
