@@ -63,6 +63,8 @@ test("l5-magic-link: request a link, open it from the mailbox, continue", async 
   await expectOracleFails(l5MagicLink.id);
 
   await page.getByRole("link", { name: "Email me a sign-in link" }).click();
+  // Navigation is a React transition; the old sign-in form also has an Email field.
+  await expect(page.getByRole("heading", { name: "Sign in with an email link", exact: true })).toBeVisible();
   await page.getByLabel("Email", { exact: true }).fill(ALICE_EMAIL);
   await page.getByRole("button", { name: "Email me a link" }).click();
   await expect(page.getByRole("status").filter({ hasText: AUTH_MESSAGES.linkSent })).toBeVisible({
@@ -84,6 +86,7 @@ test("l5-email-code: request a code, fill it from the mailbox, verify", async ({
   await expectOracleFails(l5EmailCode.id);
 
   await page.getByRole("link", { name: "Email me a sign-in code" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in with an email code", exact: true })).toBeVisible();
   await page.getByLabel("Email", { exact: true }).fill(ALICE_EMAIL);
   await page.getByRole("button", { name: "Email me a code" }).click();
   await expect(page.getByLabel("6-digit code")).toBeVisible();
@@ -105,6 +108,7 @@ test("l5-password-reset: reset by mail, then sign in with the new password", asy
   await expectOracleFails(l5PasswordReset.id);
 
   await page.getByRole("link", { name: "Forgot password?" }).click();
+  await expect(page.getByRole("heading", { name: "Reset your password", exact: true })).toBeVisible();
   await page.getByLabel("Email", { exact: true }).fill(ALICE_EMAIL);
   await page.getByRole("button", { name: "Send reset link" }).click();
   // Wait for the request to finish before leaving the page, or the mail may never be sent.
