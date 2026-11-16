@@ -28,6 +28,8 @@ Keys entered in Setup → Providers are used by every run. On macOS and Linux th
 
 Requirements: [Bun](https://bun.com) 1.3+, Node 24+, and an installed Chrome, Edge or Brave (Playwright's Chromium is downloaded only if none is found).
 
+For source development, use Bun 1.3.11 and Node 24 to match CI. Building the app and running unit tests require no API keys. Running the agent uses a TypeSafe API key and may incur provider charges.
+
 ```sh
 bun install          # installs all workspaces (hoisted layout)
 bun run check        # typecheck + lint + unit tests
@@ -92,3 +94,9 @@ The desktop and testbed builds copy the same browser assets, and their headers d
 ## License
 
 GhostHand is licensed under [AGPL-3.0-only](LICENSE). You may use, modify, sell and host it. If you distribute it, or offer a modified version over a network, you must share your source under AGPL-3.0. Want to ship it under other terms? Contact the maintainer about a commercial license. Contributions require signing the [CLA](CONTRIBUTING.md#contributor-license-agreement). The name is covered by [TRADEMARKS.md](TRADEMARKS.md).
+
+## Contributing and support
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, checks and the current CLA status. Report bugs and propose changes in [GitHub issues](https://github.com/ramifara/ghosthand/issues). Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
+
+GhostHand can submit forms and change data through your browser. Start with the local testbed or a dedicated browser profile, review approval requests and keep run recordings private. API keys, screenshots and logs should never be attached to public issues without review and redaction.

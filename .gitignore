@@ -5,6 +5,22 @@ research/refs/
 runs/
 *.env
 .env*
+!.env.example
+!**/.env.example
+# Local service credentials and signing material
+.werkbench-agent-key
+.postplan-agent-key
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+# Local databases and model/browser recordings
+*.sqlite
+*.sqlite-*
+*.db
+*.db-shm
+*.db-wal
 dist/
 out/
 dist-electron/
